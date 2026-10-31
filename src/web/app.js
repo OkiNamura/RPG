@@ -259,6 +259,13 @@ async function viewContainer(view, id) {
     time: campaign.state?.time ?? {},
     agents: gameAgents ?? {},
     items: campaign.state?.items ?? [],
+    hero: campaign.state?.hero ?? {},
+    money: campaign.state?.money ?? {},
+    npcs: campaign.state?.npcs ?? [],
+    party: campaign.state?.party ?? [],
+    factions: campaign.state?.factions ?? [],
+    quests: campaign.state?.quests ?? [],
+    locations: campaign.state?.locations ?? [],
     summary: campaign.summary ?? '',
     memory: campaign.memory ?? '',
     conspect: campaign.conspect ?? '',
@@ -316,6 +323,77 @@ async function viewContainer(view, id) {
     agentCard.append(block);
   }
   page.append(agentCard);
+
+  // Герой.
+  const hero = data.hero ?? {};
+  const heroSection = section('Герой', `${hero.name || 'без имени'} · здоровье ${hero.health ?? 100}/100`);
+  heroSection.append(heroCard(hero, data.money ?? {}, id));
+  page.append(heroSection);
+
+  // Спутники и NPC.
+  const people = [...(data.party ?? []), ...(data.npcs ?? [])];
+  const peopleSection = section('Спутники и NPC', `${(data.party ?? []).length} в пати · ${(data.npcs ?? []).length} знакомых`);
+  const peopleGrid = el('div', 'person-cards');
+  for (const actor of people) peopleGrid.append(personCard(actor, id));
+  if (people.length === 0) peopleGrid.append(el('p', 'page-sub', 'никого пока нет'));
+  peopleSection.append(peopleGrid);
+  page.append(peopleSection);
+
+  // Задания.
+  const questSection = section('Задания', `${(data.quests ?? []).length} в журнале`);
+  const questGrid = el('div', 'quest-grid');
+  for (const quest of data.quests ?? []) {
+    const box = el('article', 'quest-card');
+    const head = el('div', 'quest-head');
+    head.append(el('b', '', quest.title), el('span', `chip chip-status-${quest.status || 'active'}`, quest.status || 'active'));
+    box.append(head);
+    if (quest.deadline) box.append(el('div', 'person-label', `Срок: ${quest.deadline}`));
+    if (quest.steps?.length) {
+      const list = el('ul', 'quest-steps');
+      for (const step of quest.steps) list.append(el('li', '', step));
+      box.append(list);
+    }
+    questGrid.append(box);
+  }
+  if ((data.quests ?? []).length === 0) questGrid.append(el('p', 'page-sub', 'активных заданий нет'));
+  questSection.append(questGrid);
+  page.append(questSection);
+
+  // Локации.
+  const locations = data.locations ?? [];
+  const locationSection = section('Локации', `${locations.length} известных мест`);
+  const locationGrid = el('div', 'location-grid');
+  for (const place of locations) {
+    const box = el('div', 'location-card');
+    box.append(el('b', '', place.name));
+    if (place.note) box.append(el('span', '', place.note));
+    locationGrid.append(box);
+  }
+  if (locations.length === 0) locationGrid.append(el('p', 'page-sub', 'карта мира пока пуста'));
+  locationSection.append(locationGrid);
+  page.append(locationSection);
+
+  // Фракции.
+  const factions = data.factions ?? [];
+  const factionSection = section('Фракции', `${factions.length}`);
+  const factionGrid = el('div', 'faction-grid');
+  for (const faction of factions) {
+    const box = el('article', 'faction-card');
+    const head = el('div', 'quest-head');
+    head.append(el('b', '', faction.name));
+    if (typeof faction.attitude === 'number') head.append(el('span', 'chip', `${faction.attitude > 0 ? '+' : ''}${faction.attitude}`));
+    box.append(head);
+    if (faction.leader) box.append(el('div', 'person-label', `Глава: ${faction.leader}`));
+    if (faction.shadow) box.append(el('div', 'person-label', `Тень: ${faction.shadow}`));
+    if (faction.roster?.length) {
+      box.append(el('div', 'person-value', faction.roster.map((r) => `${r.name}${r.role ? ` — ${r.role}` : ''}`).join('; ')));
+    }
+    if (faction.note) box.append(el('p', 'page-sub', faction.note));
+    factionGrid.append(box);
+  }
+  if (factions.length === 0) factionGrid.append(el('p', 'page-sub', 'фракции пока не открыты'));
+  factionSection.append(factionGrid);
+  page.append(factionSection);
 
   // Предметы.
   const itemCard = section('Карточки предметов', `${(data.items ?? []).length} у героя`);
@@ -1950,6 +2028,131 @@ function actorCard(actor, campaignId) {
 
   details.append(bodyEl);
   return details;
+}
+
+function personCard(actor, campaignId) {
+  const card = el('article', 'person-card');
+  const head = el('div', 'person-head');
+  const image = actor.card || actor.portrait;
+  if (image) {
+    const img = el('img', 'person-avatar');
+    img.src = image;
+    img.alt = actor.name;
+    head.append(img);
+  } else {
+    head.append(el('div', 'person-avatar person-initial', (actor.name || '?').slice(0, 1)));
+  }
+  const titles = el('div', 'person-titles');
+  titles.append(el('h3', 'person-name', actor.name));
+  if (actor.role) titles.append(el('div', 'person-role', actor.role));
+  const chips = el('div', 'chips');
+  if (actor.status) chips.append(el('span', 'chip', actor.status));
+  if (typeof actor.attitude === 'number') {
+    chips.append(el('span', 'chip', `отношение ${actor.attitude > 0 ? '+' : ''}${actor.attitude}`));
+  }
+  if (typeof actor.bond === 'number' && actor.bond > 0) {
+    chips.append(el('span', 'chip', `связь ${actor.bond}`));
+  }
+  if (actor.present === true) chips.append(el('span', 'chip chip-live', 'в сцене'));
+  if (chips.children.length) titles.append(chips);
+  head.append(titles);
+  card.append(head);
+
+  const fields = [
+    ['Внешность', actor.appearance],
+    ['Характер', actor.character],
+    ['Одет', actor.clothes],
+    ['Прошлое', actor.bio],
+    ['Заметка', actor.note],
+  ].filter(([, value]) => value);
+  if (fields.length) {
+    const grid = el('div', 'person-grid');
+    for (const [label, value] of fields) {
+      const cell = el('div', 'person-field');
+      cell.append(el('span', 'person-label', label), el('div', 'person-value', value));
+      grid.append(cell);
+    }
+    card.append(grid);
+  }
+
+  if (actor.skills && Object.keys(actor.skills).length) {
+    const skills = el('div', 'person-skills');
+    for (const [name, value] of Object.entries(actor.skills)) {
+      const line = el('div', 'skill-row');
+      line.append(el('span', 'skill-name', name));
+      const bar = el('div', 'skill-bar');
+      bar.append(el('i', '', ));
+      bar.firstChild.style.width = `${Math.max(0, Math.min(20, value)) * 5}%`;
+      line.append(bar, el('span', 'skill-value', String(value)));
+      skills.append(line);
+    }
+    card.append(skills);
+  }
+
+  if (actor.relations?.length) {
+    const rel = el('div', 'person-field');
+    rel.append(
+      el('span', 'person-label', 'Отношения'),
+      el('div', 'person-value', actor.relations.map((r) => `${r.with}: ${r.feeling}`).join('; ')),
+    );
+    card.append(rel);
+  }
+
+  if (campaignId) {
+    const actions = el('div', 'person-actions');
+    const download = el('a', 'btn small', '⤓ карточка');
+    download.href = `/api/campaign/${encodeURIComponent(campaignId)}/card?name=${encodeURIComponent(actor.name)}`;
+    download.download = `${actor.name}.json`;
+    actions.append(download);
+    card.append(actions);
+  }
+  return card;
+}
+
+function heroCard(hero, money, campaignId) {
+  const card = el('article', 'person-card hero-card');
+  const head = el('div', 'person-head');
+  if (hero.card) {
+    const img = el('img', 'person-avatar');
+    img.src = hero.card;
+    img.alt = hero.name;
+    head.append(img);
+  } else {
+    head.append(el('div', 'person-avatar person-initial', (hero.name || '?').slice(0, 1)));
+  }
+  const titles = el('div', 'person-titles');
+  titles.append(el('h3', 'person-name', hero.name || 'Герой'));
+  titles.append(el('div', 'person-role', 'главный герой'));
+  const chips = el('div', 'chips');
+  chips.append(el('span', 'chip', `здоровье ${hero.health ?? 100}/100`));
+  if (money) chips.append(el('span', 'chip', `${money.gold ?? 0} з · ${money.silver ?? 0} с · ${money.copper ?? 0} м`));
+  titles.append(chips);
+  head.append(titles);
+  card.append(head);
+
+  if (hero.wounds?.length) {
+    card.append(el('div', 'person-field', `Раны: ${hero.wounds.map((w) => `${w.where} (${w.severity}${w.treated ? ', обработано' : ''})`).join('; ')}`));
+  }
+  if (hero.conditions?.length) card.append(el('div', 'person-field', `Состояния: ${hero.conditions.join(', ')}`));
+  if (hero.statuses?.length) {
+    card.append(el('div', 'person-field', `Эффекты: ${hero.statuses.map((s) => s.name).join(', ')}`));
+  }
+  if (hero.intuition) card.append(el('div', 'person-quote', `«${hero.intuition}»`));
+
+  if (hero.skills && Object.keys(hero.skills).length) {
+    const skills = el('div', 'person-skills');
+    for (const [name, value] of Object.entries(hero.skills)) {
+      const line = el('div', 'skill-row');
+      line.append(el('span', 'skill-name', name));
+      const bar = el('div', 'skill-bar');
+      bar.append(el('i'));
+      bar.firstChild.style.width = `${Math.max(0, Math.min(20, value)) * 5}%`;
+      line.append(bar, el('span', 'skill-value', String(value)));
+      skills.append(line);
+    }
+    card.append(skills);
+  }
+  return card;
 }
 
 function healthBar(value) {

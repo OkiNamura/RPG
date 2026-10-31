@@ -2703,3 +2703,207 @@ button.primary {
   padding: 0;
   line-height: 1;
 }
+
+/* ================= карточки контейнера ================= */
+.person-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+
+.person-card {
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  padding: 14px;
+  background: #101014;
+  min-width: 0;
+}
+
+.person-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.person-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  flex: 0 0 64px;
+}
+
+.person-initial {
+  display: grid;
+  place-items: center;
+  font-family: Georgia, serif;
+  font-size: 28px;
+  color: var(--gold-dim);
+  background: #17171b;
+}
+
+.person-titles {
+  min-width: 0;
+}
+
+.person-name {
+  margin: 0;
+  font-family: Georgia, serif;
+  font-weight: 400;
+  font-size: 20px;
+  color: var(--text);
+}
+
+.person-role {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 2px 0 6px;
+}
+
+.person-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.person-field {
+  min-width: 0;
+  margin-bottom: 8px;
+}
+
+.person-label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 3px;
+}
+
+.person-value {
+  color: #b8b2a6;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.person-quote {
+  border-left: 2px solid var(--gold-dim);
+  padding-left: 10px;
+  color: var(--muted);
+  font-style: italic;
+  margin-bottom: 8px;
+}
+
+.person-skills {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.skill-row {
+  display: grid;
+  grid-template-columns: 92px 1fr 28px;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.skill-bar {
+  height: 4px;
+  border-radius: 4px;
+  background: #1c1c21;
+  overflow: hidden;
+}
+
+.skill-bar i {
+  display: block;
+  height: 100%;
+  background: var(--gold-dim);
+}
+
+.skill-value {
+  text-align: right;
+  color: var(--dim);
+}
+
+.person-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.chip-live {
+  border-color: var(--gold-dim);
+  color: var(--gold);
+}
+
+.chip-status-active {
+  border-color: #3f5a44;
+  color: #8fbf98;
+}
+
+.chip-status-done {
+  border-color: #3f4a5a;
+  color: #8fa9bf;
+}
+
+.chip-status-failed {
+  border-color: #5a3f3f;
+  color: #bf8f8f;
+}
+
+.quest-grid,
+.location-grid,
+.faction-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.quest-card,
+.location-card,
+.faction-card {
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #0f0f13;
+  min-width: 0;
+}
+
+.quest-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.quest-steps {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.location-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.location-card b {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* герой не растягивается на всю ширину */
+.container-section > .person-card {
+  max-width: 560px;
+}
