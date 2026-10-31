@@ -1943,7 +1943,11 @@ function addRoll(log, roll) {
   if (roll.face === 36) wrap.classList.add('abyss');
   wrap.append(el('span', 'roll-face', String(roll.face)));
   wrap.append(el('span', 'roll-label', roll.joker ? roll.label : `грань ${roll.face}`));
+  if (roll.skill) {
+    wrap.append(el('span', 'roll-skill', `${roll.skill} ${roll.skillValue} · итог ${roll.total}`));
+  }
   if (roll.joker) wrap.append(el('span', 'tag', 'джокер'));
+  if (roll.fatal) wrap.append(el('span', 'tag', 'смерть'));
   log.append(wrap);
   scrollDown(log);
 }

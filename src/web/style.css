@@ -3086,3 +3086,10 @@ button.primary {
   width: 64px;
   text-align: center;
 }
+
+.roll-skill {
+  color: var(--dim);
+  font-size: 11px;
+  border-left: 1px solid var(--line);
+  padding-left: 8px;
+}

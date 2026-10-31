@@ -1,4 +1,4 @@
-/**
+﻿/**
  * HTTP-сервер игры: статика и API. Без зависимостей.
  *
  *   node src/server.ts
@@ -51,7 +51,7 @@ import {
 } from './core/prompts.ts';
 import { HERO_NAME, START_PLACE, TONE, WORLD } from './start/texts.ts';
 import { isLoreEntry, matchLore, renderLore, type LoreEntry } from './core/lore.ts';
-import { rollD36 } from './core/dice.ts';
+import { resolveRoll, rollD36, skillForAction } from './core/dice.ts';
 import { defaultSkills, hiddenCheck } from './core/skills.ts';
 import { generateDungeon, renderDungeon } from './core/dungeon.ts';
 import { TONE_LEVELS, toneDirective, toneLevel } from './core/tone-levels.ts';
@@ -498,19 +498,44 @@ function pickLore(session: Session, input: string): string {
 }
 
 /** Броски и скрытые проверки: то, что модель не должна выдумывать сама. */
-function pickNotes(id: string, session: Session, dice: boolean): { text: string; roll: unknown } {
+function pickNotes(
+  id: string,
+  session: Session,
+  dice: boolean,
+  input = '',
+): { text: string; roll: unknown } {
   const parts: string[] = [];
   let roll: unknown = null;
+  const skills = session.state.hero.skills ?? defaultSkills(`${id}-hero`);
 
   if (dice) {
     const result = rollD36(`${id}-${session.state.turn}-dice`);
-    roll = result;
-    parts.push(
-      `Бросок d36: ${result.face}${result.joker ? ` — ${result.label}` : ''}. Исход броска учти в сцене.`,
-    );
+    const skillName = skillForAction(input, skills);
+    const skillValue = skills[skillName] ?? 8;
+    const outcome = resolveRoll(result.face, skillName, skillValue);
+    roll = { ...result, ...outcome };
+    if (outcome.fatal) {
+      session.state.hero.health = 0;
+      session.state.flags.dead = true;
+      if (!session.state.hero.conditions.includes('мёртв')) {
+        session.state.hero.conditions.push('мёртв');
+      }
+      parts.push(
+        `КРИТИЧЕСКИЙ ПРОВАЛ (грань 1). Навык «${skillName}» = ${skillValue}, герой не владеет им. Он спотыкается и падает на собственное оружие — смерть неизбежна. Опиши гибель прямо, без смягчения и без спасения.`,
+      );
+    } else if (outcome.criticalFailure) {
+      session.state.hero.wounds.push({ where: 'рука', severity: 2, treated: false });
+      session.state.hero.health = Math.max(0, session.state.hero.health - 15);
+      parts.push(
+        `КРИТИЧЕСКИЙ ПРОВАЛ (грань 1). Навык «${skillName}» = ${skillValue}: герой ранит себя, но выживает. Опиши боль, кровь и последствия без цифр.`,
+      );
+    } else {
+      parts.push(
+        `Проверка «${skillName}» (навык ${skillValue}): итог ${outcome.total} против сложности ${outcome.difficulty} — ${outcome.success ? 'успех' : 'провал'}. Покажи последствия в сцене, без цифр.`,
+      );
+    }
   }
 
-  const skills = session.state.hero.skills ?? defaultSkills(`${id}-hero`);
   const difficulty = 8 + ((session.state.turn * 7) % 7);
   const check = hiddenCheck(`${id}-${session.state.turn}-${session.state.place}`, skills, difficulty);
   parts.push(
@@ -1776,7 +1801,7 @@ const server = createServer(async (req, res) => {
         try {
           const started = Date.now();
           session.extraLore = pickLore(session, target.input);
-          const notes = pickNotes(id, session, false);
+          const notes = pickNotes(id, session, false, target.input);
           session.extraNotes = notes.text;
           session.lastRoll = notes.roll;
           const stats = await runTurn(session, target.input);
@@ -1811,7 +1836,7 @@ const server = createServer(async (req, res) => {
         try {
           const started = Date.now();
           session.extraLore = pickLore(session, input);
-          const notes = pickNotes(id, session, Boolean(body.dice));
+          const notes = pickNotes(id, session, Boolean(body.dice), input);
           session.extraNotes = notes.text;
           session.lastRoll = notes.roll;
           const stats = await runTurn(session, input);
@@ -2343,7 +2368,7 @@ const server = createServer(async (req, res) => {
 
             try {
               session.extraLore = pickLore(session, input);
-              const notes = pickNotes(id, session, Boolean(body.dice));
+              const notes = pickNotes(id, session, Boolean(body.dice), input);
               session.extraNotes = notes.text;
               session.lastRoll = notes.roll;
               const stats = await runTurn(session, input, (delta) =>
@@ -2364,7 +2389,7 @@ const server = createServer(async (req, res) => {
           }
 
           session.extraLore = pickLore(session, input);
-          const notes = pickNotes(id, session, Boolean(body.dice));
+          const notes = pickNotes(id, session, Boolean(body.dice), input);
           session.extraNotes = notes.text;
           session.lastRoll = notes.roll;
           const stats = await runTurn(session, input);

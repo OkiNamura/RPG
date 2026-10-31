@@ -125,3 +125,60 @@ export function rollCheck(seedText: string, skill: string, modifier = 0): CheckR
   const total = fate ? 0 : roll.face + modifier + jokerBonus(roll.face);
   return { roll: roll.face, joker: roll.joker, total, skill };
 }
+
+export interface RollOutcome {
+  face: number;
+  joker: boolean;
+  skill: string;
+  skillValue: number;
+  /** грань + половина навыка + бонус джокера */
+  total: number;
+  difficulty: number;
+  success: boolean;
+  /** выпала единица */
+  criticalFailure: boolean;
+  /** единица при навыке ≤ 5 — герой может убить себя */
+  fatal: boolean;
+}
+
+/** Проверка действия с учётом навыка. Единица — критический провал. */
+export function resolveRoll(
+  face: number,
+  skill: string,
+  skillValue: number,
+  difficulty = 20,
+): RollOutcome {
+  const safeSkill = Math.max(0, Math.min(20, Math.round(skillValue)));
+  const total = face + Math.floor(safeSkill / 2) + jokerBonus(face);
+  const criticalFailure = face === 1;
+  return {
+    face,
+    joker: isJokerFace(face),
+    skill,
+    skillValue: safeSkill,
+    total,
+    difficulty,
+    success: !criticalFailure && total >= difficulty,
+    criticalFailure,
+    fatal: criticalFailure && safeSkill <= 5,
+  };
+}
+
+/** Подобрать навык под текст действия игрока. */
+export function skillForAction(input: string, skills: Record<string, number>): string {
+  const text = input.toLowerCase();
+  const rules: [RegExp, string][] = [
+    [/крад|тихо|пряч|скрыт|незаметн|подкрад/, 'Скрытность'],
+    [/говор|спраш|торг|убежд|прошу|приказ|лг|врёшь|врешь/, 'Красноречие'],
+    [/бегу|прыг|ловл|уворот|баланс|перелез|взбира/, 'Ловкость'],
+    [/бью|атак|дерус|руб|стрел|удар|меч|кинжал/, 'Сила'],
+    [/лечу|перевяз|осматриваю рану|бинт|яд|болезн/, 'Знание'],
+    [/осмотр|ищу|прислуш|замеча|след|нюха|высматрив/, 'Восприятие'],
+    [/иду|дорог|выжив|костёр|укрыт|ночлег/, 'Выживание'],
+  ];
+  for (const [pattern, skill] of rules) {
+    if (pattern.test(text) && Object.prototype.hasOwnProperty.call(skills, skill)) return skill;
+  }
+  const best = Object.entries(skills).sort((a, b) => b[1] - a[1])[0];
+  return best?.[0] ?? 'Воля';
+}

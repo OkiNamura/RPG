@@ -7,6 +7,7 @@
 import { createState } from '../src/core/state.ts';
 import { applyDelta } from '../src/core/delta.ts';
 import { matchLore, renderLore } from '../src/core/lore.ts';
+import { resolveRoll, skillForAction } from '../src/core/dice.ts';
 
 let failed = 0;
 
@@ -293,8 +294,20 @@ function testFixes() {
   check('смерть отмечена', s.flags.dead === true && s.hero.conditions.includes('мёртв'));
 }
 
+function testDice() {
+  const fatal = resolveRoll(1, 'Сила', 3);
+  check('кубик: 1 при низком навыке — смерть', fatal.criticalFailure && fatal.fatal && !fatal.success);
+  const crit = resolveRoll(1, 'Сила', 14);
+  check('кубик: 1 при высоком навыке — травма, не смерть', crit.criticalFailure && !crit.fatal);
+  const good = resolveRoll(30, 'Сила', 10);
+  check('кубик: высокая грань — успех', good.success && good.total >= 20);
+  check('кубик: навык под действие', skillForAction('крадусь вдоль стены', { Скрытность: 8 }) === 'Скрытность');
+  check('кубик: навык по умолчанию', skillForAction('делаю шаг', { Воля: 12 }) === 'Воля');
+}
+
 testMechanics();
 testFixes();
+testDice();
 
 console.log('');
 console.log(failed === 0 ? 'все проверки пройдены' : `провалено: ${failed}`);
