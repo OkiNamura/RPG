@@ -1,4 +1,4 @@
-/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
+﻿/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -1117,6 +1117,8 @@ async function viewNew(view) {
     tagWords: '',
     toneLevel: 5,
     epochYear: 2000,
+    gender: 'male',
+    permadeath: true,
     picks: new Map(),
     skills: undefined,
     hero: { name: '', essence: '', appearance: '', bodyAttitude: '', origin: '', quirks: '', abilities: '', start: '' },
@@ -1762,6 +1764,38 @@ async function viewNew(view) {
       field('Начало истории', 'start', true),
     );
 
+    const choice = (label, active, onClick) => {
+      const btn = el('button', `chip${active ? ' active' : ''}`, label);
+      btn.type = 'button';
+      btn.addEventListener('click', () => {
+        onClick();
+        render();
+      });
+      return btn;
+    };
+
+    const genderBox = el('div', 'field');
+    genderBox.append(el('label', '', 'Пол героя'));
+    const genderRow = el('div', 'chips');
+    genderRow.append(
+      choice('Мужской', wizard.gender === 'male', () => { wizard.gender = 'male'; }),
+      choice('Женский', wizard.gender === 'female', () => { wizard.gender = 'female'; }),
+    );
+    genderBox.append(genderRow);
+
+    const deathBox = el('div', 'field');
+    deathBox.append(el('label', '', 'Смерть'));
+    const deathRow = el('div', 'chips');
+    deathRow.append(
+      choice('Постоянная', wizard.permadeath === true, () => { wizard.permadeath = true; }),
+      choice('Может очнуться', wizard.permadeath === false, () => { wizard.permadeath = false; }),
+    );
+    deathBox.append(
+      deathRow,
+      el('p', 'page-sub', 'При мягкой смерти герой при нуле здоровья приходит в себя, а не исчезает.'),
+    );
+    body.append(genderBox, deathBox);
+
     // Навыки из шаблона можно проверить и поправить прямо в мастере.
     if (wizard.skills && Object.keys(wizard.skills).length) {
       const box = el('div', 'field');
@@ -1807,6 +1841,8 @@ async function viewNew(view) {
     summary.append(el('div', 'row', `Выбрано тегов: ${chosen.length ? `${chosen.length} — ${chosen.slice(0, 8).join(', ')}` : 'нет'}`));
     summary.append(el('div', 'row', `Исключено: ${excluded.length || 'нет'}`));
     summary.append(el('div', 'row', `Герой: ${wizard.hero.name || 'без имени'}`));
+    summary.append(el('div', 'row', `Пол: ${wizard.gender === 'female' ? 'женский' : 'мужской'}`));
+    summary.append(el('div', 'row', `Смерть: ${wizard.permadeath ? 'постоянная' : 'можно очнуться'}`));
     if (wizard.skills && Object.keys(wizard.skills).length) {
       summary.append(
         el(
@@ -1861,11 +1897,13 @@ async function viewNew(view) {
             id,
             tone: tone.text,
             world: world.text,
-            hero: heroToMarkdown(wizard.hero),
+            hero: `${heroToMarkdown(wizard.hero)}\n- **Пол:** ${wizard.gender === 'female' ? 'женский' : 'мужской'}`,
             heroName: wizard.hero.name || 'Герой',
             heroSkills: wizard.skills ?? undefined,
             heroBio: wizard.hero.origin || undefined,
             heroAbilities: wizard.hero.abilities || undefined,
+            gender: wizard.gender,
+            permadeath: wizard.permadeath,
             toneLevel: wizard.toneLevel,
             epochYear: wizard.epochYear,
             meta: {
@@ -2015,6 +2053,31 @@ async function openHistoryDialog(campaignId) {
   document.body.append(overlay);
   search.focus();
 }
+
+function openImageModal(url, caption = '') {
+  const overlay = el('div', 'image-modal');
+  const img = el('img', 'image-modal-img');
+  img.src = url;
+  img.alt = caption || 'кадр';
+  const close = el('button', 'btn small image-modal-close', '✕');
+  overlay.append(img, close);
+  close.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  document.addEventListener('keydown', function onKey(event) {
+    if (event.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+  });
+  document.body.append(overlay);
+}
+
+document.addEventListener('click', (event) => {
+  const img = event.target.closest('img.msg-image');
+  if (img) openImageModal(img.src, img.alt);
+});
 
 function openMapModal(title, text) {
   const overlay = el('div', 'map-modal');
@@ -2311,7 +2374,7 @@ function actorCard(actor, campaignId) {
         bodyEl.append(img);
       }));
     }
-    actions.append(miniBtn('▣ лист', 'вид спереди и сзади', async () => {
+    actions.append(miniBtn('▣ в полный рост', 'одна фигура в полный рост', async () => {
       const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/image`, {
         method: 'POST',
         body: JSON.stringify({ mode: 'sheet', name: actor.name }),
@@ -2330,6 +2393,7 @@ function actorCard(actor, campaignId) {
     ['Характер', actor.character],
     ['Одет', actor.clothes],
     ['Прошлое', actor.bio],
+    ['Описание', actor.description],
     ['Заметка', actor.note],
   ].filter(([, value]) => value);
   for (const [key, value] of rows) bodyEl.append(row(key, value));
@@ -2375,6 +2439,7 @@ function personCard(actor, campaignId) {
     ['Одет', actor.clothes],
     ['Прошлое', actor.bio],
     ['Способности', actor.abilities],
+    ['Описание', actor.description],
     ['Заметка', actor.note],
   ].filter(([, value]) => value);
   if (fields.length) {
@@ -2416,7 +2481,7 @@ function personCard(actor, campaignId) {
     download.href = `/api/campaign/${encodeURIComponent(campaignId)}/card?name=${encodeURIComponent(actor.name)}`;
     download.download = `${actor.name}.json`;
     actions.append(download);
-    actions.append(miniBtn('▣ лист', 'вид спереди и сзади', async () => {
+    actions.append(miniBtn('▣ в полный рост', 'одна фигура в полный рост', async () => {
       const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/image`, {
         method: 'POST',
         body: JSON.stringify({ mode: 'sheet', name: actor.name }),
@@ -2486,7 +2551,7 @@ function heroCard(hero, money, campaignId) {
   }
   if (campaignId) {
     const actions = el('div', 'person-actions');
-    actions.append(miniBtn('▣ лист', 'вид спереди и сзади', async () => {
+    actions.append(miniBtn('▣ в полный рост', 'одна фигура в полный рост', async () => {
       const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/image`, {
         method: 'POST',
         body: JSON.stringify({ mode: 'sheet', hero: true, name: hero.name }),
@@ -2567,6 +2632,7 @@ function openActorModal(actor, campaignId) {
     ['Одет', actor.clothes],
     ['Прошлое', actor.bio],
     ['Способности', actor.abilities],
+    ['Описание', actor.description],
     ['Заметка', actor.note],
     ['Отношения', (actor.relations ?? []).map((r) => `${r.with}: ${r.feeling}`).join('; ')],
   ]) {
@@ -2578,7 +2644,7 @@ function openActorModal(actor, campaignId) {
   if (actor.skills && Object.keys(actor.skills).length) info.append(templateSkills(actor.skills));
 
   const actions = el('div', 'actor-sheet-actions');
-  const sheetBtn = el('button', 'btn small', '▣ лист спереди/сзади');
+  const sheetBtn = el('button', 'btn small', '▣ в полный рост');
   sheetBtn.type = 'button';
   sheetBtn.addEventListener('click', async () => {
     sheetBtn.disabled = true;
@@ -2605,7 +2671,31 @@ function openActorModal(actor, campaignId) {
   const exportBtn = el('a', 'btn small', '⤓ карточка');
   exportBtn.href = `/api/campaign/${encodeURIComponent(campaignId)}/card?name=${encodeURIComponent(actor.name)}`;
   exportBtn.download = `${actor.name}.json`;
-  actions.append(sheetBtn, exportBtn);
+  const portraitBtn = el('button', 'btn small', '◉ портрет');
+  portraitBtn.type = 'button';
+  portraitBtn.addEventListener('click', async () => {
+    portraitBtn.disabled = true;
+    try {
+      const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/image`, {
+        method: 'POST',
+        body: JSON.stringify({ mode: 'portrait', name: actor.name }),
+      });
+      actor.portrait = res.url;
+      const old = media.querySelector('.actor-sheet-img');
+      if (old && old.tagName === 'IMG') old.src = res.url;
+      else if (old) {
+        const img = el('img', 'actor-sheet-img');
+        img.src = res.url;
+        old.replaceWith(img);
+      }
+      toast(`портрет · $${(res.cost ?? 0).toFixed(3)}`);
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      portraitBtn.disabled = false;
+    }
+  });
+  actions.append(sheetBtn, portraitBtn, exportBtn);
 
   sheet.append(head, media, chips, info, actions);
   overlay.append(sheet);

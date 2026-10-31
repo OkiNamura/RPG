@@ -13,7 +13,6 @@ import { appendFile, mkdir, readFile, readdir, unlink, writeFile } from 'node:fs
 import { basename, extname, join, normalize, sep } from 'node:path';
 import { characterSheetPrompt, generateImage, itemCardPrompt, masterCardPrompt, portraitPrompt, scenePrompt } from './core/images.ts';
 import { renderMap } from './core/map.ts';
-import { renderWorldMap } from './core/worldmap.ts';
 import { createState, normalizeState, type Actor, type GameState } from './core/state.ts';
 import { createSession, runTurn, addUsage, type Session, type TurnStats } from './core/turn.ts';
 import {
@@ -30,6 +29,7 @@ import { renderState } from './core/context.ts';
 import {
   DEFAULT_AGENTS,
   IMAGE_FALLBACK_MODEL,
+  IMAGE_MODEL,
   loadAgents,
   resetAgent,
   saveAgents,
@@ -53,7 +53,6 @@ import { HERO_NAME, START_PLACE, TONE, WORLD } from './start/texts.ts';
 import { isLoreEntry, matchLore, renderLore, type LoreEntry } from './core/lore.ts';
 import { resolveRoll, rollD36, skillForAction } from './core/dice.ts';
 import { defaultSkills, hiddenCheck } from './core/skills.ts';
-import { generateDungeon, renderDungeon } from './core/dungeon.ts';
 import { TONE_LEVELS, toneDirective, toneLevel } from './core/tone-levels.ts';
 import { embedPngText, isPng } from './core/png.ts';
 import { KeyStore, fetchKeyModels, normalizeBaseUrl, type KeyModel } from './core/keys.ts';
@@ -500,10 +499,6 @@ function pickLore(session: Session, input: string): string {
 }
 
 /** Сид карты места: одна сцена — один рисунок, разные игры — разные карты. */
-function sceneMapSeed(id: string, session: Session): string {
-  const lastGm = [...session.state.log].reverse().find((entry) => entry.role === 'gm');
-  return `${id}|${session.state.place}|${(lastGm?.text ?? '').slice(0, 240)}`;
-}
 
 /** Броски и скрытые проверки: то, что модель не должна выдумывать сама. */
 function pickNotes(
@@ -523,14 +518,24 @@ function pickNotes(
     const outcome = resolveRoll(result.face, skillName, skillValue);
     roll = { ...result, ...outcome };
     if (outcome.fatal) {
-      session.state.hero.health = 0;
-      session.state.flags.dead = true;
-      if (!session.state.hero.conditions.includes('мёртв')) {
-        session.state.hero.conditions.push('мёртв');
+      const soft = metas.get(id)?.permadeath === false;
+      session.state.hero.health = soft ? 1 : 0;
+      session.state.flags.dead = !soft;
+      if (soft) {
+        if (!session.state.hero.conditions.includes('без сознания')) {
+          session.state.hero.conditions.push('без сознания');
+        }
+        parts.push(
+          `КРИТИЧЕСКИЙ ПРОВАЛ (грань 1). Навык «${skillName}» = ${skillValue}: герой калечится и теряет сознание, но выживает. Смерть не постоянная — опиши тяжёлую травму и беспамятство, без гибели.`,
+        );
+      } else {
+        if (!session.state.hero.conditions.includes('мёртв')) {
+          session.state.hero.conditions.push('мёртв');
+        }
+        parts.push(
+          `КРИТИЧЕСКИЙ ПРОВАЛ (грань 1). Навык «${skillName}» = ${skillValue}, герой не владеет им. Он спотыкается и падает на собственное оружие — смерть неизбежна. Опиши гибель прямо, без смягчения и без спасения.`,
+        );
       }
-      parts.push(
-        `КРИТИЧЕСКИЙ ПРОВАЛ (грань 1). Навык «${skillName}» = ${skillValue}, герой не владеет им. Он спотыкается и падает на собственное оружие — смерть неизбежна. Опиши гибель прямо, без смягчения и без спасения.`,
-      );
     } else if (outcome.criticalFailure) {
       session.state.hero.wounds.push({ where: 'рука', severity: 2, treated: false });
       session.state.hero.health = Math.max(0, session.state.hero.health - 15);
@@ -572,7 +577,7 @@ async function sceneReferences(session: Session): Promise<string[]> {
     if (heroRef) refs.push(heroRef);
   }
 
-  for (const actor of session.state.party) {
+  for (const actor of [...session.state.party, ...session.state.npcs.filter((n) => n.present !== false)]) {
     const url = actor.card || actor.portrait;
     if (!url) continue;
     const data = await imageDataUrl(url);
@@ -626,7 +631,19 @@ async function writeTrace(
 /**
  * Общая часть после хода: агент состояния и конспектировщик параллельно,
  * сохранение на диск и готовый ответ. Одинаково для обычного и потокового хода.
- */async function afterTurn(
+ */
+/** Непостоянная смерть: при нуле здоровья герой приходит в себя. */
+function reviveIfAllowed(id: string, session: Session): void {
+  if (metas.get(id)?.permadeath !== false) return;
+  const hero = session.state.hero;
+  if (hero.health > 0 && !session.state.flags.dead) return;
+  hero.health = Math.max(1, hero.health);
+  session.state.flags.dead = false;
+  hero.conditions = hero.conditions.filter((condition) => condition !== 'мёртв');
+  if (!hero.conditions.includes('без сознания')) hero.conditions.push('без сознания');
+}
+
+ async function afterTurn(
   session: Session,
   id: string,
   input: string,
@@ -644,6 +661,7 @@ async function writeTrace(
 
   const agentChanges = stateResult.status === 'fulfilled' ? stateResult.value.changes : [];
   if (stateResult.status === 'rejected') console.error('[state agent]', stateResult.reason);
+  reviveIfAllowed(id, session);
 
   const summarized = summaryResult.status === 'fulfilled' && summaryResult.value.ok;
   if (summaryResult.status === 'rejected') console.error('[summarizer]', summaryResult.reason);
@@ -684,12 +702,6 @@ async function writeTrace(
     state: session.state,
     summary: session.summary ?? '',
     memory: session.memory ?? '',
-    map: renderDungeon(generateDungeon(session.state.place, { width: 31, height: 14, seed: sceneMapSeed(id, session) })),
-    worldMap: renderWorldMap(
-      metas.get(id)?.presetTitle || metas.get(id)?.title || id,
-      (session.state.locations?.length ? session.state.locations : [{ name: session.state.place }]).map((l) => ({ name: l.name })),
-      { height: 15, unknown: 3 },
-    ),
     totals: session.totals,
     usage: session.usage,
     // Сколько записей лор-книги попало в этот ход — видно в отладке.
@@ -792,9 +804,17 @@ async function getSession(id: string): Promise<Session | null> {
     model = makeAgentModel({ ...gameAgents.gm, temperature: saved.meta.prompts.temperature }, !gameAgents.state.enabled);
   }
   const settingsList = saved.meta?.aiSettings ?? [];
-  const settingsLine = settingsList.length
-    ? `\n\n# НАСТРОЙКИ ИИ\n${settingsList.map((s) => `- ${s}`).join('\n')}`
-    : '';
+  const gameRules = [
+    `- Пол героя: ${saved.meta?.gender === 'female' ? 'женский' : 'мужской'}`,
+    `- Смерть: ${
+      saved.meta?.permadeath === false
+        ? 'не постоянная — при нуле здоровья герой может очнуться, а не исчезнуть'
+        : 'постоянная — при нуле здоровья герой погибает окончательно'
+    }`,
+  ];
+  const settingsLine = `\n\n# НАСТРОЙКИ ИГРЫ\n${gameRules.join('\n')}${
+    settingsList.length ? `\n\n# НАСТРОЙКИ ИИ\n${settingsList.map((s) => `- ${s}`).join('\n')}` : ''
+  }`;
   const core = gmPrompt ? `${gmPrompt}${settingsLine}\n\n${coreFile}` : `${coreFile}${settingsLine}`;
 
   const session = createSession({
@@ -1600,6 +1620,8 @@ const server = createServer(async (req, res) => {
       const heroText = typeof body.hero === 'string' ? body.hero : '';
       const meta = (typeof body.meta === 'object' && body.meta ? body.meta : {}) as CampaignMeta;
       meta.createdAt = new Date().toISOString();
+      meta.gender = body.gender === 'female' ? 'female' : 'male';
+      meta.permadeath = body.permadeath !== false;
 
       // Уровень повествования: 0 — детская сказка, 11 — предел жестокости.
       const levelRaw = Number(body.toneLevel ?? (meta as { toneLevel?: number }).toneLevel);
@@ -1764,12 +1786,6 @@ const server = createServer(async (req, res) => {
           summary: session.summary ?? '',
           memory: session.memory ?? '',
           arcs: session.arcArchive ?? [],
-          map: renderDungeon(generateDungeon(session.state.place, { width: 31, height: 14, seed: sceneMapSeed(id, session) })),
-          worldMap: renderWorldMap(
-            metas.get(id)?.presetTitle || metas.get(id)?.title || id,
-            (session.state.locations?.length ? session.state.locations : [{ name: session.state.place }]).map((l) => ({ name: l.name })),
-            { height: 15, unknown: 3 },
-          ),
           conspect: session.conspect.renderFrozen(),
           conspectRecent: session.conspect.renderRecent(),
           turns: (snapshots.get(id) ?? []).map((s) => ({
@@ -2024,7 +2040,6 @@ const server = createServer(async (req, res) => {
           name: patch.name,
           changes,
           state: session.state,
-          map: renderDungeon(generateDungeon(session.state.place, { width: 31, height: 14, seed: sceneMapSeed(id, session) })),
         });
       }
 
@@ -2081,6 +2096,7 @@ const server = createServer(async (req, res) => {
           character: text(body.character),
           clothes: text(body.clothes),
           bio: text(body.bio),
+          description: text(body.description ?? body.bio),
           abilities: text(body.abilities),
           note: text(body.note),
         };
@@ -2208,7 +2224,7 @@ const server = createServer(async (req, res) => {
         const artistMeta = (await loadCampaign(DATA_DIR, id))?.meta;
         const artistKeyName = mode === 'scene' ? 'scene' : mode === 'item' ? 'item' : mode === 'hero' ? 'hero' : 'npc';
         const style = artistMeta?.prompts?.artists?.[artistKeyName] || artist.prompt;
-        const model = artist.model || IMAGE_FALLBACK_MODEL;
+        const model = artist.model && !/seedream/i.test(artist.model) ? artist.model : IMAGE_MODEL;
 
         let prompt = '';
         let actorName = '';
@@ -2305,13 +2321,24 @@ const server = createServer(async (req, res) => {
             .reverse()
             .find((e) => e.role === 'gm' && e.turn === sceneTurn);
           const lastGm = sceneEntry ?? [...session.state.log].reverse().find((e) => e.role === 'gm');
+          const present = [...session.state.party, ...session.state.npcs].filter(
+            (actor) => actor.present !== false && actor.status === 'alive',
+          );
           prompt = scenePrompt({
             style,
             place: session.state.place,
+            location:
+              session.state.locations.find((location) => location.name === session.state.place)?.note ?? '',
             time: `день ${session.state.time.day}, ${String(session.state.time.hour).padStart(2, '0')}:00`,
             weather: session.state.weather,
-            characters: session.state.party.map((a) => a.name),
-            action: (lastGm?.text ?? '').replace(/\s+/g, ' ').slice(0, 400),
+            characters: [
+              `${session.state.hero.name} — главный герой; ${(session.text.hero || '').replace(/\s+/g, ' ').slice(0, 300)}`,
+              ...present.map(
+                (actor) =>
+                  `${actor.name} — ${actor.role}; ${actor.appearance ?? 'без описания внешности'}; одет: ${actor.clothes ?? 'не описано'}`,
+              ),
+            ],
+            action: (lastGm?.text ?? '').replace(/\s+/g, ' ').slice(0, 900),
           });
           references = await sceneReferences(session);
         }
@@ -2330,6 +2357,8 @@ const server = createServer(async (req, res) => {
         // Выбранные теги иллюстратора дополняют промт.
         const extra = art.include.slice(0, 12).join(', ');
         const avoid = art.exclude.slice(0, 12).join(', ');
+        // Выбранный стиль — в начало промта, иначе модель его почти не слышит.
+        if (extra) prompt = `${extra}. ${prompt}`;
         if (avoid) prompt += ` Не изображать: ${avoid}.`;
 
         // Seedream может быть недоступен у провайдера — тогда честно откатываемся.

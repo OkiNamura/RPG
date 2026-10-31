@@ -3298,3 +3298,53 @@ button.primary {
   place-items: center;
   font-size: 64px;
 }
+
+.chips .chip.active {
+  color: var(--gold);
+  border-color: var(--gold-dim);
+  background: #17161a;
+}
+
+/* окно иллюстратора: не уезжает за экран */
+.map-modal .import-body {
+  max-height: calc(92vh - 56px);
+  overflow: auto;
+  padding-bottom: 24px;
+}
+
+.map-modal .tag-row {
+  max-width: 100%;
+}
+
+.map-modal .tag-list {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.image-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(4, 4, 6, 0.95);
+  cursor: zoom-out;
+}
+
+.image-modal-img {
+  max-width: 96vw;
+  max-height: 92vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.image-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+}
+
+.msg-image {
+  cursor: zoom-in;
+}

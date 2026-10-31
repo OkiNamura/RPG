@@ -382,23 +382,8 @@ async function main() {
     pass('игра: панель состояния заполнена');
 
     const maps = $$('.map-clickable');
-    if (maps.length < 2) throw new Error(`карт мало: ${maps.length}`);
-    const worldMapEl = maps.find((m) => m.textContent.includes('Карта мира'));
-    if (!worldMapEl) throw new Error('мировой карты нет в панели');
-    const mapDetails = $$('.map-details');
-    if (mapDetails.length < 2) throw new Error(`карт в сворачиваемых блоках мало: ${mapDetails.length}`);
-    if (!mapDetails.every((d) => d.open)) throw new Error('на десктопе карты должны быть раскрыты');
-    pass(`игра: ${maps.length} карты в сворачиваемых блоках, раскрыты`);
-
-    click(maps[0]);
-    const modal = await until(() => window.document.querySelector('.map-modal'));
-    if (!modal.querySelector('.map-canvas')) throw new Error('в модалке нет карты');
-    pass('игра: карта открывается поверх с зумом');
-    const closeBtn = [...modal.querySelectorAll('.map-modal-head .btn')].find(
-      (b) => b.textContent === '✕',
-    );
-    click(closeBtn);
-    await until(() => !window.document.querySelector('.map-modal'));
+    if (maps.length) throw new Error(`карты не убраны: ${maps.length}`);
+    pass('игра: карт нет, блок убран');
 
     // Второй блок иллюстратора: параметры ИИ.
     const artBtn = [...window.document.querySelectorAll('.play-head button')].find(

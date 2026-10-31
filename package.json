@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "omika",
   "version": "0.2.0",
   "private": true,
@@ -10,8 +10,6 @@
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
     "lint": "node node_modules/eslint/bin/eslint.js .",
     "test": "node scripts/unit-test.mjs",
-    "test:map": "node scripts/map-test.mjs",
-    "test:world": "node scripts/worldmap-test.mjs",
     "test:ui": "node scripts/ui-test.mjs",
     "test:e2e": "node scripts/e2e-full.mjs",
     "shot": "node scripts/shot.mjs",

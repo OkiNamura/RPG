@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Генерация иллюстраций.
  *
  * Картинка приходит от модели как data-URL в ответе чата, мы сохраняем её
@@ -92,15 +92,18 @@ export function scenePrompt(params: {
   weather: string;
   characters: string[];
   action: string;
+  location?: string;
 }): string {
   const parts = [
     params.style,
+    'Иллюстрация конкретной сцены из текста, а не обложка и не портрет.',
     `Место: ${params.place}.`,
-    `Время: ${params.time}.`,
-    `Погода: ${params.weather}.`,
-    params.characters.length ? `В кадре: ${params.characters.join(', ')}.` : '',
-    params.action ? `Происходит: ${params.action}.` : '',
-    'Композиция: широкий кадр, кинематографичный свет, без текста и водяных знаков.',
+    params.location ? `Детали места: ${params.location}.` : '',
+    `Время: ${params.time}. Погода: ${params.weather}.`,
+    params.characters.length ? `Кто в кадре: ${params.characters.join(' | ')}.` : '',
+    params.action ? `Что происходит (главное): ${params.action}.` : '',
+    'Позы и выражения лиц соответствуют действию; одежда и вещи — из описания.',
+    'Композиция: широкий кинематографичный кадр, глубина, свет по времени суток, без текста, без водяных знаков.',
   ];
   return parts.filter(Boolean).join(' ');
 }
@@ -154,7 +157,7 @@ export function masterCardPrompt(params: {
 }
 
 /**
- * Лист персонажа: общий вид спереди и сзади, плюс погрудный портрет.
+ * Лист персонажа: одна фигура в полный рост, вид спереди.
  * Без текста и цифр — атрибуты живут в HTML-карточке, а не на картинке.
  */
 export function characterSheetPrompt(params: {
@@ -172,8 +175,8 @@ export function characterSheetPrompt(params: {
     params.appearance ? `Внешность: ${params.appearance}.` : '',
     params.clothes ? `Одежда: ${params.clothes}.` : '',
     params.character ? `Характер: ${params.character}.` : '',
-    'Три фигуры на нейтральном светлом фоне: спереди в полный рост, сзади в полный рост, крупный портрет лица.',
-    'Одинаковая одежда и причёска на всех трёх, нейтральная поза, ровный свет.',
+    'Одна фигура в полный рост, вид спереди, нейтральная поза, лицо видно.',
+    'Одинаковая одежда и причёска, ровный свет, однотонный фон.',
     'Без текста, без цифр, без рамок, без водяных знаков.',
   ]
     .filter(Boolean)

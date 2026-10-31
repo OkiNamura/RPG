@@ -21,6 +21,10 @@ export interface ActorPatch {
   character?: string;
   clothes?: string;
   bio?: string;
+  /** короткое описание для карточки */
+  description?: string;
+  /** способности/умения */
+  abilities?: string;
   skills?: Record<string, number>;
   relations?: { with: string; feeling: string }[];
 }
@@ -169,6 +173,8 @@ function upsertActor(list: Actor[], patch: ActorPatch, prefix: string): string {
     if (patch.character) existing.character = patch.character;
     if (patch.clothes) existing.clothes = patch.clothes;
     if (patch.bio) existing.bio = patch.bio;
+    if (patch.description) existing.description = patch.description;
+    if (patch.abilities) existing.abilities = patch.abilities;
     if (patch.skills) existing.skills = { ...(existing.skills ?? {}), ...patch.skills };
     if (patch.relations) existing.relations = patch.relations;
     if (typeof patch.present === 'boolean') existing.present = patch.present;
@@ -194,6 +200,8 @@ function upsertActor(list: Actor[], patch: ActorPatch, prefix: string): string {
     character: patch.character,
     clothes: patch.clothes,
     bio: patch.bio,
+    description: patch.description,
+    abilities: patch.abilities,
     skills: patch.skills,
     relations: patch.relations,
   });

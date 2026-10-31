@@ -40,7 +40,7 @@ export type AgentSet = Record<AgentId, AgentConfig>;
 
 const MODEL = 'deepseek/deepseek-v4-flash-0731';
 /** Модель рисования, которую просил заказчик. */
-const IMAGE_MODEL = 'bytedance/seedream-5.0-flash';
+export const IMAGE_MODEL = 'openai/gpt-5.4-image-2';
 /** Если Seedream недоступен у провайдера — рисуем этой. */
 export const IMAGE_FALLBACK_MODEL = 'google/gemini-3.1-flash-lite-image';
 
@@ -114,7 +114,7 @@ export const DEFAULT_AGENTS: AgentSet = {
   "quests":      [{"title": "...", "status": "active", "turnsLimit": 3, "steps": ["..."]}],
   "npcs":        [{"name": "Гуннар", "role": "трактирщик", "status": "alive",
                    "present": true, "attitude": 20, "appearance": "...",
-                   "character": "...", "clothes": "...", "bio": "...", "note": "...",
+                   "character": "...", "clothes": "...", "bio": "...", "description": "короткое описание для карточки", "abilities": "что умеет", "note": "...",
                    "skills": {"Красноречие": 12, "Восприятие": 9}}],
   "party":       [{"name": "...", "role": "...", "bond": 40, "attitude": 60,
                    "present": true, "appearance": "...", "character": "...",
@@ -335,6 +335,11 @@ export async function loadAgents(dir: string): Promise<AgentSet> {
       result.state.prompt = DEFAULT_AGENTS.state.prompt;
     }
 
+    // v13 → v14: описание и способности в карточке NPC.
+    if (version < 14) {
+      result.state.prompt = DEFAULT_AGENTS.state.prompt;
+    }
+
     return result;
   } catch {
     return structuredClone(DEFAULT_AGENTS);
@@ -348,7 +353,7 @@ export async function saveAgents(dir: string, incoming: Partial<AgentSet>): Prom
     result[id] = merge(current[id], incoming[id] ?? {});
   }
   await mkdir(dir, { recursive: true });
-  await writeFile(agentsPath(dir), `${JSON.stringify({ version: 13, agents: result }, null, 2)}\n`, 'utf8');
+  await writeFile(agentsPath(dir), `${JSON.stringify({ version: 14, agents: result }, null, 2)}\n`, 'utf8');
   return result;
 }
 
