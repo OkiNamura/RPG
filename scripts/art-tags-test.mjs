@@ -25,11 +25,7 @@ const MIN_NAME_WORDS = 1;
 const MAX_NAME_WORDS = 5;
 const MAX_DESCRIPTION_LENGTH = 180;
 
-const REQUIRED_GROUPS = [
-  'Стиль',
-  'Камера и композиция',
-  'Формат и визуал',
-];
+const REQUIRED_GROUPS = ['Стиль и кадр'];
 
 const problems = [];
 

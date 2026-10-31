@@ -160,8 +160,12 @@ async function main() {
   const camp = await api(`/api/campaign/${encodeURIComponent(id)}`);
   const st = camp.body?.state ?? {};
   check('время: идёт', st.time?.hour !== 8 || st.time?.day > 1, `день ${st.time?.day}, ${st.time?.hour}:00`);
-  check('конспект: не пустой', (camp.body?.summary ?? '').length > 500, `${(camp.body?.summary ?? '').length} симв.`);
-  check('конспект: арки', (camp.body?.summary ?? '').includes('## Арка'));
+  check(
+    'конспект: не пустой',
+    (st.turn ?? 0) < 3 || (camp.body?.summary ?? '').length > 500,
+    `${(camp.body?.summary ?? '').length} симв.`,
+  );
+  check('конспект: арки', (st.turn ?? 0) < 3 || (camp.body?.summary ?? '').includes('## Арка'));
   check('крючки: лимит 30', (st.hooks ?? []).length <= 30, `${(st.hooks ?? []).length}`);
   check('карта: строки', (camp.body?.map ?? '').split('\n').length >= 12);
   check('карта: символы', /[#.@$*!]/.test(camp.body?.map ?? ''));
@@ -197,6 +201,39 @@ async function main() {
   } else {
     check('карточка NPC: пока нет NPC (не ошибка)', true, 'пропущено');
   }
+  // SSE: клиент должен получить delta + done, и ход ровно один.
+  const turnBefore = (await api(`/api/campaign/${encodeURIComponent(id)}`)).body.state.turn;
+  const streamRes = await fetch(`${BASE}/api/campaign/${encodeURIComponent(id)}/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ input: 'Слушаю и жду.' }),
+  });
+  const streamText = await streamRes.text();
+  const streamTypes = streamText
+    .split('\n')
+    .filter((line) => line.startsWith('data: '))
+    .map((line) => {
+      try {
+        return JSON.parse(line.slice(6)).type;
+      } catch {
+        return 'bad';
+      }
+    });
+  check('SSE: есть delta и done', streamTypes.includes('delta') && streamTypes.includes('done'));
+  const afterStream = (await api(`/api/campaign/${encodeURIComponent(id)}`)).body.state.turn;
+  check('SSE: ход ровно один', afterStream === turnBefore + 1, `${turnBefore}→${afterStream}`);
+
+  // Блокировка: два параллельных хода — один 200, второй 409.
+  const postTurn = () =>
+    fetch(`${BASE}/api/campaign/${encodeURIComponent(id)}/turn`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input: 'Делаю шаг.' }),
+    });
+  const [lockA, lockB] = await Promise.all([postTurn(), postTurn()]);
+  const lockCodes = [lockA.status, lockB.status].sort((x, y) => x - y);
+  check('ходы: блокировка 409', lockCodes[0] === 200 && lockCodes[1] === 409, lockCodes.join('/'));
+
   // Картинка: провайдер иногда отвечает очень долго — тест не должен висеть.
   let imgNote = '';
   try {

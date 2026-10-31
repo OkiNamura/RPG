@@ -121,6 +121,13 @@ export function renderState(s: GameState): string {
     // В контекст — только свежие: полный список живёт в панели.
     lines.push(`Открытые крючки: ${s.hooks.slice(-12).join('; ')}`);
   }
+  if (s.hiddenFacts?.length) {
+    lines.push(
+      `Скрытые факты (знать, но не раскрывать без повода): ${s.hiddenFacts
+        .map((f) => f.content)
+        .join('; ')}`,
+    );
+  }
   if (s.factions?.length) {
     lines.push(
       `Фракции: ${s.factions

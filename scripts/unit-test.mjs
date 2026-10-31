@@ -76,10 +76,11 @@ function check(name, condition, extra = '') {
   applyDelta(s, { resolveHooks: ['крючок 59'], resolvePromises: ['обещание 7'] });
   check('крючок закрыт', s.hooks.length === 29 && !s.hooks.includes('крючок 59'));
   check('обещание закрыто', s.promises.length === 59 && !s.promises.includes('обещание 7'));
-  check('закрытое в архиве', s.archive.length === 2, `(${s.archive.length})`);
-  check('в архиве обе причины',
+  check('закрытое в архиве', s.archive.length === 32, `(${s.archive.length})`);
+  check('в архиве три причины',
     s.archive.some((a) => a.reason === 'закрыт') &&
-      s.archive.some((a) => a.reason === 'выполнено или снято'));
+      s.archive.some((a) => a.reason === 'выполнено или снято') &&
+      s.archive.some((a) => a.reason === 'вытеснен'));
 }
 
 {
@@ -273,7 +274,27 @@ function testMechanics() {
   check('новое место дало автолор', s.lore.some((l) => l.keys.includes('Северные ворота')));
 }
 
+function testFixes() {
+  console.log('\nмеханики: предметы, раны, состояния, смерть');
+  const s = createState('Кай', 'Дом');
+  applyDelta(s, { addItems: [{ name: 'кинжал', qty: 1, where: 'inventory' }] });
+  applyDelta(s, { addItems: [{ name: 'кинжал', qty: 1, where: 'equipped' }] });
+  const dagger = s.items.find((i) => i.name === 'кинжал');
+  check('предмет переехал в equipped', dagger?.where === 'equipped' && dagger?.qty === 2);
+
+  applyDelta(s, { wounds: [{ where: 'рука', severity: 2 }] });
+  applyDelta(s, { healWounds: ['рука'] });
+  check('рана обработана и заживает', s.hero.wounds[0].treated === true && s.hero.wounds[0].severity === 1);
+
+  applyDelta(s, { conditions: ['простуда'], conditionsRemove: ['простуда'] });
+  check('состояние снято', !s.hero.conditions.includes('простуда'));
+
+  applyDelta(s, { health: 0 });
+  check('смерть отмечена', s.flags.dead === true && s.hero.conditions.includes('мёртв'));
+}
+
 testMechanics();
+testFixes();
 
 console.log('');
 console.log(failed === 0 ? 'все проверки пройдены' : `провалено: ${failed}`);

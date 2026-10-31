@@ -18,7 +18,7 @@
     "playtest": "node scripts/playtest.mjs"
   },
   "engines": {
-    "node": ">=23.6"
+    "node": ">=22.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

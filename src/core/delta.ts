@@ -34,9 +34,12 @@ export interface Delta {
   addItems?: { name: string; qty: number; where?: Item['where'] }[];
   removeItems?: { name: string; qty: number }[];
   conditions?: string[];
+  conditionsRemove?: string[];
   statuses?: Status[];
   statusRemove?: string[];
   wounds?: { where: string; severity: 1 | 2 | 3 }[];
+  /** какие раны обработаны и заживают */
+  healWounds?: string[];
   flags?: Record<string, string | number | boolean>;
   promises?: string[];
   hiddenFacts?: { content: string }[];
@@ -247,9 +250,15 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
       (incoming.silver ?? state.money.silver) === 0 &&
       (incoming.copper ?? state.money.copper) === 0;
 
+    // Явные все три поля — игрок/агент сознательно потратил всё; иначе
+    // считаем нулевой кошель ошибкой модели и отбрасываем.
+    const explicitAll = ['gold', 'silver', 'copper'].every((key) =>
+      Object.prototype.hasOwnProperty.call(incoming, key),
+    );
+
     // Агент иногда «обнуляет» кошель, хотя герой ничего не тратил.
     // Такое изменение отбрасываем: деньги теряются только по явной причине.
-    if (zeroes && total > 0) {
+    if (zeroes && total > 0 && !explicitAll) {
       changes.push('отброшено: обнуление кошеля без причины');
     } else {
       for (const key of ['gold', 'silver', 'copper'] as const) {
@@ -271,6 +280,7 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
     const existing = findItem(state, add.name);
     if (existing) {
       existing.qty += add.qty;
+      if (add.where) existing.where = normalizeWhere(add.where);
     } else {
       state.items.push({ name: add.name, qty: add.qty, where: normalizeWhere(add.where) });
     }
@@ -318,6 +328,31 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
   if (typeof delta.health === 'number' && Number.isFinite(delta.health)) {
     state.hero.health = Math.max(0, Math.min(150, Math.round(delta.health)));
     changes.push(`здоровье: ${state.hero.health}`);
+    if (state.hero.health <= 0) {
+      state.flags.dead = true;
+      if (!state.hero.conditions.includes('мёртв')) state.hero.conditions.push('мёртв');
+      changes.push('герой мёртв');
+    }
+  }
+
+  for (const where of delta.healWounds ?? []) {
+    const wound = state.hero.wounds.find(
+      (w) => w.where.toLowerCase() === String(where).toLowerCase(),
+    );
+    if (!wound) continue;
+    wound.treated = true;
+    wound.severity = Math.max(1, wound.severity - 1) as 1 | 2 | 3;
+    changes.push(`рана обработана: ${wound.where}`);
+  }
+
+  for (const cond of delta.conditionsRemove ?? []) {
+    const at = state.hero.conditions.findIndex(
+      (c) => c.toLowerCase() === String(cond).toLowerCase(),
+    );
+    if (at >= 0) {
+      state.hero.conditions.splice(at, 1);
+      changes.push(`состояние снято: ${cond}`);
+    }
   }
 
   for (const status of delta.statuses ?? []) {
@@ -513,7 +548,10 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
   // Крючки не растут бесконечно: старые уходят, свежие остаются.
   const HOOKS_LIMIT = 30;
   if (state.hooks.length > HOOKS_LIMIT) {
-    state.hooks = state.hooks.slice(-HOOKS_LIMIT);
+    const extra = state.hooks.length - HOOKS_LIMIT;
+    const dropped = state.hooks.splice(0, extra);
+    for (const hook of dropped) archive(state, 'hook', hook, 'вытеснен');
+    changes.push(`крючки вытеснены в архив: ${dropped.length}`);
   }
 
   // Закрытые крючки уходят в архив, а не висят вечно.

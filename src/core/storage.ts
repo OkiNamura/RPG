@@ -6,7 +6,7 @@
  * машинами. Никакой базы, пока не понадобится.
  */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Conspect, type Arc } from './conspect.ts';
 import type { GameState } from './state.ts';
@@ -42,6 +42,7 @@ export interface TurnVariant {
   prose: string;
   state: GameState;
   summary: string;
+  lastSummaryTurn?: number;
 }
 
 /** Снимок состояния после хода — основа для перегенерации и откатов. */
@@ -51,6 +52,8 @@ export interface TurnSnapshot {
   prose: string;
   state: GameState;
   summary: string;
+  /** до какого хода конспект уже собран */
+  lastSummaryTurn?: number;
   variants?: TurnVariant[];
 }
 
@@ -62,6 +65,8 @@ export interface SavedCampaign {
   conspect: Arc[];
   /** скользящий конспект: всё, что старше окна последних ходов */
   summary?: string;
+  /** до какого хода конспект уже собран (переживает перезапуск) */
+  lastSummaryTurn?: number;
   /** память истории: закреплённые игроком факты */
   memory?: string;
   /** состояние и конспект до первого хода — точка полного откката */
@@ -88,7 +93,10 @@ export async function saveCampaign(dir: string, id: string, data: Omit<SavedCamp
     ...data,
   };
   const path = campaignPath(dir, id);
-  await writeFile(path, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  // Атомарная запись: сначала temp, потом rename — сейв не бьётся при падении.
+  const tmp = `${path}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  await rename(tmp, path);
   return path;
 }
 

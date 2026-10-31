@@ -256,22 +256,37 @@ export class OpenRouterModel implements Model {
   async complete(messages: Msg[], maxTokens?: number): Promise<ModelReply> {
     const structured = this.cfg.structured ?? true;
 
-    const call = async (withSchema: boolean): Promise<Response> =>
-      fetch(this.chatUrl(), {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.cfg.apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://localhost',
-          'X-Title': 'Omika',
-        },
-        body: this.body(messages, maxTokens, withSchema),
-      });
+    const send = async (withSchema: boolean): Promise<Response> => {
+      let last: Response | null = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const res = await fetch(this.chatUrl(), {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${this.cfg.apiKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://localhost',
+            'X-Title': 'Omika',
+          },
+          body: this.body(messages, maxTokens, withSchema),
+          // Модель может зависнуть: не ждём вечно.
+          signal: AbortSignal.timeout(120_000),
+        });
+        last = res;
+        if (res.ok) return res;
+        // 429 и 5xx имеют смысл повторить; 4xx — нет.
+        if ((res.status === 429 || res.status >= 500) && attempt < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)));
+          continue;
+        }
+        return res;
+      }
+      return last as Response;
+    };
 
-    let res = await call(structured);
-    if (!res.ok && structured) {
-      // провайдер может не поддержать схему — тогда честно падаем в обычный режим
-      res = await call(false);
+    let res = await send(structured);
+    // Схему поддерживают не все провайдеры: откат только на явный отказ схемы.
+    if (!res.ok && structured && (res.status === 400 || res.status === 422)) {
+      res = await send(false);
     }
 
     if (!res.ok) {
@@ -280,16 +295,20 @@ export class OpenRouterModel implements Model {
     }
 
     const data = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
+      choices?: { message?: { content?: string }; finish_reason?: string }[];
       usage?: {
         prompt_tokens?: number;
         completion_tokens?: number;
         prompt_tokens_details?: { cached_tokens?: number };
       };
+      provider?: string;
     };
 
     const content = data.choices?.[0]?.message?.content ?? '';
     const usage = data.usage ?? {};
+    if (data.choices?.[0]?.finish_reason === 'length') {
+      console.warn(`[openrouter] обрыв по max_tokens (${this.cfg.model})`);
+    }
 
     let text = content;
     let delta: Delta | null | undefined;

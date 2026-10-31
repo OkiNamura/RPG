@@ -2402,6 +2402,9 @@ async function viewPlay(view, id) {
       typing.classList.add('hidden');
       if (started) wrap.remove();
       toast(err.message);
+      // Если поток уже начал отдавать текст, сервер, скорее всего, сохранил ход.
+      // Повторный POST дал бы второй ход за те же деньги.
+      if (started) return;
       try {
         const res = await api(`/api/campaign/${encodeURIComponent(id)}/turn`, {
           method: 'POST',

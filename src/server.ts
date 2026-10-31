@@ -14,7 +14,7 @@ import { basename, extname, join, normalize, sep } from 'node:path';
 import { generateImage, itemCardPrompt, masterCardPrompt, portraitPrompt, scenePrompt } from './core/images.ts';
 import { renderMap } from './core/map.ts';
 import { renderWorldMap } from './core/worldmap.ts';
-import { createState, normalizeState } from './core/state.ts';
+import { createState, normalizeState, type GameState } from './core/state.ts';
 import { createSession, runTurn, addUsage, type Session, type TurnStats } from './core/turn.ts';
 import {
   conspectFrom,
@@ -236,6 +236,13 @@ async function runStateAgent(
  * Всё, что старше окна последних 30 ходов, живёт только здесь, поэтому
  * контекст не растёт с длиной истории.
  */
+function trimSummary(text: string, limit = 24000): string {
+  if (text.length <= limit) return text;
+  const head = text.slice(0, 6000);
+  const tail = text.slice(-(limit - 6200));
+  return `${head}\n\n[...середина хроники сокращена...]\n\n${tail}`;
+}
+
 async function runSummary(
   session: Session,
   _input: string,
@@ -269,7 +276,8 @@ async function runSummary(
     const header = `\n\n## Арка ${arc} · ходы ${from}–${to}\n`;
     const prev = session.summary ?? '';
     // Старый конспект не переписываем: только добавляем новую арку/фрагмент.
-    session.summary = `${prev}${header}${cleaned}`.slice(-24000);
+    // При переполнении режем середину, сохраняя завязку и свежие арки.
+    session.summary = trimSummary(`${prev}${header}${cleaned}`);
   }
   session.lastSummaryTurn = to;
   return { ok: true, cost, tokensIn, tokensOut };
@@ -444,8 +452,9 @@ async function writeTrace(
       turn: stats.turn,
       input,
       prose,
-      state: structuredClone(session.state),
+      state: snapshotState(session.state),
       summary: session.summary ?? '',
+      lastSummaryTurn: session.lastSummaryTurn ?? 0,
     },
     variantFrom,
   );
@@ -584,13 +593,27 @@ async function getSession(id: string): Promise<Session | null> {
   session.agents = gameAgents;
   session.conspect = conspectFrom(saved);
   session.summary = saved.summary ?? '';
+  session.lastSummaryTurn = saved.lastSummaryTurn ?? 0;
+  // Старые сейвы без счётчика: берём последнюю арку из конспекта.
+  if (!session.lastSummaryTurn && session.summary) {
+    const arcs = [...session.summary.matchAll(/ходы (\d+)–(\d+)/g)];
+    const last = arcs.at(-1);
+    if (last) session.lastSummaryTurn = Number(last[2]);
+  }
   session.memory = saved.memory ?? '';
   session.usage = saved.usage ?? {};
   session.totals = saved.totals;
   session.quietConspect = gameAgents.summarizer.enabled;
   session.expectDelta = !gameAgents.state.enabled;
   if (saved.meta) metas.set(id, saved.meta);
-  if (saved.turns) snapshots.set(id, saved.turns);
+  if (saved.turns) {
+    // Старые снимки хранили полный лог — вычищаем при загрузке, файл сожмётся.
+    for (const snap of saved.turns) {
+      snap.state.log = [];
+      for (const variant of snap.variants ?? []) variant.state.log = [];
+    }
+    snapshots.set(id, saved.turns);
+  }
   if (saved.initial) initials.set(id, saved.initial);
   sessions.set(id, session);
   return session;
@@ -604,6 +627,7 @@ async function persist(id: string, session: Session): Promise<void> {
     state: session.state,
     conspect: session.conspect.toJSON(),
     summary: session.summary,
+    lastSummaryTurn: session.lastSummaryTurn ?? 0,
     memory: session.memory,
     usage: session.usage,
     totals: session.totals,
@@ -628,11 +652,22 @@ function restoreTo(session: Session, id: string, turn: number): boolean {
     return false;
   }
 
-  session.state = structuredClone(source.state);
+  const currentLog = session.state.log;
+  const restored = structuredClone(source.state);
+  // В снимках лог не хранится: история берётся из живого состояния и обрезается по ходу.
+  restored.log = currentLog.filter((e) => e.turn <= turn);
+  restored.turn = turn;
+  session.state = restored;
   session.summary = source.summary;
-  session.state.log = session.state.log.filter((e) => e.turn <= turn);
-  session.state.turn = turn;
+  session.lastSummaryTurn = Math.min(source.lastSummaryTurn ?? turn, turn);
   return true;
+}
+
+/** Копия состояния без лога: лог хранится один раз, в самой кампании. */
+function snapshotState(state: GameState): GameState {
+  const copy = structuredClone(state);
+  copy.log = [];
+  return copy;
 }
 
 /** Записать снимок хода: новый ответ заменяет прежний, старый уходит в варианты. */
@@ -1506,19 +1541,29 @@ const server = createServer(async (req, res) => {
         const list = snapshots.get(id) ?? [];
         const target = list.find((s) => s.turn === turn);
         if (!target) return sendJson(res, { error: 'нет снимка этого хода' }, 404);
+        if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
         if (!restoreTo(session, id, turn - 1)) {
           return sendJson(res, { error: 'нет снимка предыдущего хода' }, 400);
         }
 
-        const started = Date.now();
-        session.extraLore = pickLore(session, input);
-        const notes = pickNotes(id, session, Boolean(body.dice));
-        session.extraNotes = notes.text;
-        session.lastRoll = notes.roll;
-        const stats = await runTurn(session, input);
-        const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
-        const payload = await afterTurn(session, id, input, prose, stats, started, target);
-        return sendJson(res, payload);
+        session.busy = true;
+        try {
+          const started = Date.now();
+          session.extraLore = pickLore(session, input);
+          const notes = pickNotes(id, session, Boolean(body.dice));
+          session.extraNotes = notes.text;
+          session.lastRoll = notes.roll;
+          const stats = await runTurn(session, input);
+          const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
+          const payload = await afterTurn(session, id, input, prose, stats, started, target);
+          return sendJson(res, payload);
+        } catch (err) {
+          restoreTo(session, id, turn);
+          await persist(id, session);
+          return sendJson(res, { error: (err as Error).message }, 500);
+        } finally {
+          session.busy = false;
+        }
       }
 
       // Переключение варианта ответа на ход.
@@ -1529,24 +1574,29 @@ const server = createServer(async (req, res) => {
         const list = snapshots.get(id) ?? [];
         const snap = list.find((s) => s.turn === turn);
         if (!snap) return sendJson(res, { error: 'нет снимка этого хода' }, 404);
+        if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
 
         if (index > 0) {
           const variant = snap.variants?.[index - 1];
           if (!variant) return sendJson(res, { error: 'нет такого варианта' }, 404);
 
+          const currentLog = session.state.log;
           // Меняемся местами: текущий уходит в варианты, выбранный — в игру.
           snap.variants![index - 1] = {
             prose: snap.prose,
-            state: snap.state,
+            state: snapshotState(snap.state),
             summary: snap.summary,
+            lastSummaryTurn: snap.lastSummaryTurn,
           };
           session.state = structuredClone(variant.state);
+          session.state.log = currentLog.filter((e) => e.turn < turn);
           session.summary = variant.summary;
+          session.lastSummaryTurn = variant.lastSummaryTurn ?? Math.max(0, turn - 1);
           snap.prose = variant.prose;
-          snap.state = structuredClone(variant.state);
+          snap.state = snapshotState(variant.state);
           snap.summary = variant.summary;
+          snap.lastSummaryTurn = session.lastSummaryTurn;
 
-          session.state.log = session.state.log.filter((e) => e.turn !== turn);
           session.state.log.push({ turn, role: 'player', text: snap.input });
           session.state.log.push({ turn, role: 'gm', text: variant.prose });
         }
@@ -1901,47 +1951,59 @@ const server = createServer(async (req, res) => {
         const input = String(body.input ?? '').trim();
         if (!input) return sendJson(res, { error: 'пустой ход' }, 400);
         if (input.length > 1200) return sendJson(res, { error: 'ход слишком длинный' }, 400);
+        // Один ход на кампанию: две вкладки не должны писать в одно состояние.
+        if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
+        session.busy = true;
 
         const started = Date.now();
 
-        // Потоковый ход: текст идёт кусками, финал приходит событием done.
-        if (action === 'stream') {
-          res.writeHead(200, {
-            'Content-Type': 'text/event-stream; charset=utf-8',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
-            'X-Accel-Buffering': 'no',
-          });
+        try {
+          // Потоковый ход: текст идёт кусками, финал приходит событием done.
+          if (action === 'stream') {
+            res.writeHead(200, {
+              'Content-Type': 'text/event-stream; charset=utf-8',
+              'Cache-Control': 'no-cache',
+              Connection: 'keep-alive',
+              'X-Accel-Buffering': 'no',
+            });
 
-          const send = (event: string, data: unknown): void => {
-            res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-          };
+            const send = (event: string, data: unknown): void => {
+              res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+            };
 
-          try {
-        session.extraLore = pickLore(session, input);
-        const notes = pickNotes(id, session, Boolean(body.dice));
-        session.extraNotes = notes.text;
-        session.lastRoll = notes.roll;
-            const stats = await runTurn(session, input, (delta) => send('delta', { text: delta }));
-            const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
-            const payload = await afterTurn(session, id, input, prose, stats, started);
-            send('done', payload);
-          } catch (err) {
-            send('error', { message: err instanceof Error ? err.message : String(err) });
+            try {
+              session.extraLore = pickLore(session, input);
+              const notes = pickNotes(id, session, Boolean(body.dice));
+              session.extraNotes = notes.text;
+              session.lastRoll = notes.roll;
+              const stats = await runTurn(session, input, (delta) =>
+                send('delta', { type: 'delta', text: delta }),
+              );
+              const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
+              const payload = await afterTurn(session, id, input, prose, stats, started);
+              send('done', { type: 'done', payload });
+            } catch (err) {
+              send('error', {
+                type: 'error',
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+
+            res.end();
+            return;
           }
 
-          res.end();
-          return;
+          session.extraLore = pickLore(session, input);
+          const notes = pickNotes(id, session, Boolean(body.dice));
+          session.extraNotes = notes.text;
+          session.lastRoll = notes.roll;
+          const stats = await runTurn(session, input);
+          const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
+          const payload = await afterTurn(session, id, input, prose, stats, started);
+          return sendJson(res, payload);
+        } finally {
+          session.busy = false;
         }
-
-        session.extraLore = pickLore(session, input);
-        const notes = pickNotes(id, session, Boolean(body.dice));
-        session.extraNotes = notes.text;
-        session.lastRoll = notes.roll;
-        const stats = await runTurn(session, input);
-        const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
-        const payload = await afterTurn(session, id, input, prose, stats, started);
-        return sendJson(res, payload);
       }
     }
 
