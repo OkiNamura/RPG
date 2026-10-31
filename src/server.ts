@@ -1258,6 +1258,14 @@ const server = createServer(async (req, res) => {
           const session = await getSession(campaign);
           if (!session || !session.agents) return sendJson(res, { error: 'кампания не найдена' }, 404);
           session.agents[id] = { ...session.agents[id], ...(body as Partial<AgentConfig>) } as AgentConfig;
+          // Ползунок температуры ведущего должен победить значение мастера промтов.
+          if (id === 'gm' && typeof body.temperature === 'number') {
+            const meta = metas.get(campaign) ?? ({} as CampaignMeta);
+            const temperature = Math.max(0, Math.min(2, body.temperature));
+            meta.prompts = { ...(meta.prompts ?? {}), temperature };
+            metas.set(campaign, meta);
+            sessions.delete(campaign);
+          }
           await persist(campaign, session);
           return sendJson(res, session.agents[id]);
         }

@@ -30,3 +30,7 @@ data/dev-server.log
 
 # временные файлы аудита
 data/tmp/
+
+# локальные контентные пробы (взрослый контент, не в репозиторий)
+data/content-test.*
+scripts/content-test.mjs
