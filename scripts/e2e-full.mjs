@@ -120,6 +120,24 @@ async function main() {
   check('игра: получены промты от мастера', (created.body?.meta?.prompts?.gm ?? '').length > 200, `${(created.body?.meta?.prompts?.gm ?? '').length} симв.`);
   check('игра: своя температура', typeof created.body?.meta?.prompts?.temperature === 'number');
 
+  // Кириллический id: UI собирает его из названия истории.
+  const cyrId = `эпос-${Date.now().toString(36)}`;
+  const cyr = await api('/api/campaigns', {
+    method: 'POST',
+    body: JSON.stringify({
+      id: cyrId,
+      tone: 'тёмное фэнтези '.repeat(10),
+      world: 'пепельный город '.repeat(10),
+      hero: '# ГЕРОЙ\n- Имя: Кай',
+      generatePrompts: false,
+    }),
+  });
+  check('игра: кириллический id', cyr.status === 200, `${cyr.status} ${cyr.body?.error ?? ''}`);
+  if (cyr.status === 200) {
+    const delCyr = await api(`/api/campaign/${encodeURIComponent(cyrId)}`, { method: 'DELETE' });
+    check('игра: кириллический id удаляется', delCyr.status === 200);
+  }
+
   const art = await api(`/api/campaign/${encodeURIComponent(id)}/art`);
   check('иллюстратор: группы стиля', (art.body?.groups?.[0]?.subgroups ?? []).length === 4);
   check('иллюстратор: параметры ИИ', (art.body?.aiGroups ?? []).length === 5);

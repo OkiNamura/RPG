@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Четыре блока контекста:
  *
  *   1. ЯДРО   — неизменяемое, одно на все игры        (data/source/core.md)
@@ -32,7 +32,20 @@ export const loadHeroPrompt = (): Promise<string> => load('hero-prompt.md');
 
 /** Записать шаблон в data/source и обновить кэш. */
 export async function saveSource(name: string, text: string): Promise<void> {
-  await writeFile(join(SRC, name), text, 'utf8');
+  const path = join(SRC, name);
+  // Браузер отдаёт textarea с LF, файл может быть с CRLF. Если смысл не
+  // изменился — не перезаписываем файл и не трогаем переводы строк.
+  try {
+    const current = await readFile(path, 'utf8');
+    const flat = (value: string) => value.replace(/\r\n/g, '\n');
+    if (flat(current) === flat(text)) {
+      cache.set(name, current);
+      return;
+    }
+  } catch {
+    /* файла ещё нет — просто запишем */
+  }
+  await writeFile(path, text, 'utf8');
   cache.set(name, text);
 }
 

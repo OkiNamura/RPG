@@ -1,4 +1,4 @@
-/**
+﻿/**
  * HTTP-сервер игры: статика и API. Без зависимостей.
  *
  *   node src/server.ts
@@ -593,7 +593,7 @@ async function getSession(id: string): Promise<Session | null> {
   session.agents = gameAgents;
   session.conspect = conspectFrom(saved);
   session.summary = saved.summary ?? '';
-  session.lastSummaryTurn = saved.lastSummaryTurn ?? 0;
+  session.lastSummaryTurn = Math.min(saved.lastSummaryTurn ?? 0, session.state.turn);
   // Старые сейвы без счётчика: берём последнюю арку из конспекта.
   if (!session.lastSummaryTurn && session.summary) {
     const arcs = [...session.summary.matchAll(/ходы (\d+)–(\d+)/g)];
@@ -1326,6 +1326,10 @@ const server = createServer(async (req, res) => {
     if (path === '/api/campaigns' && req.method === 'POST') {
       const body = await readBody(req);
       const id = String(body.id ?? '').trim() || `camp-${Date.now()}`;
+      // Id становится именем файла — не пускаем слэши и переходы вверх.
+      if (!/^[\p{L}\p{N}][\p{L}\p{N}._-]{0,79}$/u.test(id) || id.includes('..')) {
+        return sendJson(res, { error: 'недопустимый id кампании' }, 400);
+      }
 
       if (await loadCampaign(DATA_DIR, id)) {
         return sendJson(res, { error: 'кампания с таким именем уже есть' }, 409);
@@ -1421,11 +1425,18 @@ const server = createServer(async (req, res) => {
     const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|context|container))?$/.exec(path);
     if (campaignMatch) {
       const id = decodeURIComponent(campaignMatch[1]);
+      // Id — это имя файла кампании: никаких слэшей и переходов вверх.
+      if (!/^[\p{L}\p{N}][\p{L}\p{N}._-]{0,79}$/u.test(id) || id.includes('..')) {
+        return sendJson(res, { error: 'недопустимый id кампании' }, 400);
+      }
       const action = campaignMatch[2] ?? '';
       const isTurn = action === 'turn';
 
       if (req.method === 'DELETE' && !action) {
         sessions.delete(id);
+        snapshots.delete(id);
+        initials.delete(id);
+        metas.delete(id);
         await unlink(join(DATA_DIR, `${id}.json`)).catch(() => undefined);
         return sendJson(res, { ok: true });
       }
@@ -1436,6 +1447,7 @@ const server = createServer(async (req, res) => {
       // Контейнер игры: агенты с промтами, предметы, конспект, галерея.
       if (action === 'container' && req.method === 'GET') {
         const meta = metas.get(id) ?? {};
+        const savedFile = await loadCampaign(DATA_DIR, id);
         const gameAgents = (session.agents ?? agents) as unknown as Record<string, unknown>;
         return sendJson(res, {
           id,
@@ -1443,7 +1455,7 @@ const server = createServer(async (req, res) => {
           turn: session.state.turn,
           place: session.state.place,
           time: session.state.time,
-          savedAt: (meta as { savedAt?: string }).savedAt,
+          savedAt: savedFile?.savedAt,
           agents: Object.fromEntries(
             Object.entries(gameAgents).map(([agentId, value]) => {
               const agent = value as { title?: string; model?: string; temperature?: number; maxTokens?: number; enabled?: boolean; prompt?: string; keyRef?: string };
@@ -1508,7 +1520,13 @@ const server = createServer(async (req, res) => {
 
       // Отладочный снимок последнего контекста: что именно ушло в модель.
       if (action === 'context' && req.method === 'GET') {
-        if (!session.lastContext) return sendJson(res, { error: 'ещё не было ходов' }, 404);
+        if (!session.lastContext) {
+          return sendJson(
+            res,
+            { error: 'контекст последнего хода живёт в памяти; после перезапуска сделайте новый ход' },
+            409,
+          );
+        }
         return sendJson(res, { id, turn: session.state.turn, ...session.lastContext });
       }
 
@@ -1519,19 +1537,29 @@ const server = createServer(async (req, res) => {
         const list = snapshots.get(id) ?? [];
         const target = list.find((s) => s.turn === turn);
         if (!target) return sendJson(res, { error: 'нет снимка этого хода' }, 404);
+        if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
         if (!restoreTo(session, id, turn - 1)) {
           return sendJson(res, { error: 'нет снимка предыдущего хода' }, 400);
         }
 
-        const started = Date.now();
-        session.extraLore = pickLore(session, target.input);
-        const notes = pickNotes(id, session, false);
-        session.extraNotes = notes.text;
-        session.lastRoll = notes.roll;
-        const stats = await runTurn(session, target.input);
-        const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
-        const payload = await afterTurn(session, id, target.input, prose, stats, started, target);
-        return sendJson(res, payload);
+        session.busy = true;
+        try {
+          const started = Date.now();
+          session.extraLore = pickLore(session, target.input);
+          const notes = pickNotes(id, session, false);
+          session.extraNotes = notes.text;
+          session.lastRoll = notes.roll;
+          const stats = await runTurn(session, target.input);
+          const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
+          const payload = await afterTurn(session, id, target.input, prose, stats, started, target);
+          return sendJson(res, payload);
+        } catch (err) {
+          restoreTo(session, id, turn);
+          await persist(id, session);
+          return sendJson(res, { error: (err as Error).message }, 500);
+        } finally {
+          session.busy = false;
+        }
       }
 
       // Правка реплики игрока: откат назад и новый ход с другим текстом.
@@ -1579,13 +1607,15 @@ const server = createServer(async (req, res) => {
         if (!snap) return sendJson(res, { error: 'нет снимка этого хода' }, 404);
         if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
 
-        if (index > 0) {
-          const variant = snap.variants?.[index - 1];
+        if (index >= 0) {
+          // 0 — вернуться к исходному варианту, который лежит в variants[0].
+          const slot = index === 0 ? 0 : index - 1;
+          const variant = snap.variants?.[slot];
           if (!variant) return sendJson(res, { error: 'нет такого варианта' }, 404);
 
           const currentLog = session.state.log;
           // Меняемся местами: текущий уходит в варианты, выбранный — в игру.
-          snap.variants![index - 1] = {
+          snap.variants![slot] = {
             prose: snap.prose,
             state: snapshotState(snap.state),
             summary: snap.summary,
@@ -1974,6 +2004,10 @@ const server = createServer(async (req, res) => {
               res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
             };
 
+            // Пустой delta сразу: клиент понимает, что ход уже принят сервером,
+            // и при обрыве позже не отправляет тот же ввод повторно.
+            send('delta', { type: 'delta', text: '' });
+
             try {
               session.extraLore = pickLore(session, input);
               const notes = pickNotes(id, session, Boolean(body.dice));
@@ -2011,12 +2045,15 @@ const server = createServer(async (req, res) => {
     }
 
     if (path.startsWith('/api/images/') && req.method === 'GET') {
-      // Путь приходит закодированным — файл ищем по декодированному имени.
-      let file = basename(path);
+      // Сначала декодируем, потом берём basename: иначе %2F может увести из папки.
+      let file = '';
       try {
-        file = decodeURIComponent(file);
+        file = basename(decodeURIComponent(path.slice('/api/images/'.length)));
       } catch {
-        /* оставляем как есть */
+        return sendJson(res, { error: 'плохое имя файла' }, 400);
+      }
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(file) || file.includes('..')) {
+        return sendJson(res, { error: 'плохое имя файла' }, 400);
       }
       try {
         const data = await readFile(join(IMAGES_DIR, file));

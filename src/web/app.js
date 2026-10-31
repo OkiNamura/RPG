@@ -612,7 +612,7 @@ function agentCard(agent, campaign, keys = []) {
     status.textContent = 'сохраняю…';
     try {
       const payload = {
-        keyRef: keySelect.value || undefined,
+        keyRef: keySelect.value || '',
         model: modelInput.value,
         temperature: Number(temp.value),
         maxTokens: Number(maxTokens.value),
@@ -3057,9 +3057,8 @@ async function viewCore(view) {
     });
 
     cancel.addEventListener('click', async () => {
-      status.textContent = 'отменяю…';
       await build();
-      status.textContent = 'изменения отменены';
+      toast('изменения отменены');
     });
   };
 
