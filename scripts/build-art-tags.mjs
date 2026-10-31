@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Сборка каталога тегов для генерации иллюстраций.
  *
  * Это отдельный блок от тегов тона: стиль, адаптация текста в кадр,
@@ -1114,6 +1114,7 @@ async function main() {
   if (check.total !== initial.total || check.groupCount !== initial.groupCount) {
     fail([`После записи изменилось количество: было ${initial.total}, стало ${check.total}`]);
     return;
+  }
   if (check.duplicateCount !== 0) {
     fail([`В каталоге осталось дублей: ${check.duplicateCount}`]);
     return;
@@ -1146,7 +1147,5 @@ async function main() {
     const field = group.subgroups[0].fields[0];
     console.log(`  ${field.name} — ${field.description}`);
   }
-}
-
 }
 await main();

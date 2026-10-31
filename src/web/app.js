@@ -1,4 +1,4 @@
-﻿/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
+/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -2694,6 +2694,18 @@ async function viewKeys(view) {
         } catch (err) {
           modelsBox.replaceChildren(el('p', 'page-sub', err.message));
         }
+      });
+      const edit = el('button', 'btn small', 'Изменить');
+      edit.type = 'button';
+      edit.addEventListener('click', () => {
+        editingId = key.id;
+        formHead.replaceChildren(el('h3', '', `Ключ: ${key.name}`));
+        name.value = key.name;
+        provider.value = key.provider;
+        baseUrl.value = key.baseUrl;
+        apiKey.value = '';
+        cancel.classList.remove('hidden');
+        window.scrollTo({ top: 0 });
       });
       const del = el('button', 'btn small danger', 'Удалить');
       del.type = 'button';

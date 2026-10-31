@@ -23,3 +23,7 @@ PRG.zip
 # локальные инструменты и скриншоты
 tools/
 .shots/
+
+# трейсы промтов
+data/traces/
+data/dev-server.log

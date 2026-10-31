@@ -9,7 +9,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import { basename, extname, join, normalize, sep } from 'node:path';
 import { generateImage, itemCardPrompt, masterCardPrompt, portraitPrompt, scenePrompt } from './core/images.ts';
 import { renderMap } from './core/map.ts';
@@ -112,6 +112,7 @@ try {
 const PORT = Number(process.env.PORT ?? 7801);
 const WEB_DIR = join(import.meta.dirname, 'web');
 const DATA_DIR = join(import.meta.dirname, '..', 'data', 'campaigns');
+const TRACES_DIR = join(import.meta.dirname, '..', 'data', 'traces');
 const IMAGES_DIR = join(import.meta.dirname, '..', 'data', 'images');
 const AGENTS_DIR = join(import.meta.dirname, '..', 'data');
 const MODEL = process.env.OMIKA_MODEL ?? process.env.PRG_MODEL ?? 'deepseek/deepseek-v4-flash-0731';
@@ -374,6 +375,34 @@ function compositionModel(
   return model ? { model, system: modulePrompt } : null;
 }
 
+/** JSONL-трейс хода: что ушло в модель и что вернулось. */
+async function writeTrace(
+  id: string,
+  session: Session,
+  payload: { input: string; prose: string; stats: TurnStats },
+): Promise<void> {
+  if (process.env.OMIKA_TRACE === '0') return;
+  try {
+    const dir = TRACES_DIR;
+    await mkdir(dir, { recursive: true });
+    const day = new Date().toISOString().slice(0, 10);
+    const record = {
+      ts: new Date().toISOString(),
+      id,
+      turn: session.state.turn,
+      model: (session.model as { name?: string }).name ?? MODEL,
+      stats: payload.stats,
+      segments: session.lastContext?.segments ?? [],
+      messages: session.lastContext?.messages ?? [],
+      input: payload.input,
+      prose: payload.prose,
+    };
+    await appendFile(join(dir, `${day}.jsonl`), `${JSON.stringify(record)}\n`, 'utf8');
+  } catch (err) {
+    console.error('[trace]', (err as Error).message);
+  }
+}
+
 /**
  * Общая часть после хода: агент состояния и конспектировщик параллельно,
  * сохранение на диск и готовый ответ. Одинаково для обычного и потокового хода.
@@ -421,6 +450,7 @@ function compositionModel(
     variantFrom,
   );
 
+  await writeTrace(id, session, { input, prose, stats });
   await persist(id, session);
 
   return {
