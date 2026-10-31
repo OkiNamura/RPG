@@ -40,7 +40,7 @@ export type AgentSet = Record<AgentId, AgentConfig>;
 
 const MODEL = 'deepseek/deepseek-v4-flash-0731';
 /** Модель рисования, которую просил заказчик. */
-export const IMAGE_MODEL = 'bytedance/seedream-5.0-flash';
+export const IMAGE_MODEL = 'qwen/qwen-image-3';
 /** Если Seedream недоступен у провайдера — рисуем этой. */
 export const IMAGE_FALLBACK_MODEL = 'google/gemini-3.1-flash-lite-image';
 

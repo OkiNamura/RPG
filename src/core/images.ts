@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Генерация иллюстраций.
  *
  * Картинка приходит от модели как data-URL в ответе чата, мы сохраняем её
@@ -27,7 +27,70 @@ interface ImageOptions {
   timeoutMs?: number;
 }
 
+async function generateQwenImage(options: ImageOptions): Promise<ImageResult> {
+  const started = Date.now();
+  const base = String(options.baseUrl ?? '').replace(/\/+$/, '') || 'https://openrouter.ai/api/v1';
+  const body: Record<string, unknown> = {
+    model: options.model,
+    prompt: options.prompt,
+    aspect_ratio: '9:16',
+    resolution: '1K',
+    n: 1,
+  };
+  if (options.references?.length) {
+    body.input_references = options.references
+      .slice(0, 3)
+      .map((url) => ({ type: 'image_url', image_url: { url } }));
+  }
+  const res = await fetch(`${base}/images`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${options.apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://localhost',
+      'X-Title': 'Omika',
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(options.timeoutMs ?? 120_000),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`картинка не вышла: ${res.status} ${detail.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as {
+    data?: { b64_json?: string; url?: string }[];
+    usage?: { cost?: number };
+  };
+  const first = data.data?.[0];
+  let buffer: Buffer;
+  if (first?.b64_json) {
+    buffer = Buffer.from(first.b64_json, 'base64');
+  } else if (first?.url) {
+    const image = await fetch(first.url, { signal: AbortSignal.timeout(options.timeoutMs ?? 120_000) });
+    if (!image.ok) throw new Error(`картинка не скачалась: ${image.status}`);
+    buffer = Buffer.from(await image.arrayBuffer());
+  } else {
+    throw new Error('модель не вернула картинку');
+  }
+  return {
+    buffer,
+    mime:
+      buffer[0] === 0xff && buffer[1] === 0xd8
+        ? 'image/jpeg'
+        : buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+          ? 'image/png'
+          : 'image/png',
+    cost: data.usage?.cost ?? 0.03 + (options.references?.length ?? 0) * 0.003,
+    ms: Date.now() - started,
+    model: options.model,
+  };
+}
+
 export async function generateImage(options: ImageOptions): Promise<ImageResult> {
+  // Qwen Image 3 живёт на отдельном /images endpoint, а не в chat/completions.
+  if (/^qwen\/qwen-image/i.test(options.model)) {
+    return generateQwenImage(options);
+  }
   const started = Date.now();
 
   const content: unknown[] = [{ type: 'text', text: options.prompt }];
