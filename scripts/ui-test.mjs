@@ -333,10 +333,11 @@ async function main() {
     input.dispatchEvent(new window.Event('input', { bubbles: true }));
     window.document.querySelector('.composer').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
 
-    await until(() => $$('.msg').length > before + 1, 60000);
+    // Ждём и реплику игрока, и ответ ведущего: +1 — это ещё только отправка.
+    await until(() => $$('.msg').length > before + 2, 90000);
     pass('игра: ход отправлен и ответ пришёл');
 
-    const rollCard = await until(() => window.document.querySelector('.msg.roll'), 20000);
+    const rollCard = await until(() => window.document.querySelector('.msg.roll'), 30000);
     if (!rollCard.querySelector('.roll-face')) throw new Error('у броска нет грани');
     pass(`игра: бросок карточкой (${rollCard.querySelector('.roll-face').textContent})`);
 
