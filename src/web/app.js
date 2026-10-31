@@ -268,6 +268,7 @@ async function viewContainer(view, id) {
     locations: campaign.state?.locations ?? [],
     summary: campaign.summary ?? '',
     memory: campaign.memory ?? '',
+    arcs: campaign.arcs ?? [],
     conspect: campaign.conspect ?? '',
     illustrations: campaign.state?.illustrations ?? [],
   };
@@ -417,6 +418,16 @@ async function viewContainer(view, id) {
   const summaryPre = el('pre', 'prompt-dump conspect-dump');
   summaryPre.textContent = data.summary || '(конспект пока пуст)';
   logCard.append(summaryPre);
+  if ((data.arcs ?? []).length) {
+    const archive = el('details', 'container-agent');
+    archive.append(el('summary', '', `Архив старых арок (${data.arcs.length})`));
+    for (const arcText of data.arcs) {
+      const pre = el('pre', 'prompt-dump');
+      pre.textContent = arcText;
+      archive.append(pre);
+    }
+    logCard.append(archive);
+  }
   if (data.conspect) {
     const frozen = el('details', 'container-agent');
     frozen.append(el('summary', '', 'Замороженный конспект текущего окна'));
@@ -2268,7 +2279,9 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     const cons = el('details', 'card');
     cons.append(el('summary', '', 'Конспект'));
     const consBody = el('div', 'card-body');
-    consBody.append(el('p', 'page-sub', summary.slice(0, 3000)));
+    const pre = el('pre', 'prompt-dump conspect-panel');
+    pre.textContent = summary;
+    consBody.append(pre);
     cons.append(consBody);
     frag.append(section('Конспект', [cons]));
   }

@@ -271,11 +271,87 @@ function dedupeArcs(summary: string): string {
   );
   return [...head, ...kept.flatMap((block) => block.lines)].join('\n').trim();
 }
-function trimSummary(text: string, limit = 24000): string {
+interface SummaryArc {
+  from: number;
+  to: number;
+  text: string;
+}
+
+/** Разобрать конспект на шапку и целые блоки арок. */
+function splitSummaryArcs(text: string): { head: string; arcs: SummaryArc[] } {
+  const head: string[] = [];
+  const arcs: SummaryArc[] = [];
+  let current: { from: number; to: number; lines: string[] } | null = null;
+  const flush = () => {
+    if (!current) return;
+    arcs.push({ from: current.from, to: current.to, text: current.lines.join('\n').trim() });
+    current = null;
+  };
+  for (const line of text.split('\n')) {
+    if (line.includes('[...середина хроники сокращена...]')) continue;
+    const match = /^## Арка (\d+) · ходы (\d+)–(\d+)/.exec(line);
+    if (match) {
+      flush();
+      current = { from: Number(match[2]), to: Number(match[3]), lines: [line] };
+    } else if (current) {
+      current.lines.push(line);
+    } else {
+      head.push(line);
+    }
+  }
+  flush();
+  return { head: head.join('\n').trim(), arcs };
+}
+
+/** Обрезать конспект целыми арками: завязка и свежие арки остаются. */
+function trimSummary(text: string, limit = 65000): string {
   if (text.length <= limit) return text;
-  const head = text.slice(0, 6000);
-  const tail = text.slice(-(limit - 6200));
-  return `${head}\n\n[...середина хроники сокращена...]\n\n${tail}`;
+  const { head, arcs } = splitSummaryArcs(text);
+  if (!arcs.length) return text.slice(0, limit);
+  const marker = '[...середина хроники сокращена...]';
+  const first = arcs[0];
+  const tail: SummaryArc[] = [];
+  let size = head.length + first.text.length + marker.length;
+  for (let i = arcs.length - 1; i >= 1; i -= 1) {
+    const block = arcs[i];
+    if (size + block.text.length > limit) break;
+    tail.unshift(block);
+    size += block.text.length;
+  }
+  return [head, first.text, marker, ...tail.map((block) => block.text)]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/** Восстановить потерянные при старом обрезании арки из снимков ходов. */
+/** Убрать повторяющиеся служебные заголовки старых фрагментов конспекта. */
+/** Есть ли разрыв в диапазонах арок — след старого обрезания. */
+function hasArcGap(text: string): boolean {
+  const arcs = splitSummaryArcs(text).arcs;
+  for (let i = 1; i < arcs.length; i += 1) {
+    if (arcs[i].from > arcs[i - 1].to + 1) return true;
+  }
+  return false;
+}
+
+function stripSummaryHeadings(text: string): string {
+  return text
+    .replace(/^#\s*(АРКИ|ТОЧКА ВХОДА[^\n]*|КРЮЧКИ[^\n]*|ДОЛГИ[^\n]*)$/gim, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function mergeSummaryArcs(summary: string, snapshots: string[]): string {
+  const primary = splitSummaryArcs(summary);
+  const byRange = new Map<string, SummaryArc>();
+  for (const source of [...snapshots, summary]) {
+    for (const arc of splitSummaryArcs(source).arcs) {
+      byRange.set(`${arc.from}:${arc.to}`, arc);
+    }
+  }
+  const arcs = [...byRange.values()].sort((a, b) => a.from - b.from || a.to - b.to);
+  if (!arcs.length) return summary;
+  return [primary.head, ...arcs.map((arc) => arc.text)].filter(Boolean).join('\n\n').trim();
 }
 
 async function runSummary(
@@ -305,14 +381,32 @@ async function runSummary(
   const cost = costOf(tokensIn, tokensOut);
   addUsage(session, 'summarizer', tokensIn, tokensOut, cost);
 
-  const cleaned = reply.text.replace(/^\s*КОНСПЕКТ:\s*/i, '').trim();
+  const cleaned = reply.text
+    .replace(/^\s*КОНСПЕКТ:\s*/i, '')
+    .replace(/^#\s*(АРКИ|ТОЧКА ВХОДА.*|КРЮЧКИ.*|ДОЛГИ.*)$/gim, '')
+    .trim();
   if (cleaned) {
     const arc = Math.floor((to - 1) / 10) + 1;
     const header = `\n\n## Арка ${arc} · ходы ${from}–${to}\n`;
     const prev = session.summary ?? '';
     // Старый конспект не переписываем: только добавляем новую арку/фрагмент.
-    // При переполнении режем середину, сохраняя завязку и свежие арки.
-    session.summary = trimSummary(`${prev}${header}${cleaned}`);
+    const before = `${prev}${header}${cleaned}`;
+    const trimmed = trimSummary(before);
+    if (trimmed !== before) {
+      // Вытесненные из summary арки не теряем, а складываем в архив.
+      const kept = new Set(splitSummaryArcs(trimmed).arcs.map((item) => `${item.from}:${item.to}`));
+      const lost = splitSummaryArcs(before).arcs.filter((item) => !kept.has(`${item.from}:${item.to}`));
+      const archive = session.arcArchive ?? [];
+      const known = new Set(splitSummaryArcs(archive.join('\n\n')).arcs.map((item) => `${item.from}:${item.to}`));
+      for (const block of lost) {
+        if (!known.has(`${block.from}:${block.to}`)) {
+          archive.push(block.text);
+          known.add(`${block.from}:${block.to}`);
+        }
+      }
+      session.arcArchive = archive.slice(-100);
+    }
+    session.summary = stripSummaryHeadings(trimmed);
   }
   session.lastSummaryTurn = to;
   return { ok: true, cost, tokensIn, tokensOut };
@@ -505,6 +599,8 @@ async function writeTrace(
     summarized,
     problems: stats.problems,
     state: session.state,
+    summary: session.summary ?? '',
+    memory: session.memory ?? '',
     map: renderDungeon(generateDungeon(session.state.place, { width: 31, height: 14 })),
     worldMap: renderWorldMap(
       metas.get(id)?.presetTitle || metas.get(id)?.title || id,
@@ -623,12 +719,31 @@ async function getSession(id: string): Promise<Session | null> {
     state: normalizeState(saved.state),
     model,
     prices,
-    windowTurns: 30,
+    windowTurns: 24,
     summarizeEvery: 10,
   });
   session.agents = gameAgents;
   session.conspect = conspectFrom(saved);
-  session.summary = dedupeArcs(saved.summary ?? '');
+  const originalSummary = saved.summary ?? '';
+  // Восстанавливаем потерянные арки только у старых сейвов без архива.
+  // Если архив уже есть, summary обрезан осознанно — не раздуваем его обратно.
+  const needsArcMerge =
+    !(saved.arcArchive ?? []).length &&
+    (originalSummary.includes('[...середина хроники сокращена...]') || hasArcGap(originalSummary));
+  const mergedSummary = stripSummaryHeadings(
+    needsArcMerge
+      ? dedupeArcs(
+          mergeSummaryArcs(
+            originalSummary,
+            (saved.turns ?? []).map((snap) => snap.summary ?? ''),
+          ),
+        )
+      : originalSummary,
+  );
+  let cleanedSnapshots = false;
+  if (mergedSummary !== originalSummary) cleanedSnapshots = true;
+  session.summary = mergedSummary;
+  session.arcArchive = saved.arcArchive ?? [];
   session.lastSummaryTurn = Math.min(saved.lastSummaryTurn ?? 0, session.state.turn);
   // Старые сейвы без счётчика: берём последнюю арку из конспекта.
   if (!session.lastSummaryTurn && session.summary) {
@@ -642,10 +757,9 @@ async function getSession(id: string): Promise<Session | null> {
   session.quietConspect = gameAgents.summarizer.enabled;
   session.expectDelta = !gameAgents.state.enabled;
   if (saved.meta) metas.set(id, saved.meta);
-  let cleanedSnapshots = false;
   if (saved.turns) {
     // Старые снимки хранили полный лог и могли копиться сотнями — чистим и режем.
-    const keptTurns = saved.turns.slice(-40);
+    const keptTurns = saved.turns.slice(-24);
     if (keptTurns.length !== saved.turns.length) cleanedSnapshots = true;
     for (const snap of keptTurns) {
       if (snap.state.log?.length) cleanedSnapshots = true;
@@ -671,6 +785,7 @@ async function persist(id: string, session: Session): Promise<void> {
     state: session.state,
     conspect: session.conspect.toJSON(),
     summary: session.summary,
+    arcArchive: session.arcArchive ?? [],
     lastSummaryTurn: session.lastSummaryTurn ?? 0,
     memory: session.memory,
     usage: session.usage,
@@ -735,8 +850,8 @@ function saveSnapshot(
   else list.push(snapshot);
 
   list.sort((a, b) => a.turn - b.turn);
-  // Держим последние 40 ходов: снимки по 20–50 КБ иначе раздувают файл.
-  snapshots.set(id, list.slice(-40));
+  // Держим последние 24 хода: снимки по 20–50 КБ иначе раздувают файл.
+  snapshots.set(id, list.slice(-24));
 }
 
 interface CampaignRow {
@@ -1450,7 +1565,7 @@ const server = createServer(async (req, res) => {
         state,
         model,
         prices,
-        windowTurns: 30,
+        windowTurns: 24,
         summarizeEvery: 10,
       });
       session.agents = gameAgents;
@@ -1533,6 +1648,7 @@ const server = createServer(async (req, res) => {
           summary: session.summary ?? '',
           memory: session.memory ?? '',
           conspect: session.conspect.renderFrozen(),
+          arcs: session.arcArchive ?? [],
           illustrations: session.state.illustrations ?? [],
         });
       }
@@ -1546,6 +1662,7 @@ const server = createServer(async (req, res) => {
           model: MODEL,
           summary: session.summary ?? '',
           memory: session.memory ?? '',
+          arcs: session.arcArchive ?? [],
           map: renderDungeon(generateDungeon(session.state.place, { width: 31, height: 14 })),
           worldMap: renderWorldMap(
             metas.get(id)?.presetTitle || metas.get(id)?.title || id,

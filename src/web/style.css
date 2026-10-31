@@ -2963,3 +2963,11 @@ button.primary {
     max-width: 100%;
   }
 }
+
+.conspect-panel {
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}

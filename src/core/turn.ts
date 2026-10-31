@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Цикл одного хода.
  *
  * Контекст собирается ДО изменения стейта — так кэш считается по тому,
@@ -70,6 +70,8 @@ export interface Session {
   lastSegments: Segment[];
   /** ход, на котором конспект в последний раз обновлялся агентом */
   lastSummaryTurn?: number;
+  /** старые арки, вытесненные из summary, но не потерянные */
+  arcArchive?: string[];
   /** конспектом владеет агент — механические строки не пишем */
   quietConspect?: boolean;
   /** состоянием владеет агент — от ведущего JSON не требуем */
@@ -114,7 +116,7 @@ export function createSession(params: {
     prices: params.prices,
     totals: { tokensIn: 0, tokensOut: 0, cached: 0, cost: 0 },
     usage: {},
-    windowTurns: params.windowTurns ?? 30,
+    windowTurns: params.windowTurns ?? 24,
     summarizeEvery: params.summarizeEvery ?? 10,
     lastSegments: [],
   };
