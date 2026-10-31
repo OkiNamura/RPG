@@ -1,4 +1,4 @@
-﻿/**
+/**
  * HTTP-сервер игры: статика и API. Без зависимостей.
  *
  *   node src/server.ts
@@ -25,7 +25,7 @@ import {
   type TurnVariant,
 } from './core/storage.ts';
 import { OpenRouterModel, fetchPricing } from './core/openrouter.ts';
-import { applyDelta, type Delta } from './core/delta.ts';
+import { applyDelta, type ActorPatch, type Delta } from './core/delta.ts';
 import { renderState } from './core/context.ts';
 import {
   DEFAULT_AGENTS,
@@ -782,10 +782,10 @@ const server = createServer(async (req, res) => {
       const body = await readBody(req);
       try {
         const saved = await keyStore.save({
-          name: body.name,
-          provider: body.provider,
-          baseUrl: body.baseUrl,
-          apiKey: body.apiKey,
+          name: String(body.name ?? ''),
+          provider: body.provider === 'custom' ? 'custom' : 'openrouter',
+          baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl : undefined,
+          apiKey: typeof body.apiKey === 'string' ? body.apiKey : undefined,
         });
         return sendJson(res, { key: saved });
       } catch (err) {
@@ -799,10 +799,10 @@ const server = createServer(async (req, res) => {
       try {
         const saved = await keyStore.save({
           id,
-          name: body.name,
-          provider: body.provider,
-          baseUrl: body.baseUrl,
-          apiKey: body.apiKey,
+          name: String(body.name ?? ''),
+          provider: body.provider === 'custom' ? 'custom' : 'openrouter',
+          baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl : undefined,
+          apiKey: typeof body.apiKey === 'string' ? body.apiKey : undefined,
         });
         return sendJson(res, { key: saved });
       } catch (err) {
@@ -830,7 +830,7 @@ const server = createServer(async (req, res) => {
 
     if (path === '/api/keys/test' && req.method === 'POST') {
       const body = await readBody(req);
-      const baseUrl = normalizeBaseUrl(body.baseUrl);
+      const baseUrl = normalizeBaseUrl(typeof body.baseUrl === 'string' ? body.baseUrl : undefined);
       const apiKey = String(body.apiKey ?? '').trim();
       try {
         const models = await fetchKeyModels({ baseUrl, apiKey });
@@ -901,7 +901,10 @@ const server = createServer(async (req, res) => {
             ...(nextMeta.prompts ?? {}),
             gm: typeof body.gm === 'string' ? body.gm : nextMeta.prompts?.gm,
             temperature: typeof body.temperature === 'number' ? body.temperature : nextMeta.prompts?.temperature,
-            artists: { ...(nextMeta.prompts?.artists ?? {}), ...(body.artists ?? {}) },
+            artists: {
+              ...(nextMeta.prompts?.artists ?? {}),
+              ...((body.artists ?? {}) as Record<string, string>),
+            },
           };
         }
         const { version: _v, savedAt: _s, ...rest } = saved as unknown as Record<string, unknown>;

@@ -49,8 +49,18 @@ export interface Delta {
   }[];
   npcs?: ActorPatch[];
   party?: ActorPatch[];
-  factions?: { name: string; attitude?: number; note?: string }[];
+  factions?: {
+    name: string;
+    attitude?: number;
+    note?: string;
+    leader?: string;
+    shadow?: string;
+    roster?: { name: string; role: string; note?: string; hidden?: boolean }[];
+  }[];
   places?: { name: string; note?: string }[];
+  lore?: { keys: string[]; content: string }[];
+  intuition?: string;
+  heroSkills?: Record<string, number>;
   hooks?: string[];
   /** закрытые крючки и обещания уходят в архив, а не висят вечно */
   resolveHooks?: string[];

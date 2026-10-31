@@ -1,4 +1,4 @@
-/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
+﻿/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -321,7 +321,7 @@ async function viewContainer(view, id) {
   const itemCard = section('Карточки предметов', `${(data.items ?? []).length} у героя`);
   const items = el('div', 'item-grid');
   for (const item of data.items ?? []) {
-    const box = el('div', 'item-card');
+    const box = el('div', 'item-box');
     box.append(el('b', '', item.name));
     const meta = el('div', 'item-meta');
     meta.append(el('span', '', `×${item.qty ?? 1}`), el('span', '', item.where ?? ''));

@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --bg: #0a0a0c;
   --bg-soft: #101013;
   --panel: #141417;
@@ -2577,14 +2577,14 @@ button.primary {
   gap: 10px;
 }
 
-.item-card {
+.item-box {
   border: 1px solid var(--line-soft);
   border-radius: 10px;
   padding: 10px 12px;
   background: #101014;
 }
 
-.item-card b {
+.item-box b {
   font-weight: 500;
 }
 
@@ -2629,4 +2629,77 @@ button.primary {
 
 .gallery-item:hover {
   border-color: var(--gold-dim);
+}
+
+/* Список предметов в панели: не даём строкам наезжать друг на друга */
+.items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.items li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.items li > span:first-child {
+  flex: 1 1 130px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.items li .tag {
+  flex: 0 0 auto;
+}
+
+.items li button {
+  flex: 0 0 auto;
+}
+
+.item-box {
+  min-width: 0;
+}
+
+.item-box b {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.item-meta {
+  flex-wrap: wrap;
+}
+
+.item-grid {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+/* Строка предмета в панели: одна линия, имя с многоточием */
+.items li {
+  flex-wrap: nowrap;
+}
+
+.items li > span:first-child {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.items li .tag {
+  font-size: 9px;
+}
+
+.items li button {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  line-height: 1;
 }

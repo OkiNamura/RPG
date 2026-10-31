@@ -19,3 +19,7 @@ data/context-dump.md
 data/keys.json
 PRG.zip
 .ssh/
+
+# локальные инструменты и скриншоты
+tools/
+.shots/
