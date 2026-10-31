@@ -303,6 +303,23 @@ async function main() {
     fail('истории', e.message);
   }
 
+  // ---------- шаблоны героя и NPC ----------
+  try {
+    window.location.hash = '#/templates';
+    await until(() => window.document.querySelector('.template-card'), 15000);
+    const cards = $$('.template-card').length;
+    if (cards < 6) throw new Error(`шаблонов мало: ${cards}`);
+    const npcTab = [...window.document.querySelectorAll('.template-tabs .chip')].find((b) =>
+      b.textContent.startsWith('NPC'),
+    );
+    if (!npcTab) throw new Error('нет вкладки NPC');
+    click(npcTab);
+    await until(() => window.document.querySelector('.template-select'), 10000);
+    pass(`шаблоны: ${cards} карточек героев, NPC и добавление в игру`);
+  } catch (e) {
+    fail('шаблоны', e.message);
+  }
+
   // ---------- игра ----------
   try {
     const list = await (await fetch(BASE + '/api/campaigns')).json();

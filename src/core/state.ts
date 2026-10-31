@@ -49,6 +49,8 @@ export interface Actor {
   portrait?: string;
   /** мастер-лист: референс для всех дальнейших кадров */
   card?: string;
+  /** способности из шаблона NPC */
+  abilities?: string;
   /** чувства внутри пати: ревность, любовь, зависть */
   relations?: { with: string; feeling: string }[];
 }
@@ -148,6 +150,9 @@ export interface GameState {
     intuition?: string;
     /** мастер-лист героя: по нему рисуются сцены */
     card?: string;
+    /** прошлое и способности — из шаблона героя */
+    bio?: string;
+    abilities?: string;
   };
   money: { gold: number; silver: number; copper: number };
   items: Item[];

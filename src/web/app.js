@@ -142,6 +142,7 @@ async function router() {
   try {
     if (name === 'stories') await viewStories(view);
     else if (name === 'agents') await viewAgents(view);
+    else if (name === 'templates') await viewTemplates(view);
     else if (name === 'core') await viewCore(view);
     else if (name === 'keys') await viewKeys(view);
     else if (name === 'stats') await viewStats(view);
@@ -964,6 +965,145 @@ async function getCatalog() {
   return catalogCache;
 }
 
+function templateSkills(skills) {
+  const wrap = el('div', 'person-skills');
+  for (const [name, value] of Object.entries(skills ?? {})) {
+    const line = el('div', 'skill-row');
+    line.append(el('span', 'skill-name', name));
+    const bar = el('div', 'skill-bar');
+    const fill = el('i');
+    fill.style.width = `${Math.max(0, Math.min(20, Number(value) || 0)) * 5}%`;
+    bar.append(fill);
+    line.append(bar, el('span', 'skill-value', String(value)));
+    wrap.append(line);
+  }
+  return wrap;
+}
+
+function templateField(label, value) {
+  if (!value) return null;
+  const box = el('div', 'template-field');
+  box.append(el('span', 'person-label', label), el('div', 'person-value', value));
+  return box;
+}
+
+async function viewTemplates(view) {
+  const [data, campaigns] = await Promise.all([api('/api/templates'), api('/api/campaigns')]);
+  const page = el('div', 'page');
+  page.append(
+    pageHead(
+      'Библиотека шаблонов',
+      'Шаблоны',
+      'Готовые карточки героев и NPC: история, характер, способности и навыки. Героя можно взять в новую игру, NPC — добавить в текущую.',
+    ),
+  );
+
+  const tabs = el('div', 'chips template-tabs');
+  const grid = el('div', 'template-grid');
+  let tab = 'heroes';
+
+  const render = () => {
+    tabs.replaceChildren();
+    for (const [key, label] of [['heroes', 'Герои'], ['npcs', 'NPC']]) {
+      const chip = el('button', `chip${tab === key ? ' active' : ''}`, `${label} (${(data[key] ?? []).length})`);
+      chip.type = 'button';
+      chip.addEventListener('click', () => {
+        tab = key;
+        render();
+      });
+      tabs.append(chip);
+    }
+
+    grid.replaceChildren();
+    const list = data[tab] ?? [];
+    if (!list.length) grid.append(emptyBox('Пусто', 'В data/templates.json нет карточек этого типа.'));
+
+    for (const tpl of list) {
+      const card = el('article', 'template-card');
+      const head = el('div', 'template-head');
+      head.append(el('div', 'person-avatar person-initial', (tpl.name || '?').slice(0, 1)));
+      const titles = el('div', 'person-titles');
+      titles.append(el('h3', 'person-name', tpl.name));
+      titles.append(el('div', 'person-role', tab === 'heroes' ? tpl.title : tpl.role));
+      if (tpl.quote) titles.append(el('div', 'template-quote', `«${tpl.quote}»`));
+      head.append(titles);
+      card.append(head);
+
+      if (tpl.tags?.length) {
+        const chips = el('div', 'chips');
+        for (const tag of tpl.tags) chips.append(el('span', 'chip', tag));
+        card.append(chips);
+      }
+
+      const fields = el('div', 'template-fields');
+      const history = tab === 'heroes' ? tpl.origin : tpl.bio;
+      const character =
+        tab === 'heroes' ? [tpl.essence, tpl.quirks].filter(Boolean).join(' ') : tpl.character;
+      for (const node of [
+        templateField('История', history),
+        templateField('Характер', character),
+        templateField('Способности', tpl.abilities),
+        tab === 'heroes' ? templateField('О теле', tpl.bodyAttitude) : templateField('Одет', tpl.clothes),
+        tab === 'heroes' ? templateField('Начало', tpl.start) : templateField('Заметка', tpl.note),
+      ]) {
+        if (node) fields.append(node);
+      }
+      card.append(fields);
+
+      if (tpl.skills && Object.keys(tpl.skills).length) card.append(templateSkills(tpl.skills));
+
+      const actions = el('div', 'template-actions');
+      if (tab === 'heroes') {
+        const take = el('button', 'btn primary small', 'Взять в новую игру');
+        take.type = 'button';
+        take.addEventListener('click', () => {
+          app.pendingHero = tpl;
+          location.hash = '#/new';
+        });
+        actions.append(take);
+      } else {
+        const select = el('select', 'template-select');
+        if (!campaigns.length) {
+          const option = el('option', '', 'нет игр');
+          select.append(option);
+          select.disabled = true;
+        } else {
+          for (const camp of campaigns) {
+            const option = el('option', '', `${camp.title || camp.id} · ход ${camp.turn ?? 0}`);
+            option.value = camp.id;
+            if (camp.id === currentCampaignId()) option.selected = true;
+            select.append(option);
+          }
+        }
+        const add = el('button', 'btn small', 'Добавить в игру');
+        add.type = 'button';
+        add.addEventListener('click', async () => {
+          if (!select.value) return;
+          add.disabled = true;
+          try {
+            await api(`/api/campaign/${encodeURIComponent(select.value)}/npc`, {
+              method: 'POST',
+              body: JSON.stringify(tpl),
+            });
+            toast(`${tpl.name} добавлен в игру`);
+          } catch (err) {
+            toast(err.message);
+          } finally {
+            add.disabled = false;
+          }
+        });
+        actions.append(select, add);
+      }
+      card.append(actions);
+      grid.append(card);
+    }
+  };
+
+  page.append(tabs, grid);
+  view.append(page);
+  render();
+}
+
 async function viewNew(view) {
   const catalog = await getCatalog();
   const levels = (await api('/api/tone-levels').catch(() => null))?.levels ?? [];
@@ -982,6 +1122,24 @@ async function viewNew(view) {
     hero: { name: '', essence: '', appearance: '', bodyAttitude: '', origin: '', quirks: '', abilities: '', start: '' },
     busy: false,
   };
+
+  // Шаблон героя из библиотеки: заполняем форму и навыки.
+  if (app.pendingHero) {
+    const tpl = app.pendingHero;
+    wizard.hero = {
+      name: tpl.name ?? '',
+      essence: tpl.essence ?? '',
+      appearance: tpl.appearance ?? '',
+      bodyAttitude: tpl.bodyAttitude ?? '',
+      origin: tpl.origin ?? '',
+      quirks: tpl.quirks ?? '',
+      abilities: tpl.abilities ?? '',
+      start: tpl.start ?? '',
+    };
+    wizard.skills = tpl.skills;
+    app.pendingHero = null;
+    toast(`шаблон героя: ${tpl.name}`);
+  }
 
   const page = el('div', 'page wizard');
   page.append(pageHead('Создать историю', 'Новая хроника', 'Ядро общее и неизменное. Тон собирается по тегам, мир — из твоего описания, герой — из формы.'));
@@ -1674,6 +1832,8 @@ async function viewNew(view) {
             hero: heroToMarkdown(wizard.hero),
             heroName: wizard.hero.name || 'Герой',
             heroSkills: wizard.skills ?? undefined,
+            heroBio: wizard.hero.origin || undefined,
+            heroAbilities: wizard.hero.abilities || undefined,
             toneLevel: wizard.toneLevel,
             epochYear: wizard.epochYear,
             meta: {
@@ -2078,6 +2238,7 @@ function personCard(actor, campaignId) {
     ['Характер', actor.character],
     ['Одет', actor.clothes],
     ['Прошлое', actor.bio],
+    ['Способности', actor.abilities],
     ['Заметка', actor.note],
   ].filter(([, value]) => value);
   if (fields.length) {
@@ -2145,6 +2306,10 @@ function heroCard(hero, money, campaignId) {
   head.append(titles);
   card.append(head);
 
+  if (hero.abilities) {
+    card.append(el('div', 'person-field', `Способности: ${hero.abilities}`));
+  }
+  if (hero.bio) card.append(el('div', 'person-field', `Прошлое: ${hero.bio}`));
   if (hero.wounds?.length) {
     card.append(el('div', 'person-field', `Раны: ${hero.wounds.map((w) => `${w.where} (${w.severity}${w.treated ? ', обработано' : ''})`).join('; ')}`));
   }
@@ -2417,6 +2582,36 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     details.append(itemList(state.archive.slice(-20).map((a) => el('li', '', `${a.text} (${a.reason})`))));
     frag.append(section('Архив', [details]));
   }
+
+  const danger = el('details', 'card danger-zone');
+  danger.append(el('summary', '', 'Опасная зона'));
+  const dangerBody = el('div', 'card-body danger-body');
+  const resetBtn = el('button', 'btn small danger-btn', 'Сбросить настройки игры');
+  resetBtn.type = 'button';
+  resetBtn.addEventListener('click', async () => {
+    if (!window.confirm('Сбросить агентов, промты и арт этой игры к глобальным настройкам?')) return;
+    await api(`/api/campaign/${encodeURIComponent(campaignId)}/reset`, { method: 'POST' });
+    toast('настройки игры сброшены');
+    router();
+  });
+  const restartBtn = el('button', 'btn small danger-btn', 'Начать прохождение заново');
+  restartBtn.type = 'button';
+  restartBtn.addEventListener('click', async () => {
+    if (!window.confirm('История, конспект и снимки будут очищены. Начать с хода 0?')) return;
+    await api(`/api/campaign/${encodeURIComponent(campaignId)}/restart`, { method: 'POST' });
+    toast('прохождение начато заново');
+    router();
+  });
+  const deleteBtn = el('button', 'btn small danger-btn', 'Удалить прохождение');
+  deleteBtn.type = 'button';
+  deleteBtn.addEventListener('click', async () => {
+    if (!window.confirm('Удалить кампанию целиком? Это необратимо.')) return;
+    await api(`/api/campaign/${encodeURIComponent(campaignId)}`, { method: 'DELETE' });
+    location.hash = '#/stories';
+  });
+  dangerBody.append(resetBtn, restartBtn, deleteBtn);
+  danger.append(dangerBody);
+  frag.append(section('Опасная зона', [danger]));
 
   panel.replaceChildren(frag);
 }
@@ -3249,7 +3444,7 @@ async function openArtDialog(campaignId, onSaved) {
 
 /* ================= запуск ================= */
 
-const app = { game: null, campaigns: [] };
+const app = { game: null, campaigns: [], pendingHero: null };
 
 window.addEventListener('hashchange', router);
 router();

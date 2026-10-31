@@ -14,7 +14,7 @@ import { basename, extname, join, normalize, sep } from 'node:path';
 import { generateImage, itemCardPrompt, masterCardPrompt, portraitPrompt, scenePrompt } from './core/images.ts';
 import { renderMap } from './core/map.ts';
 import { renderWorldMap } from './core/worldmap.ts';
-import { createState, normalizeState, type GameState } from './core/state.ts';
+import { createState, normalizeState, type Actor, type GameState } from './core/state.ts';
 import { createSession, runTurn, addUsage, type Session, type TurnStats } from './core/turn.ts';
 import {
   conspectFrom,
@@ -91,6 +91,49 @@ try {
   aiSettingsCatalog = JSON.parse(await readFile(AI_SETTINGS_PATH, 'utf8')) as typeof aiSettingsCatalog;
 } catch {
   console.error('[ai-settings] не найден data/ai-settings.json');
+}
+
+// Шаблоны героя и NPC: карточки с историей, характером, навыками и способностями.
+interface HeroTemplate {
+  id: string;
+  name: string;
+  title: string;
+  quote?: string;
+  age?: number;
+  appearance?: string;
+  essence?: string;
+  bodyAttitude?: string;
+  origin?: string;
+  quirks?: string;
+  abilities?: string;
+  skills?: Record<string, number>;
+  start?: string;
+  tags?: string[];
+}
+
+interface NpcTemplate {
+  id: string;
+  name: string;
+  role: string;
+  quote?: string;
+  appearance?: string;
+  character?: string;
+  clothes?: string;
+  bio?: string;
+  abilities?: string;
+  note?: string;
+  skills?: Record<string, number>;
+  attitude?: number;
+  bond?: number;
+  tags?: string[];
+}
+
+let templates: { heroes: HeroTemplate[]; npcs: NpcTemplate[] } = { heroes: [], npcs: [] };
+const TEMPLATES_PATH = join(import.meta.dirname, '..', 'data', 'templates.json');
+try {
+  templates = JSON.parse(await readFile(TEMPLATES_PATH, 'utf8')) as typeof templates;
+} catch {
+  console.error('[templates] не найден data/templates.json');
 }
 
 // Лор-книга: записи, которые подмешиваются только при совпадении ключей.
@@ -1215,6 +1258,11 @@ const server = createServer(async (req, res) => {
       return sendJson(res, agents);
     }
 
+    // Шаблоны героя и NPC: карточки для новой игры и добавления в кампанию.
+    if (path === '/api/templates' && req.method === 'GET') {
+      return sendJson(res, templates);
+    }
+
     // Теги иллюстратора: каталог и текущий выбор.
     if (path === '/api/art-tags' && req.method === 'GET') {
       return sendJson(res, { groups: artTags.groups, selection: artSelection });
@@ -1555,6 +1603,11 @@ const server = createServer(async (req, res) => {
       const place = meta.presetTitle ? `Начало: ${meta.presetTitle}` : START_PLACE;
 
       const state = createState(heroName, place);
+      // Карточка героя из шаблона: история и способности видны в контейнере.
+      if (typeof body.heroBio === 'string' && body.heroBio.trim()) state.hero.bio = body.heroBio.trim();
+      if (typeof body.heroAbilities === 'string' && body.heroAbilities.trim()) {
+        state.hero.abilities = body.heroAbilities.trim();
+      }
 
       // Скиллы из шаблона героя, если игрок выбрал готовый архетип.
       if (body.heroSkills && typeof body.heroSkills === 'object') {
@@ -1589,7 +1642,7 @@ const server = createServer(async (req, res) => {
       return sendJson(res, { id, state, history: [], totals: session.totals, meta });
     }
 
-    const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|context|container))?$/.exec(path);
+    const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|context|container|npc|reset|restart))?$/.exec(path);
     if (campaignMatch) {
       const id = decodeURIComponent(campaignMatch[1]);
       // Id — это имя файла кампании: никаких слэшей и переходов вверх.
@@ -1942,6 +1995,79 @@ const server = createServer(async (req, res) => {
         session.memory = String(body.text ?? '').slice(0, 4000);
         await persist(id, session);
         return sendJson(res, { memory: session.memory });
+      }
+
+      // Добавить NPC из шаблона в текущую игру.
+      if (action === 'npc' && req.method === 'POST') {
+        if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
+        const body = await readBody(req);
+        const name = String(body.name ?? '').trim();
+        if (!name) return sendJson(res, { error: 'не указано имя NPC' }, 400);
+        if ([...session.state.npcs, ...session.state.party].some((n) => n.name === name)) {
+          return sendJson(res, { error: 'персонаж с таким именем уже есть' }, 409);
+        }
+        const clamp = (value: unknown, min: number, max: number): number => {
+          const num = Number(value);
+          return Number.isFinite(num) ? Math.max(min, Math.min(max, Math.round(num))) : 0;
+        };
+        const npc: Actor = {
+          name,
+          role: String(body.role ?? 'знакомый').trim() || 'знакомый',
+          status: 'alive',
+          bond: clamp(body.bond, 0, 100),
+          attitude: clamp(body.attitude, -100, 100),
+          present: true,
+          skills:
+            body.skills && typeof body.skills === 'object'
+              ? Object.fromEntries(
+                  Object.entries(body.skills as Record<string, unknown>)
+                    .map(([key, value]) => [key, clamp(value, 0, 20)])
+                    .slice(0, 12),
+                )
+              : {},
+          wounds: [],
+          appearance: typeof body.appearance === 'string' ? body.appearance : '',
+          character: typeof body.character === 'string' ? body.character : '',
+          clothes: typeof body.clothes === 'string' ? body.clothes : '',
+          bio: typeof body.bio === 'string' ? body.bio : '',
+          abilities: typeof body.abilities === 'string' ? body.abilities : '',
+          note: typeof body.note === 'string' ? body.note : '',
+        };
+        session.state.npcs.push(npc);
+        if (session.state.npcs.length > 60) session.state.npcs = session.state.npcs.slice(-60);
+        await persist(id, session);
+        return sendJson(res, { ok: true, npc });
+      }
+
+      // Сброс настроек текущей игры к глобальным (агенты, арт, промты).
+      if (action === 'reset' && req.method === 'POST') {
+        if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
+        session.agents = structuredClone(agents);
+        const fresh = makeAgentModel(session.agents.gm, !session.agents.state.enabled);
+        if (fresh) session.model = fresh;
+        const meta = (metas.get(id) ?? {}) as Record<string, unknown>;
+        delete meta.prompts;
+        delete meta.art;
+        meta.aiSettings = [];
+        metas.set(id, meta as never);
+        await persist(id, session);
+        return sendJson(res, { ok: true, agents: session.agents });
+      }
+
+      // Начать прохождение заново: состояние к ходу 0, история и конспект очищены.
+      if (action === 'restart' && req.method === 'POST') {
+        if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
+        if (!restoreTo(session, id, 0)) {
+          return sendJson(res, { error: 'нет исходного снимка этой игры' }, 400);
+        }
+        session.summary = '';
+        session.lastSummaryTurn = 0;
+        session.arcArchive = [];
+        session.memory = '';
+        session.conspect.clear();
+        snapshots.set(id, []);
+        await persist(id, session);
+        return sendJson(res, { ok: true, state: session.state });
       }
 
       if (action === 'drop' && req.method === 'POST') {

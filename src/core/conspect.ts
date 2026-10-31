@@ -21,6 +21,11 @@ export class Conspect {
     this.header = header;
   }
 
+  /** Полный рестарт: забыть все арки, шапку оставить. */
+  clear(): void {
+    this.arcs = [];
+  }
+
   get arcCount(): number {
     return this.arcs.length;
   }
