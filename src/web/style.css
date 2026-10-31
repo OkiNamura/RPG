@@ -2907,3 +2907,50 @@ button.primary {
 .container-section > .person-card {
   max-width: 560px;
 }
+
+.log-empty {
+  margin: 40px auto;
+  max-width: 460px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .play-head {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 8px 12px;
+  }
+
+  .play-head > .btn:first-child {
+    order: 1;
+  }
+
+  .play-head .title {
+    order: 2;
+    flex: 1 1 100%;
+    word-break: break-all;
+  }
+
+  .play-head .title small {
+    word-break: normal;
+    font-size: 10px;
+  }
+
+  .play-head > .btn,
+  .play-head > .tag {
+    order: 3;
+  }
+
+  .nav {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .nav::-webkit-scrollbar {
+    display: none;
+  }
+}

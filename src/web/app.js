@@ -2501,6 +2501,10 @@ async function viewPlay(view, id) {
     }
   }
 
+  if (!(data.history ?? []).length) {
+    log.append(el('div', 'log-empty', 'История ещё не началась. Напиши первое действие — ведущий откроет сцену.'));
+  }
+
   renderPanel(data.state, panel, id, data.worldMap ?? '', data.map ?? '', data.summary);
   renderPlaceCards(data.state, placeCards, id, panel);
   scrollDown(log);
