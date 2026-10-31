@@ -1897,33 +1897,37 @@ function actionsBar(turnData, campaignId) {
 
   if ((turnData.variants ?? 1) > 1) {
     const total = turnData.variants;
-    let current = Number(turnData.variant ?? 0);
-    const counter = el('span', 'ma-count', `${current + 1} / ${total}`);
+    let current = Math.min(total, Math.max(1, Number(turnData.variant ?? 1)));
+    const counter = el('span', 'ma-count', `${current} / ${total}`);
+    // Варианты более раннего хода обрезали бы историю — только последний ход.
+    const isLast = turnData.turn === (app.game?.state?.turn ?? turnData.turn);
 
     const apply = (payload) => {
       const msg = bar.closest('.msg');
       const prose = msg?.querySelector('.prose');
       if (prose && payload?.prose) prose.textContent = payload.prose;
-      counter.textContent = `${current + 1} / ${total}`;
+      current = Number(payload?.variant ?? current);
+      counter.textContent = `${current} / ${total}`;
     };
 
-    const prev = act('‹', 'предыдущий вариант', async () => {
-      current = (current - 1 + total) % total;
-      const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/variant`, {
-        method: 'POST',
-        body: JSON.stringify({ turn: turnData.turn, index: current }),
-      });
-      apply(res);
-    });
-    const next = act('›', 'следующий вариант', async () => {
-      current = (current + 1) % total;
-      const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/variant`, {
-        method: 'POST',
-        body: JSON.stringify({ turn: turnData.turn, index: current }),
-      });
-      apply(res);
-    });
-    bar.append(prev, counter, next);
+    if (isLast) {
+      const go = async (dir) => {
+        let wanted = current + dir;
+        if (wanted < 1) wanted = total;
+        if (wanted > total) wanted = 1;
+        const index = wanted === 1 ? 0 : wanted - 1;
+        const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/variant`, {
+          method: 'POST',
+          body: JSON.stringify({ turn: turnData.turn, index }),
+        });
+        apply(res);
+      };
+      bar.append(act('‹', 'предыдущий вариант', () => go(-1)));
+      bar.append(counter);
+      bar.append(act('›', 'следующий вариант', () => go(1)));
+    } else {
+      bar.append(counter);
+    }
   }
 
   bar.append(

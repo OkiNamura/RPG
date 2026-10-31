@@ -1,4 +1,4 @@
-﻿/**
+/**
  * HTTP-сервер игры: статика и API. Без зависимостей.
  *
  *   node src/server.ts
@@ -236,6 +236,41 @@ async function runStateAgent(
  * Всё, что старше окна последних 30 ходов, живёт только здесь, поэтому
  * контекст не растёт с длиной истории.
  */
+/** Старые конспекты могли содержать несколько блоков «Арка N»: оставляем последний. */
+function dedupeArcs(summary: string): string {
+  if (!summary) return summary;
+  const head: string[] = [];
+  const blocks: { arc: number; from: number; to: number; lines: string[] }[] = [];
+  let current: { arc: number; from: number; to: number; lines: string[] } | null = null;
+  const flush = () => {
+    if (current) blocks.push(current);
+    current = null;
+  };
+  for (const line of summary.split('\n')) {
+    const match = /^## Арка (\d+) · ходы (\d+)–(\d+)/.exec(line);
+    if (match) {
+      flush();
+      current = { arc: Number(match[1]), from: Number(match[2]), to: Number(match[3]), lines: [line] };
+    } else if (current) {
+      current.lines.push(line);
+    } else {
+      head.push(line);
+    }
+  }
+  flush();
+  // Ранний блок той же арки отбрасываем, только если поздний полностью его покрывает.
+  const kept = blocks.filter(
+    (block, index) =>
+      !blocks.some(
+        (later, laterIndex) =>
+          laterIndex > index &&
+          later.arc === block.arc &&
+          later.from <= block.from &&
+          later.to >= block.to,
+      ),
+  );
+  return [...head, ...kept.flatMap((block) => block.lines)].join('\n').trim();
+}
 function trimSummary(text: string, limit = 24000): string {
   if (text.length <= limit) return text;
   const head = text.slice(0, 6000);
@@ -455,6 +490,7 @@ async function writeTrace(
       state: snapshotState(session.state),
       summary: session.summary ?? '',
       lastSummaryTurn: session.lastSummaryTurn ?? 0,
+      variant: 1,
     },
     variantFrom,
   );
@@ -592,7 +628,7 @@ async function getSession(id: string): Promise<Session | null> {
   });
   session.agents = gameAgents;
   session.conspect = conspectFrom(saved);
-  session.summary = saved.summary ?? '';
+  session.summary = dedupeArcs(saved.summary ?? '');
   session.lastSummaryTurn = Math.min(saved.lastSummaryTurn ?? 0, session.state.turn);
   // Старые сейвы без счётчика: берём последнюю арку из конспекта.
   if (!session.lastSummaryTurn && session.summary) {
@@ -606,16 +642,24 @@ async function getSession(id: string): Promise<Session | null> {
   session.quietConspect = gameAgents.summarizer.enabled;
   session.expectDelta = !gameAgents.state.enabled;
   if (saved.meta) metas.set(id, saved.meta);
+  let cleanedSnapshots = false;
   if (saved.turns) {
-    // Старые снимки хранили полный лог — вычищаем при загрузке, файл сожмётся.
-    for (const snap of saved.turns) {
+    // Старые снимки хранили полный лог и могли копиться сотнями — чистим и режем.
+    const keptTurns = saved.turns.slice(-40);
+    if (keptTurns.length !== saved.turns.length) cleanedSnapshots = true;
+    for (const snap of keptTurns) {
+      if (snap.state.log?.length) cleanedSnapshots = true;
       snap.state.log = [];
-      for (const variant of snap.variants ?? []) variant.state.log = [];
+      for (const variant of snap.variants ?? []) {
+        if (variant.state.log?.length) cleanedSnapshots = true;
+        variant.state.log = [];
+      }
     }
-    snapshots.set(id, saved.turns);
+    snapshots.set(id, keptTurns);
   }
   if (saved.initial) initials.set(id, saved.initial);
   sessions.set(id, session);
+  if (cleanedSnapshots) await persist(id, session);
   return session;
 }
 
@@ -691,8 +735,8 @@ function saveSnapshot(
   else list.push(snapshot);
 
   list.sort((a, b) => a.turn - b.turn);
-  // Держим последние 120 ходов — этого хватает для откатов.
-  snapshots.set(id, list.slice(-120));
+  // Держим последние 40 ходов: снимки по 20–50 КБ иначе раздувают файл.
+  snapshots.set(id, list.slice(-40));
 }
 
 interface CampaignRow {
@@ -1513,6 +1557,7 @@ const server = createServer(async (req, res) => {
           turns: (snapshots.get(id) ?? []).map((s) => ({
             turn: s.turn,
             input: s.input,
+            variant: s.variant ?? 1,
             variants: 1 + (s.variants?.length ?? 0),
           })),
         });
@@ -1606,6 +1651,14 @@ const server = createServer(async (req, res) => {
         const snap = list.find((s) => s.turn === turn);
         if (!snap) return sendJson(res, { error: 'нет снимка этого хода' }, 404);
         if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
+        // Вариант более раннего хода обрезал бы историю: только последний ход.
+        if (turn !== session.state.turn) {
+          return sendJson(
+            res,
+            { error: 'варианты можно переключать только у последнего хода' },
+            409,
+          );
+        }
 
         if (index >= 0) {
           // 0 — вернуться к исходному варианту, который лежит в variants[0].
@@ -1629,13 +1682,21 @@ const server = createServer(async (req, res) => {
           snap.state = snapshotState(variant.state);
           snap.summary = variant.summary;
           snap.lastSummaryTurn = session.lastSummaryTurn;
+          // 1 — исходный ответ, 2..N — альтернативы.
+          snap.variant = index === 0 ? 1 : index + 1;
 
           session.state.log.push({ turn, role: 'player', text: snap.input });
           session.state.log.push({ turn, role: 'gm', text: variant.prose });
         }
 
         await persist(id, session);
-        return sendJson(res, { ok: true, prose: snap.prose, state: session.state });
+        return sendJson(res, {
+          ok: true,
+          prose: snap.prose,
+          state: session.state,
+          variant: snap.variant ?? 1,
+          variants: 1 + (snap.variants?.length ?? 0),
+        });
       }
 
       // Карточка персонажа в формате SillyTavern V2 — для переноса и обмена.

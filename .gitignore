@@ -27,3 +27,6 @@ tools/
 # трейсы промтов
 data/traces/
 data/dev-server.log
+
+# временные файлы аудита
+data/tmp/
