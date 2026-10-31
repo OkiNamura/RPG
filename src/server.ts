@@ -2224,7 +2224,8 @@ const server = createServer(async (req, res) => {
         const artistMeta = (await loadCampaign(DATA_DIR, id))?.meta;
         const artistKeyName = mode === 'scene' ? 'scene' : mode === 'item' ? 'item' : mode === 'hero' ? 'hero' : 'npc';
         const style = artistMeta?.prompts?.artists?.[artistKeyName] || artist.prompt;
-        const model = artist.model && !/seedream/i.test(artist.model) ? artist.model : IMAGE_MODEL;
+        // Иллюстратор переведён на Seedream 5.0 Flash; env может переопределить.
+        const model = process.env.OMIKA_IMAGE_MODEL || IMAGE_MODEL;
 
         let prompt = '';
         let actorName = '';

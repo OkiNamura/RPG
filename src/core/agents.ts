@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Агенты игры.
  *
  *   gm         — ведущий: пишет сцену
@@ -40,7 +40,7 @@ export type AgentSet = Record<AgentId, AgentConfig>;
 
 const MODEL = 'deepseek/deepseek-v4-flash-0731';
 /** Модель рисования, которую просил заказчик. */
-export const IMAGE_MODEL = 'openai/gpt-5.4-image-2';
+export const IMAGE_MODEL = 'bytedance/seedream-5.0-flash';
 /** Если Seedream недоступен у провайдера — рисуем этой. */
 export const IMAGE_FALLBACK_MODEL = 'google/gemini-3.1-flash-lite-image';
 
