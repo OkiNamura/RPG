@@ -1,0 +1,22 @@
+{
+  "name": "omika",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Omika — текстовая RPG в браузере",
+  "scripts": {
+    "start": "node src/server.ts",
+    "catalog": "node scripts/build-catalog.mjs",
+    "test": "node scripts/unit-test.mjs",
+    "test:map": "node scripts/map-test.mjs",
+    "test:world": "node scripts/worldmap-test.mjs",
+    "test:ui": "node scripts/ui-test.mjs",
+    "playtest": "node scripts/playtest.mjs"
+  },
+  "engines": {
+    "node": ">=23.6"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.3"
+  }
+}

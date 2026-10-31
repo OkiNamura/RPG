@@ -1,0 +1,21 @@
+# секреты
+.env
+.env.local
+*.key
+
+# кампании — личные, в репозиторий не кладём
+data/campaigns/*.json
+
+# мусор
+node_modules/
+*.log
+
+# картинки и отладочные дампы
+data/images/
+data/context-dump.json
+data/context-dump.md
+
+# личные ключи и архивы
+data/keys.json
+PRG.zip
+.ssh/

@@ -1,0 +1,155 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8a7b5c"/>
+    </marker>
+    <style>
+      .bg { fill: #0b0b0d; }
+      .panel { fill: #121216; stroke: #2a2a30; stroke-width: 1.2; rx: 14; }
+      .panel-a { stroke: #3a3a44; }
+      .box { fill: #17171c; stroke: #2c2c34; stroke-width: 1; rx: 9; }
+      .box-hot { fill: #1c1a15; stroke: #6b5a33; }
+      .t { fill: #e8e2d6; font-size: 14px; }
+      .t-b { fill: #f1ead9; font-size: 15px; font-weight: 600; }
+      .t-s { fill: #a9a396; font-size: 12.5px; }
+      .t-m { fill: #8b8578; font-size: 11.5px; }
+      .t-g { fill: #c9a96a; font-size: 12px; letter-spacing: 1.4px; }
+      .t-c { fill: #d8c9a5; font-size: 13px; }
+      .line { stroke: #8a7b5c; stroke-width: 1.4; fill: none; marker-end: url(#arr); }
+      .dash { stroke: #3a3a44; stroke-width: 1; stroke-dasharray: 4 5; fill: none; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1400" height="900"/>
+
+  <text x="30" y="42" class="t-g">OMIKA</text>
+  <text x="30" y="70" class="t-b" font-size="22">Как работает под капотом</text>
+  <text x="30" y="90" class="t-m">один ход игры: браузер → сервер → контекст → модель → состояние → сохранение</text>
+
+  <!-- БРАУЗЕР -->
+  <rect class="panel panel-a" x="30" y="115" width="290" height="470"/>
+  <text x="48" y="142" class="t-g">БРАУЗЕР · app.js</text>
+  <rect class="box" x="48" y="158" width="254" height="76"/>
+  <text x="62" y="182" class="t-b">Конструктор</text>
+  <text x="62" y="202" class="t-s">теги · уровень 0–11 · мир</text>
+  <text x="62" y="220" class="t-s">герой · сводка</text>
+
+  <rect class="box" x="48" y="250" width="254" height="92"/>
+  <text x="62" y="274" class="t-b">Экран игры</text>
+  <text x="62" y="294" class="t-s">лента сцены · панель состояния</text>
+  <text x="62" y="312" class="t-s">карты места и мира · кубик d36</text>
+  <text x="62" y="330" class="t-s">варианты · перегенерация · кадры</text>
+
+  <rect class="box" x="48" y="358" width="254" height="76"/>
+  <text x="62" y="382" class="t-b">Агенты и лор</text>
+  <text x="62" y="402" class="t-s">8 агентов · лор-книга</text>
+  <text x="62" y="420" class="t-s">теги иллюстратора (53)</text>
+
+  <text x="48" y="470" class="t-m">fetch → /api/*, SSE-поток</text>
+  <text x="48" y="490" class="t-m">никакой логики мира в клиенте</text>
+  <text x="48" y="510" class="t-m">только показ и ввод</text>
+
+  <!-- HTTP -->
+  <rect class="panel" x="340" y="115" width="210" height="470"/>
+  <text x="358" y="142" class="t-g">HTTP</text>
+  <rect class="box" x="358" y="158" width="174" height="110"/>
+  <text x="372" y="182" class="t-b">REST</text>
+  <text x="372" y="202" class="t-s">/api/catalog</text>
+  <text x="372" y="220" class="t-s">/api/campaign/:id</text>
+  <text x="372" y="238" class="t-s">/image · /card · /memory</text>
+  <text x="372" y="256" class="t-s">/agents · /stats · /art-tags</text>
+
+  <rect class="box box-hot" x="358" y="290" width="174" height="110"/>
+  <text x="372" y="314" class="t-b">SSE /stream</text>
+  <text x="372" y="334" class="t-s">delta — куски прозы</text>
+  <text x="372" y="352" class="t-s">done — состояние,</text>
+  <text x="372" y="370" class="t-s">стоимость, карты</text>
+  <text x="372" y="390" class="t-m">обычный ход: JSON</text>
+
+  <text x="358" y="450" class="t-m">клиент не ждёт весь ход:</text>
+  <text x="358" y="470" class="t-m">текст идёт по мере генерации</text>
+
+  <!-- СЕРВЕР -->
+  <rect class="panel" x="570" y="115" width="800" height="470"/>
+  <text x="588" y="142" class="t-g">СЕРВЕР · server.ts + core/*</text>
+
+  <rect class="box" x="588" y="158" width="764" height="34"/>
+  <text x="602" y="180" class="t-s">маршрутизатор · сессии кампаний в памяти · чтение и запись data/*.json</text>
+
+  <!-- Пайплайн -->
+  <text x="588" y="222" class="t-g" font-size="11">ОДИН ХОД</text>
+
+  <rect class="box" x="588" y="234" width="360" height="38"/>
+  <text x="602" y="258" class="t">1 · buildContext() — собрать промт</text>
+
+  <rect class="box box-hot" x="588" y="280" width="360" height="38"/>
+  <text x="602" y="304" class="t">2 · GM (модель) — проза сцены</text>
+
+  <rect class="box" x="588" y="326" width="360" height="38"/>
+  <text x="602" y="350" class="t">3 · parseDelta() → applyDelta()</text>
+
+  <rect class="box" x="588" y="372" width="360" height="38"/>
+  <text x="602" y="396" class="t">4 · state-агент ∥ summarizer</text>
+
+  <rect class="box" x="588" y="418" width="360" height="38"/>
+  <text x="602" y="442" class="t">5 · снимок хода + persist()</text>
+
+  <rect class="box" x="588" y="464" width="360" height="38"/>
+  <text x="602" y="488" class="t">6 · SSE done → клиент</text>
+
+  <path class="line" d="M768,272 L768,280"/>
+  <path class="line" d="M768,318 L768,326"/>
+  <path class="line" d="M768,364 L768,372"/>
+  <path class="line" d="M768,410 L768,418"/>
+  <path class="line" d="M768,456 L768,464"/>
+
+  <!-- Контекст -->
+  <rect class="box" x="970" y="234" width="382" height="268"/>
+  <text x="986" y="258" class="t-g" font-size="11">КОНТЕКСТ · порядок байт-в-байт</text>
+  <text x="986" y="282" class="t-s">1 · статика: ядро + мир + тон + герой</text>
+  <text x="986" y="302" class="t-s">2 · память истории</text>
+  <text x="986" y="322" class="t-s">3 · закрытые арки (конспект)</text>
+  <text x="986" y="342" class="t-s">4 · история: окно 30 ходов,</text>
+  <text x="986" y="360" class="t-m">     сдвиг блоками по 20 сообщений</text>
+  <text x="986" y="380" class="t-s">5 · конспект прошлого</text>
+  <text x="986" y="400" class="t-s">6 · состояние: цифры хода</text>
+  <text x="986" y="420" class="t-s">7 · лор-книга по ключам сцены</text>
+  <text x="986" y="440" class="t-s">8 · броски и скрытые проверки</text>
+  <text x="986" y="460" class="t-s">9 · ход игрока</text>
+  <text x="986" y="486" class="t-m">фиксированный префикс → кэш 90–98%</text>
+
+  <path class="line" d="M948,300 L970,300" stroke-dasharray="4 4"/>
+
+  <!-- НИЖНИЙ РЯД -->
+  <rect class="panel" x="30" y="620" width="620" height="150"/>
+  <text x="48" y="646" class="t-g">АГЕНТЫ</text>
+  <text x="48" y="672" class="t">gm — ведущий · prompter — тон/мир/герой/теги</text>
+  <text x="48" y="694" class="t">state — предметы, квесты, NPC, фракции, лор</text>
+  <text x="48" y="716" class="t">summarizer — конспект старше окна</text>
+  <text x="48" y="738" class="t">artistHero · artistNpc · artistItem · artistScene</text>
+  <text x="48" y="758" class="t-m">у каждой игры свои настройки; глобальные — шаблон</text>
+
+  <rect class="panel" x="670" y="620" width="360" height="150"/>
+  <text x="688" y="646" class="t-g">ХРАНИЛИЩЕ</text>
+  <text x="688" y="672" class="t">data/campaigns/*.json</text>
+  <text x="688" y="692" class="t-s">состояние · история · снимки ходов</text>
+  <text x="688" y="714" class="t">data/images/</text>
+  <text x="688" y="734" class="t-s">кадры, портреты, мастер-листы</text>
+  <text x="688" y="756" class="t">data/catalog.json · agents.json</text>
+
+  <rect class="panel" x="1050" y="620" width="320" height="150"/>
+  <text x="1068" y="646" class="t-g">OPENROUTER</text>
+  <text x="1068" y="672" class="t">chat completions</text>
+  <text x="1068" y="692" class="t">image models</text>
+  <text x="1068" y="714" class="t-s">кэш провайдера: считаем</text>
+  <text x="1068" y="732" class="t-s">cachedPrefix по сегментам</text>
+  <text x="1068" y="752" class="t-m">цена = свежие + кэш + выход</text>
+
+  <path class="line" d="M768,502 L768,560 L1210,560 L1210,620" stroke-dasharray="4 4"/>
+  <path class="line" d="M320,350 L340,350"/>
+  <path class="line" d="M550,350 L570,350"/>
+
+  <rect class="panel" x="30" y="800" width="1340" height="70"/>
+  <text x="48" y="826" class="t-c">Почему быстро и дёшево: статика собрана байт-в-байт и стоит первой — провайдер кэширует её префикс.</text>
+  <text x="48" y="850" class="t-m">Всё, что меняется каждый ход (состояние, лор, броски, ход игрока), стоит в конце и не ломает кэш. История сдвигается блоками, а не по одному сообщению.</text>
+</svg>
