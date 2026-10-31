@@ -1761,6 +1761,29 @@ async function viewNew(view) {
       field('Способности и силы', 'abilities'),
       field('Начало истории', 'start', true),
     );
+
+    // Навыки из шаблона можно проверить и поправить прямо в мастере.
+    if (wizard.skills && Object.keys(wizard.skills).length) {
+      const box = el('div', 'field');
+      box.append(el('label', '', 'Навыки героя (0–20)'));
+      const rowsEl = el('div', 'skill-edit');
+      for (const [name, value] of Object.entries(wizard.skills)) {
+        const row = el('label', 'skill-edit-row');
+        row.append(el('span', 'skill-name', name));
+        const input = el('input', 'skill-edit-input');
+        input.type = 'number';
+        input.min = '0';
+        input.max = '20';
+        input.value = String(value);
+        input.addEventListener('input', () => {
+          wizard.skills[name] = Math.max(0, Math.min(20, Number(input.value) || 0));
+        });
+        row.append(input);
+        rowsEl.append(row);
+      }
+      box.append(rowsEl);
+      body.append(box);
+    }
   }
 
 
@@ -1784,6 +1807,15 @@ async function viewNew(view) {
     summary.append(el('div', 'row', `Выбрано тегов: ${chosen.length ? `${chosen.length} — ${chosen.slice(0, 8).join(', ')}` : 'нет'}`));
     summary.append(el('div', 'row', `Исключено: ${excluded.length || 'нет'}`));
     summary.append(el('div', 'row', `Герой: ${wizard.hero.name || 'без имени'}`));
+    if (wizard.skills && Object.keys(wizard.skills).length) {
+      summary.append(
+        el(
+          'div',
+          'row',
+          `Навыки: ${Object.entries(wizard.skills).map(([name, value]) => `${name} ${value}`).join(', ')}`,
+        ),
+      );
+    }
     body.append(summary);
 
     const status = el('div', 'status', '');
@@ -2584,30 +2616,42 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
   }
 
   const danger = el('details', 'card danger-zone');
-  danger.append(el('summary', '', 'Опасная зона'));
+  danger.append(el('summary', '', 'Действия'));
   const dangerBody = el('div', 'card-body danger-body');
   const resetBtn = el('button', 'btn small danger-btn', 'Сбросить настройки игры');
   resetBtn.type = 'button';
   resetBtn.addEventListener('click', async () => {
     if (!window.confirm('Сбросить агентов, промты и арт этой игры к глобальным настройкам?')) return;
-    await api(`/api/campaign/${encodeURIComponent(campaignId)}/reset`, { method: 'POST' });
-    toast('настройки игры сброшены');
-    router();
+    try {
+      await api(`/api/campaign/${encodeURIComponent(campaignId)}/reset`, { method: 'POST' });
+      toast('настройки игры сброшены');
+      router();
+    } catch (err) {
+      toast(err.message);
+    }
   });
   const restartBtn = el('button', 'btn small danger-btn', 'Начать прохождение заново');
   restartBtn.type = 'button';
   restartBtn.addEventListener('click', async () => {
     if (!window.confirm('История, конспект и снимки будут очищены. Начать с хода 0?')) return;
-    await api(`/api/campaign/${encodeURIComponent(campaignId)}/restart`, { method: 'POST' });
-    toast('прохождение начато заново');
-    router();
+    try {
+      await api(`/api/campaign/${encodeURIComponent(campaignId)}/restart`, { method: 'POST' });
+      toast('прохождение начато заново');
+      router();
+    } catch (err) {
+      toast(err.message);
+    }
   });
   const deleteBtn = el('button', 'btn small danger-btn', 'Удалить прохождение');
   deleteBtn.type = 'button';
   deleteBtn.addEventListener('click', async () => {
     if (!window.confirm('Удалить кампанию целиком? Это необратимо.')) return;
-    await api(`/api/campaign/${encodeURIComponent(campaignId)}`, { method: 'DELETE' });
-    location.hash = '#/stories';
+    try {
+      await api(`/api/campaign/${encodeURIComponent(campaignId)}`, { method: 'DELETE' });
+      location.hash = '#/stories';
+    } catch (err) {
+      toast(err.message);
+    }
   });
   dangerBody.append(resetBtn, restartBtn, deleteBtn);
   danger.append(dangerBody);

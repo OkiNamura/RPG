@@ -131,9 +131,16 @@ interface NpcTemplate {
 let templates: { heroes: HeroTemplate[]; npcs: NpcTemplate[] } = { heroes: [], npcs: [] };
 const TEMPLATES_PATH = join(import.meta.dirname, '..', 'data', 'templates.json');
 try {
-  templates = JSON.parse(await readFile(TEMPLATES_PATH, 'utf8')) as typeof templates;
+  const parsed = JSON.parse(await readFile(TEMPLATES_PATH, 'utf8')) as {
+    heroes?: unknown;
+    npcs?: unknown;
+  } | null;
+  templates = {
+    heroes: Array.isArray(parsed?.heroes) ? (parsed.heroes as HeroTemplate[]) : [],
+    npcs: Array.isArray(parsed?.npcs) ? (parsed.npcs as NpcTemplate[]) : [],
+  };
 } catch {
-  console.error('[templates] не найден data/templates.json');
+  console.error('[templates] не найден или битый data/templates.json');
 }
 
 // Лор-книга: записи, которые подмешиваются только при совпадении ключей.
@@ -2003,35 +2010,46 @@ const server = createServer(async (req, res) => {
         const body = await readBody(req);
         const name = String(body.name ?? '').trim();
         if (!name) return sendJson(res, { error: 'не указано имя NPC' }, 400);
-        if ([...session.state.npcs, ...session.state.party].some((n) => n.name === name)) {
+        if (name.length > 80) return sendJson(res, { error: 'имя NPC слишком длинное' }, 400);
+        const taken = new Set(
+          [...session.state.npcs, ...session.state.party].map((n) => n.name.trim().toLowerCase()),
+        );
+        if (taken.has(name.toLowerCase())) {
           return sendJson(res, { error: 'персонаж с таким именем уже есть' }, 409);
+        }
+        if (body.skills != null && (typeof body.skills !== 'object' || Array.isArray(body.skills))) {
+          return sendJson(res, { error: 'навыки должны быть объектом' }, 400);
         }
         const clamp = (value: unknown, min: number, max: number): number => {
           const num = Number(value);
           return Number.isFinite(num) ? Math.max(min, Math.min(max, Math.round(num))) : 0;
         };
+        const text = (value: unknown, limit = 2000): string =>
+          typeof value === 'string' ? value.slice(0, limit) : '';
+        const skills: Record<string, number> = {};
+        for (const [rawKey, value] of Object.entries(
+          (body.skills ?? {}) as Record<string, unknown>,
+        )) {
+          const key = rawKey.trim().slice(0, 40);
+          if (!key || !Number.isFinite(Number(value))) continue;
+          skills[key] = clamp(value, 0, 20);
+          if (Object.keys(skills).length >= 12) break;
+        }
         const npc: Actor = {
           name,
-          role: String(body.role ?? 'знакомый').trim() || 'знакомый',
+          role: text(body.role, 120).trim() || 'знакомый',
           status: 'alive',
           bond: clamp(body.bond, 0, 100),
           attitude: clamp(body.attitude, -100, 100),
           present: true,
-          skills:
-            body.skills && typeof body.skills === 'object'
-              ? Object.fromEntries(
-                  Object.entries(body.skills as Record<string, unknown>)
-                    .map(([key, value]) => [key, clamp(value, 0, 20)])
-                    .slice(0, 12),
-                )
-              : {},
+          skills,
           wounds: [],
-          appearance: typeof body.appearance === 'string' ? body.appearance : '',
-          character: typeof body.character === 'string' ? body.character : '',
-          clothes: typeof body.clothes === 'string' ? body.clothes : '',
-          bio: typeof body.bio === 'string' ? body.bio : '',
-          abilities: typeof body.abilities === 'string' ? body.abilities : '',
-          note: typeof body.note === 'string' ? body.note : '',
+          appearance: text(body.appearance),
+          character: text(body.character),
+          clothes: text(body.clothes),
+          bio: text(body.bio),
+          abilities: text(body.abilities),
+          note: text(body.note),
         };
         session.state.npcs.push(npc);
         if (session.state.npcs.length > 60) session.state.npcs = session.state.npcs.slice(-60);
@@ -2050,7 +2068,10 @@ const server = createServer(async (req, res) => {
         delete meta.art;
         meta.aiSettings = [];
         metas.set(id, meta as never);
+        session.text.core = '';
         await persist(id, session);
+        // Следующий запрос перечитает сейв: core и флаги агентов соберутся заново.
+        sessions.delete(id);
         return sendJson(res, { ok: true, agents: session.agents });
       }
 

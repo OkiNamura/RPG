@@ -3055,3 +3055,34 @@ button.primary {
   border-color: var(--gold-dim);
   background: #17161a;
 }
+
+.template-select {
+  background: #121216;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.skill-edit {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.skill-edit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: #0f0f13;
+}
+
+.skill-edit-input {
+  width: 64px;
+  text-align: center;
+}
