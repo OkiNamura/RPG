@@ -3176,3 +3176,125 @@ button.primary {
   font-size: 10px;
   margin-top: 4px;
 }
+
+/* сетка NPC и пати в игре */
+.actor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.actor-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  text-align: left;
+  background: #101014;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  color: var(--text);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.actor-tile:hover {
+  border-color: var(--gold-dim);
+}
+
+.actor-tile-img {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: #17171b;
+}
+
+.actor-tile-initial {
+  display: grid;
+  place-items: center;
+  color: var(--gold-dim);
+  font-family: Georgia, serif;
+  font-size: 26px;
+}
+
+.actor-tile-name {
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actor-tile-role {
+  font-size: 10px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* карточка персонажа в игре */
+.actor-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(6, 6, 8, 0.92);
+  backdrop-filter: blur(3px);
+  overflow: auto;
+}
+
+.actor-sheet {
+  width: min(760px, 100%);
+  max-height: 92vh;
+  overflow: auto;
+  background: #0f0f13;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.actor-sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.actor-sheet-media {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.actor-sheet-img {
+  width: min(420px, 100%);
+  max-height: 48vh;
+  object-fit: contain;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #17171b;
+}
+
+.actor-sheet-info {
+  margin-top: 10px;
+}
+
+.actor-sheet-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.actor-sheet-img.actor-tile-initial {
+  aspect-ratio: 3 / 4;
+  display: grid;
+  place-items: center;
+  font-size: 64px;
+}

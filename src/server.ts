@@ -499,6 +499,12 @@ function pickLore(session: Session, input: string): string {
   return renderLore(matchLore([...lorebook, ...auto], text));
 }
 
+/** Сид карты места: одна сцена — один рисунок, разные игры — разные карты. */
+function sceneMapSeed(id: string, session: Session): string {
+  const lastGm = [...session.state.log].reverse().find((entry) => entry.role === 'gm');
+  return `${id}|${session.state.place}|${(lastGm?.text ?? '').slice(0, 240)}`;
+}
+
 /** Броски и скрытые проверки: то, что модель не должна выдумывать сама. */
 function pickNotes(
   id: string,
@@ -678,7 +684,7 @@ async function writeTrace(
     state: session.state,
     summary: session.summary ?? '',
     memory: session.memory ?? '',
-    map: renderDungeon(generateDungeon(session.state.place, { width: 31, height: 14 })),
+    map: renderDungeon(generateDungeon(session.state.place, { width: 31, height: 14, seed: sceneMapSeed(id, session) })),
     worldMap: renderWorldMap(
       metas.get(id)?.presetTitle || metas.get(id)?.title || id,
       (session.state.locations?.length ? session.state.locations : [{ name: session.state.place }]).map((l) => ({ name: l.name })),
@@ -1758,7 +1764,7 @@ const server = createServer(async (req, res) => {
           summary: session.summary ?? '',
           memory: session.memory ?? '',
           arcs: session.arcArchive ?? [],
-          map: renderDungeon(generateDungeon(session.state.place, { width: 31, height: 14 })),
+          map: renderDungeon(generateDungeon(session.state.place, { width: 31, height: 14, seed: sceneMapSeed(id, session) })),
           worldMap: renderWorldMap(
             metas.get(id)?.presetTitle || metas.get(id)?.title || id,
             (session.state.locations?.length ? session.state.locations : [{ name: session.state.place }]).map((l) => ({ name: l.name })),
@@ -2018,7 +2024,7 @@ const server = createServer(async (req, res) => {
           name: patch.name,
           changes,
           state: session.state,
-          map: renderDungeon(generateDungeon(session.state.place, { width: 31, height: 14 })),
+          map: renderDungeon(generateDungeon(session.state.place, { width: 31, height: 14, seed: sceneMapSeed(id, session) })),
         });
       }
 

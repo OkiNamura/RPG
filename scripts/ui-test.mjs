@@ -371,8 +371,11 @@ async function main() {
     pass('игра: кубик d36 на месте');
 
     const quick = $$('.quick-actions .chip');
-    if (quick.length < 3) throw new Error(`быстрых действий мало: ${quick.length}`);
-    pass(`игра: ${quick.length} быстрых действий`);
+    if (quick.length) throw new Error(`быстрые кнопки остались: ${quick.length}`);
+    pass('игра: быстрых кнопок нет');
+    const tiles = $$('.actor-tile');
+    if (!tiles.length) throw new Error('нет сетки NPC/пати');
+    pass(`игра: ${tiles.length} карточек персонажей сеткой`);
 
     const panel = window.document.querySelector('.panel');
     if (!panel || panel.children.length === 0) throw new Error('панель состояния пуста');

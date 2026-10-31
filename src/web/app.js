@@ -415,7 +415,7 @@ async function viewContainer(view, id) {
 
   // Конспект и память.
   const logCard = section('Конспект', 'Арки, точка входа, крючки и долги.');
-  if (data.memory) logCard.append(el('div', 'container-memory', `Память: ${data.memory}`));
+  logCard.append(el('div', 'container-memory', data.memory ? `Память: ${data.memory}` : 'Память: пока пусто — закрепи факт в игре.'));
   const summaryPre = el('pre', 'prompt-dump conspect-dump');
   summaryPre.textContent = data.summary || '(конспект пока пуст)';
   logCard.append(summaryPre);
@@ -2507,6 +2507,121 @@ function heroCard(hero, money, campaignId) {
   return card;
 }
 
+function actorTile(actor, campaignId) {
+  const tile = el('button', 'actor-tile');
+  tile.type = 'button';
+  const image = actor.card || actor.portrait;
+  if (image) {
+    const img = el('img', 'actor-tile-img');
+    img.src = image;
+    img.alt = actor.name;
+    img.loading = 'lazy';
+    tile.append(img);
+  } else {
+    tile.append(el('div', 'actor-tile-img actor-tile-initial', (actor.name || '?').slice(0, 1)));
+  }
+  tile.append(el('span', 'actor-tile-name', actor.name));
+  tile.append(el('span', 'actor-tile-role', actor.role || 'знакомый'));
+  tile.addEventListener('click', () => openActorModal(actor, campaignId));
+  return tile;
+}
+
+function actorGrid(actors, campaignId) {
+  const grid = el('div', 'actor-grid');
+  for (const actor of actors) grid.append(actorTile(actor, campaignId));
+  return grid;
+}
+
+function openActorModal(actor, campaignId) {
+  const overlay = el('div', 'actor-modal');
+  const sheet = el('article', 'actor-sheet');
+  const head = el('div', 'actor-sheet-head');
+  const title = el('div');
+  title.append(el('h3', 'person-name', actor.name));
+  title.append(el('div', 'person-role', `${actor.role || 'знакомый'}${actor.status ? ` · ${actor.status}` : ''}`));
+  const close = el('button', 'btn small', '✕');
+  head.append(title, close);
+
+  const media = el('div', 'actor-sheet-media');
+  const image = actor.card || actor.portrait;
+  if (image) {
+    const img = el('img', 'actor-sheet-img');
+    img.src = image;
+    img.alt = actor.name;
+    media.append(img);
+  } else {
+    media.append(el('div', 'actor-sheet-img actor-tile-initial', (actor.name || '?').slice(0, 1)));
+  }
+
+  const chips = el('div', 'chips');
+  if (typeof actor.attitude === 'number') {
+    chips.append(el('span', 'chip', `отношение ${actor.attitude > 0 ? '+' : ''}${actor.attitude}`));
+  }
+  if (typeof actor.bond === 'number' && actor.bond > 0) chips.append(el('span', 'chip', `связь ${actor.bond}`));
+  if (actor.present) chips.append(el('span', 'chip chip-live', 'в сцене'));
+
+  const info = el('div', 'actor-sheet-info');
+  for (const [label, value] of [
+    ['Внешность', actor.appearance],
+    ['Характер', actor.character],
+    ['Одет', actor.clothes],
+    ['Прошлое', actor.bio],
+    ['Способности', actor.abilities],
+    ['Заметка', actor.note],
+    ['Отношения', (actor.relations ?? []).map((r) => `${r.with}: ${r.feeling}`).join('; ')],
+  ]) {
+    if (!value) continue;
+    const field = el('div', 'person-field');
+    field.append(el('span', 'person-label', label), el('div', 'person-value', value));
+    info.append(field);
+  }
+  if (actor.skills && Object.keys(actor.skills).length) info.append(templateSkills(actor.skills));
+
+  const actions = el('div', 'actor-sheet-actions');
+  const sheetBtn = el('button', 'btn small', '▣ лист спереди/сзади');
+  sheetBtn.type = 'button';
+  sheetBtn.addEventListener('click', async () => {
+    sheetBtn.disabled = true;
+    try {
+      const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/image`, {
+        method: 'POST',
+        body: JSON.stringify({ mode: 'sheet', name: actor.name }),
+      });
+      actor.card = res.url;
+      const old = media.querySelector('.actor-sheet-img');
+      if (old && old.tagName === 'IMG') old.src = res.url;
+      else if (old) {
+        const img = el('img', 'actor-sheet-img');
+        img.src = res.url;
+        old.replaceWith(img);
+      }
+      toast(`лист персонажа · $${(res.cost ?? 0).toFixed(3)}`);
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      sheetBtn.disabled = false;
+    }
+  });
+  const exportBtn = el('a', 'btn small', '⤓ карточка');
+  exportBtn.href = `/api/campaign/${encodeURIComponent(campaignId)}/card?name=${encodeURIComponent(actor.name)}`;
+  exportBtn.download = `${actor.name}.json`;
+  actions.append(sheetBtn, exportBtn);
+
+  sheet.append(head, media, chips, info, actions);
+  overlay.append(sheet);
+  close.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+  document.addEventListener('keydown', function onKey(e) {
+    if (e.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+  });
+  document.body.append(overlay);
+}
+
 function healthBar(value) {
   const wrap = el('div', 'health');
   const bar = el('div', 'health-bar');
@@ -2594,6 +2709,7 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
   mem.append(el('summary', '', 'Память истории'));
   const memBody = el('div', 'card-body');
   const memArea = el('textarea', 'memory-area');
+  memArea.placeholder = 'Пока пусто. Закрепи имя, долг или обещание — ведущий будет помнить это всегда.';
   const memSave = el('button', 'btn small', 'Закрепить');
   memSave.type = 'button';
   const memStatus = el('span', 'status');
@@ -2649,6 +2765,7 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
   frag.append(section('Тело', body));
 
   frag.append(section('Деньги', [row('Кошель', `${state.money.gold} з · ${state.money.silver} с · ${state.money.copper} м`)]));
+  frag.append(section('Карточка героя', [heroCard(state.hero, state.money, campaignId)]));
 
   const inventory = state.items.length
     ? itemList(state.items.map((i) => {
@@ -2684,8 +2801,8 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     }))]));
   }
 
-  if (state.party.length) frag.append(section('Пати', state.party.map((a) => actorCard(a, campaignId))));
-  if (state.npcs.length) frag.append(section('Знакомые', state.npcs.map((a) => actorCard(a, campaignId))));
+  if (state.party.length) frag.append(section('Пати', [actorGrid(state.party, campaignId)]));
+  if (state.npcs.length) frag.append(section('Знакомые', [actorGrid(state.npcs, campaignId)]));
 
   if (state.factions?.length) {
     frag.append(section('Фракции', state.factions.map((f) => {
@@ -2867,18 +2984,6 @@ async function viewPlay(view, id) {
   send.type = 'submit';
   composer.append(input, diceLabel, send);
 
-  const quick = el('div', 'quick-actions');
-  for (const label of ['Осмотреться', 'Идти', 'Слушать', 'Говорить']) {
-    const chip = el('button', 'chip quick', label);
-    chip.type = 'button';
-    chip.addEventListener('click', () => {
-      input.value = input.value ? `${input.value} ${label.toLowerCase()}` : label.toLowerCase();
-      input.dispatchEvent(new window.Event('input', { bubbles: true }));
-      input.focus();
-    });
-    quick.append(chip);
-  }
-
   const thoughts = el('div', 'thoughts hidden');
   const renderThoughts = (state) => {
     const text = state?.hero?.intuition;
@@ -2891,7 +2996,7 @@ async function viewPlay(view, id) {
   const placeCards = el('div', 'place-cards hidden');
 
   body.append(log, panel);
-  play.append(head, body, typing, placeCards, quick, thoughts, composer, hint);
+  play.append(head, body, typing, placeCards, thoughts, composer, hint);
   view.append(play);
 
   const sideMap = $('side-map');
