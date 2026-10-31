@@ -1,0 +1,19 @@
+services:
+  omika:
+    build: .
+    container_name: omika
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 7801
+    # Снаружи порт не открываем: рядом должен стоять reverse proxy с HTTPS
+    # и Basic Auth. Для локальной проверки можно временно поставить "7801:7801".
+    ports:
+      - "127.0.0.1:7801:7801"
+    volumes:
+      - omika-data:/app/data
+
+volumes:
+  omika-data:

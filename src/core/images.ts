@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Генерация иллюстраций.
  *
  * Картинка приходит от модели как data-URL в ответе чата, мы сохраняем её
@@ -148,6 +148,33 @@ export function masterCardPrompt(params: {
     params.character ? `Характер: ${params.character}.` : '',
     'Вид спереди в полный рост, нейтральная поза, руки вдоль тела.',
     'Вертикальный кадр 9:16, ровный свет, однотонный фон, без сцены, без текста, без водяных знаков.',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+/**
+ * Лист персонажа: общий вид спереди и сзади, плюс погрудный портрет.
+ * Без текста и цифр — атрибуты живут в HTML-карточке, а не на картинке.
+ */
+export function characterSheetPrompt(params: {
+  style: string;
+  name: string;
+  role?: string;
+  appearance?: string;
+  clothes?: string;
+  character?: string;
+}): string {
+  return [
+    params.style,
+    `Лист персонажа: ${params.name}.`,
+    params.role ? `Роль: ${params.role}.` : '',
+    params.appearance ? `Внешность: ${params.appearance}.` : '',
+    params.clothes ? `Одежда: ${params.clothes}.` : '',
+    params.character ? `Характер: ${params.character}.` : '',
+    'Три фигуры на нейтральном светлом фоне: спереди в полный рост, сзади в полный рост, крупный портрет лица.',
+    'Одинаковая одежда и причёска на всех трёх, нейтральная поза, ровный свет.',
+    'Без текста, без цифр, без рамок, без водяных знаков.',
   ]
     .filter(Boolean)
     .join(' ');

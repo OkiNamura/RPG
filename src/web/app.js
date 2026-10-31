@@ -1952,6 +1952,70 @@ function addRoll(log, roll) {
   scrollDown(log);
 }
 
+async function openHistoryDialog(campaignId) {
+  const data = await api(`/api/campaign/${encodeURIComponent(campaignId)}`);
+  const overlay = el('div', 'history-modal');
+  const head = el('div', 'map-modal-head');
+  const title = el('b', '', `Вся история · ход ${data.state.turn}`);
+  const search = el('input', 'history-search');
+  search.placeholder = 'поиск по тексту';
+  const close = el('button', 'btn small', '✕');
+  head.append(title, search, close);
+
+  const body = el('div', 'history-body');
+  const hint = el(
+    'div',
+    'history-hint',
+    'Здесь вся история без обрезки. Модель видит только последние 24 хода и конспект — так задумано.',
+  );
+  body.append(hint);
+  const list = el('div', 'history-list');
+  body.append(list);
+
+  const images = new Map((data.state.illustrations ?? []).map((ill) => [ill.turn, ill.url]));
+  const entries = data.history ?? [];
+  const render = () => {
+    const query = search.value.trim().toLowerCase();
+    list.replaceChildren();
+    let lastTurn = -1;
+    for (const entry of entries) {
+      if (query && !String(entry.text ?? '').toLowerCase().includes(query)) continue;
+      if (entry.turn !== lastTurn) {
+        list.append(el('div', 'history-turn', `Ход ${entry.turn}`));
+        lastTurn = entry.turn;
+      }
+      const msg = el('div', `history-msg ${entry.role}`);
+      msg.append(el('span', 'history-role', entry.role === 'player' ? 'игрок' : 'ведущий'));
+      msg.append(el('div', 'history-text', entry.text ?? ''));
+      if (entry.role === 'gm' && images.has(entry.turn)) {
+        const img = el('img', 'history-image');
+        img.src = images.get(entry.turn);
+        img.loading = 'lazy';
+        msg.append(img);
+      }
+      list.append(msg);
+    }
+    if (!list.children.length) list.append(el('p', 'page-sub', 'Ничего не найдено.'));
+  };
+  search.addEventListener('input', render);
+  render();
+
+  close.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+  document.addEventListener('keydown', function onKey(e) {
+    if (e.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+  });
+
+  overlay.append(head, body);
+  document.body.append(overlay);
+  search.focus();
+}
+
 function openMapModal(title, text) {
   const overlay = el('div', 'map-modal');
   const head = el('div', 'map-modal-head');
@@ -2029,7 +2093,7 @@ function openMapModal(title, text) {
   viewport.addEventListener('pointerleave', stop);
 }
 
-function addGm(log, payload, turnData, imageUrl) {
+function addGm(log, payload, turnData, imageUrl, entryTurn = null) {
   const wrap = el('div', 'msg gm');
   wrap.append(el('div', 'prose', payload.prose));
 
@@ -2043,7 +2107,32 @@ function addGm(log, payload, turnData, imageUrl) {
   if (payload.stats && Object.keys(payload.stats).length > 0) wrap.append(metaLine(payload));
 
   const campaignId = app.game?.id ?? currentCampaignId();
-  if (turnData && campaignId) wrap.append(actionsBar(turnData, campaignId));
+  if (turnData && campaignId) {
+    wrap.append(actionsBar(turnData, campaignId));
+  } else if (campaignId && entryTurn) {
+    // Старые ходы без панели действий: хотя бы кадр именно этого хода.
+    const btn = el('button', 'ma-btn', '🖼');
+    btn.type = 'button';
+    btn.title = `нарисовать кадр хода ${entryTurn}`;
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/image`, {
+          method: 'POST',
+          body: JSON.stringify({ mode: 'scene', turn: entryTurn }),
+        });
+        const img = el('img', 'msg-image');
+        img.src = res.url;
+        wrap.append(img);
+        toast(`кадр хода ${entryTurn} · $${(res.cost ?? 0).toFixed(3)}`);
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    wrap.append(btn);
+  }
 
   log.append(wrap);
   scrollDown(log);
@@ -2142,7 +2231,7 @@ function actionsBar(turnData, campaignId) {
       toast('рисую кадр…');
       const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/image`, {
         method: 'POST',
-        body: JSON.stringify({ mode: 'scene' }),
+        body: JSON.stringify({ mode: 'scene', turn: turnData.turn }),
       });
       const target = bar.closest('.msg');
       if (target && res.url) {
@@ -2222,6 +2311,17 @@ function actorCard(actor, campaignId) {
         bodyEl.append(img);
       }));
     }
+    actions.append(miniBtn('▣ лист', 'вид спереди и сзади', async () => {
+      const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/image`, {
+        method: 'POST',
+        body: JSON.stringify({ mode: 'sheet', name: actor.name }),
+      });
+      actor.card = res.url;
+      const img = el('img', 'portrait master');
+      img.src = res.url;
+      bodyEl.prepend(img);
+      toast(`лист персонажа · $${(res.cost ?? 0).toFixed(3)}`);
+    }));
     if (actions.children.length) bodyEl.append(actions);
   }
 
@@ -2316,6 +2416,22 @@ function personCard(actor, campaignId) {
     download.href = `/api/campaign/${encodeURIComponent(campaignId)}/card?name=${encodeURIComponent(actor.name)}`;
     download.download = `${actor.name}.json`;
     actions.append(download);
+    actions.append(miniBtn('▣ лист', 'вид спереди и сзади', async () => {
+      const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/image`, {
+        method: 'POST',
+        body: JSON.stringify({ mode: 'sheet', name: actor.name }),
+      });
+      actor.card = res.url;
+      const avatar = card.querySelector('.person-avatar');
+      if (avatar && avatar.tagName === 'IMG') {
+        avatar.src = res.url;
+      } else if (avatar) {
+        const img = el('img', 'person-avatar');
+        img.src = res.url;
+        avatar.replaceWith(img);
+      }
+      toast(`лист персонажа · $${(res.cost ?? 0).toFixed(3)}`);
+    }));
     card.append(actions);
   }
   return card;
@@ -2367,6 +2483,26 @@ function heroCard(hero, money, campaignId) {
       skills.append(line);
     }
     card.append(skills);
+  }
+  if (campaignId) {
+    const actions = el('div', 'person-actions');
+    actions.append(miniBtn('▣ лист', 'вид спереди и сзади', async () => {
+      const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/image`, {
+        method: 'POST',
+        body: JSON.stringify({ mode: 'sheet', hero: true, name: hero.name }),
+      });
+      hero.card = res.url;
+      const avatar = card.querySelector('.person-avatar');
+      if (avatar && avatar.tagName === 'IMG') {
+        avatar.src = res.url;
+      } else if (avatar) {
+        const img = el('img', 'person-avatar');
+        img.src = res.url;
+        avatar.replaceWith(img);
+      }
+      toast(`лист героя · $${(res.cost ?? 0).toFixed(3)}`);
+    }));
+    card.append(actions);
   }
   return card;
 }
@@ -2472,10 +2608,16 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     await api(`/api/campaign/${encodeURIComponent(campaignId)}/memory`, { method: 'POST', body: JSON.stringify({ text: memArea.value }) });
     memStatus.textContent = 'закреплено';
   });
-  memBody.append(memArea, memSave, memStatus);
+  memBody.append(
+    el('p', 'page-sub', 'Факты, которые ведущий помнит всегда: имена, долги, обещания.'),
+    memArea,
+    memSave,
+    memStatus,
+  );
   mem.append(memBody);
   frag.append(section('Память', [mem]));
 
+  let conspectSection = null;
   if (summary && summary.trim()) {
     const cons = el('details', 'card');
     cons.append(el('summary', '', 'Конспект'));
@@ -2484,7 +2626,7 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     pre.textContent = summary;
     consBody.append(pre);
     cons.append(consBody);
-    frag.append(section('Конспект', [cons]));
+    conspectSection = section('Конспект', [cons]);
   }
 
   const body = [healthBar(state.hero.health ?? 100)];
@@ -2579,6 +2721,7 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     box.append(caption, pre);
     box.addEventListener('click', () => openMapModal(title, text));
     details.append(box);
+    details.append(el('div', 'map-hint', 'нажми, чтобы увеличить и двигать'));
     return details;
   };
 
@@ -2660,6 +2803,7 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
   dangerBody.append(resetBtn, restartBtn, deleteBtn);
   danger.append(dangerBody);
   frag.append(section('Опасная зона', [danger]));
+  if (conspectSection) frag.append(conspectSection);
 
   panel.replaceChildren(frag);
 }
@@ -2696,7 +2840,11 @@ async function viewPlay(view, id) {
   artBtn.title = 'настройки иллюстратора: стиль, камера, формат';
   artBtn.addEventListener('click', () => openArtDialog(id));
 
-  head.append(back, title, cost, importBtn, shotBtn, artBtn, panelBtn);
+  const historyBtn = el('button', 'btn small', '📜');
+  historyBtn.title = 'вся история: можно перечитать любой ход';
+  historyBtn.addEventListener('click', () => openHistoryDialog(id));
+
+  head.append(back, title, cost, importBtn, shotBtn, artBtn, historyBtn, panelBtn);
 
   const body = el('div', 'play-body');
   const log = el('div', 'log');
@@ -2757,7 +2905,7 @@ async function viewPlay(view, id) {
     else if (entry.role === 'gm') {
       // Кнопки действий — только у последних десяти ходов, иначе лента тормозит.
       const recent = entry.turn > data.state.turn - 10;
-      addGm(log, { prose: entry.text, stats: {} }, recent ? turnsById.get(entry.turn) : null, imagesByTurn.get(entry.turn));
+      addGm(log, { prose: entry.text, stats: {} }, recent ? turnsById.get(entry.turn) : null, imagesByTurn.get(entry.turn), entry.turn);
     }
   }
 
@@ -2796,7 +2944,7 @@ async function viewPlay(view, id) {
     try {
       const res = await api(`/api/campaign/${encodeURIComponent(id)}/image`, {
         method: 'POST',
-        body: JSON.stringify({ mode: 'scene' }),
+        body: JSON.stringify({ mode: 'scene', turn: app.game?.state?.turn }),
       });
       const img = el('img', 'msg-image');
       img.src = res.url;

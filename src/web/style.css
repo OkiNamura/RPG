@@ -3093,3 +3093,86 @@ button.primary {
   border-left: 1px solid var(--line);
   padding-left: 8px;
 }
+
+/* полная история игрока */
+.history-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  background: rgba(6, 6, 8, 0.94);
+  backdrop-filter: blur(3px);
+}
+
+.history-search {
+  width: min(280px, 40vw);
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.history-body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px clamp(16px, 6vw, 120px) 60px;
+}
+
+.history-hint {
+  max-width: 780px;
+  margin: 0 auto 18px;
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.history-list {
+  max-width: 780px;
+  margin: 0 auto;
+}
+
+.history-turn {
+  margin: 22px 0 8px;
+  color: var(--gold-dim);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.history-msg {
+  border-left: 2px solid var(--line);
+  padding: 4px 0 4px 12px;
+  margin-bottom: 12px;
+}
+
+.history-msg.player {
+  border-color: var(--gold-dim);
+  margin-left: 40px;
+}
+
+.history-role {
+  display: block;
+  color: var(--dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+
+.history-text {
+  white-space: pre-wrap;
+  color: #b8b2a6;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.history-image {
+  display: block;
+  max-width: 100%;
+  margin-top: 8px;
+  border-radius: 8px;
+}
+
+.map-hint {
+  color: var(--dim);
+  font-size: 10px;
+  margin-top: 4px;
+}

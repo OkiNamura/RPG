@@ -1,4 +1,4 @@
-﻿/**
+/**
  * HTTP-сервер игры: статика и API. Без зависимостей.
  *
  *   node src/server.ts
@@ -11,7 +11,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { appendFile, mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import { basename, extname, join, normalize, sep } from 'node:path';
-import { generateImage, itemCardPrompt, masterCardPrompt, portraitPrompt, scenePrompt } from './core/images.ts';
+import { characterSheetPrompt, generateImage, itemCardPrompt, masterCardPrompt, portraitPrompt, scenePrompt } from './core/images.ts';
 import { renderMap } from './core/map.ts';
 import { renderWorldMap } from './core/worldmap.ts';
 import { createState, normalizeState, type Actor, type GameState } from './core/state.ts';
@@ -160,6 +160,8 @@ try {
 }
 
 const PORT = Number(process.env.PORT ?? 7801);
+/** 127.0.0.1 для локальной игры, 0.0.0.0 в контейнере/на хостинге. */
+const HOST = process.env.HOST ?? '127.0.0.1';
 const WEB_DIR = join(import.meta.dirname, 'web');
 const DATA_DIR = join(import.meta.dirname, '..', 'data', 'campaigns');
 const TRACES_DIR = join(import.meta.dirname, '..', 'data', 'traces');
@@ -2184,7 +2186,7 @@ const server = createServer(async (req, res) => {
 
         const body = await readBody(req);
         const rawMode = String(body.mode ?? 'scene');
-        const mode = ['scene', 'portrait', 'card', 'item', 'hero'].includes(rawMode) ? rawMode : 'scene';
+        const mode = ['scene', 'portrait', 'card', 'sheet', 'item', 'hero'].includes(rawMode) ? rawMode : 'scene';
 
         // У каждого вида изображения свой агент: промт сцены не равен промту карточки.
         const artist =
@@ -2206,6 +2208,7 @@ const server = createServer(async (req, res) => {
         let actorName = '';
         let itemName = '';
         let references: string[] = [];
+        let sceneTurn = session.state.turn;
 
         if (mode === 'hero') {
           // Мастер-лист героя: описание берём из четвёртого блока кампании.
@@ -2221,6 +2224,34 @@ const server = createServer(async (req, res) => {
           });
           if (session.state.hero.card) {
             const ref = await imageDataUrl(session.state.hero.card);
+            if (ref) references = [ref];
+          }
+        } else if (mode === 'sheet') {
+          // Лист персонажа: спереди, сзади и портрет — одним кадром.
+          actorName = String(body.name ?? '').trim();
+          const heroSheet = body.hero === true || actorName === session.state.hero.name;
+          if (heroSheet) {
+            actorName = session.state.hero.name;
+            prompt = characterSheetPrompt({
+              style,
+              name: session.state.hero.name,
+              role: 'главный герой',
+              appearance: (session.text.hero || '').replace(/^#+\s*/gm, '').replace(/\s+/g, ' ').slice(0, 600),
+            });
+            const ref = session.state.hero.card ? await imageDataUrl(session.state.hero.card) : null;
+            if (ref) references = [ref];
+          } else {
+            const actor = [...session.state.party, ...session.state.npcs].find((a) => a.name === actorName);
+            if (!actor) return sendJson(res, { error: 'персонаж не найден' }, 404);
+            prompt = characterSheetPrompt({
+              style,
+              name: actor.name,
+              role: actor.role,
+              appearance: actor.appearance,
+              clothes: actor.clothes,
+              character: actor.character,
+            });
+            const ref = actor.card ? await imageDataUrl(actor.card) : null;
             if (ref) references = [ref];
           }
         } else if (mode === 'portrait' || mode === 'card') {
@@ -2259,7 +2290,15 @@ const server = createServer(async (req, res) => {
           if (!item) return sendJson(res, { error: 'предмет не найден' }, 404);
           prompt = itemCardPrompt({ style, name: item.name, note: item.note });
         } else {
-          const lastGm = [...session.state.log].reverse().find((e) => e.role === 'gm');
+          // Кадр именно выбранного хода, а не всегда последнего.
+          const requestedTurn = Number(body.turn);
+          sceneTurn = Number.isFinite(requestedTurn) && requestedTurn > 0
+            ? Math.min(session.state.turn, Math.round(requestedTurn))
+            : session.state.turn;
+          const sceneEntry = [...session.state.log]
+            .reverse()
+            .find((e) => e.role === 'gm' && e.turn === sceneTurn);
+          const lastGm = sceneEntry ?? [...session.state.log].reverse().find((e) => e.role === 'gm');
           prompt = scenePrompt({
             style,
             place: session.state.place,
@@ -2310,17 +2349,21 @@ const server = createServer(async (req, res) => {
 
         if (mode === 'hero') {
           session.state.hero.card = url;
-        } else if (mode === 'portrait' || mode === 'card') {
-          const actor = [...session.state.party, ...session.state.npcs].find((a) => a.name === actorName);
-          if (actor) {
-            if (mode === 'card') actor.card = url;
-            else actor.portrait = url;
+        } else if (mode === 'portrait' || mode === 'card' || mode === 'sheet') {
+          if (mode === 'sheet' && actorName === session.state.hero.name) {
+            session.state.hero.card = url;
+          } else {
+            const actor = [...session.state.party, ...session.state.npcs].find((a) => a.name === actorName);
+            if (actor) {
+              if (mode === 'portrait') actor.portrait = url;
+              else actor.card = url;
+            }
           }
         } else if (mode === 'item') {
           const item = session.state.items.find((i) => i.name.toLowerCase() === itemName.toLowerCase());
           if (item) item.card = url;
         } else {
-          session.state.illustrations.push({ turn: session.state.turn, url, caption: session.state.place });
+          session.state.illustrations.push({ turn: sceneTurn, url, caption: session.state.place });
         }
 
         await persist(id, session);
@@ -2454,8 +2497,8 @@ agents = await loadAgents(AGENTS_DIR);
 // Файл настроек создаём сразу, чтобы его можно было править руками.
 await saveAgents(AGENTS_DIR, agents);
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`OMIKA · http://127.0.0.1:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`OMIKA · http://${HOST}:${PORT}`);
   console.log(`модель: ${MODEL}${API_KEY ? '' : ' (нет ключа — ходы не пройдут)'}`);
   console.log(`цена: $${prices.input.toFixed(4)}/M вход · $${prices.output.toFixed(4)}/M выход · $${prices.cachedInput.toFixed(4)}/M из кэша`);
 });
