@@ -305,8 +305,19 @@ function testDice() {
   check('кубик: навык по умолчанию', skillForAction('делаю шаг', { Воля: 12 }) === 'Воля');
 }
 
+function testActors() {
+  const s = createState('Кай', 'Тракт');
+  applyDelta(s, { party: [{ name: 'Ли', role: 'спутница', bond: 40 }] });
+  applyDelta(s, { npcs: [{ name: 'Ли.', role: 'девочка' }] });
+  check('актёры: NPC не дублирует пати', s.party.length === 1 && s.npcs.length === 0, `party ${s.party.length}, npcs ${s.npcs.length}`);
+  check('актёры: карточка обновилась', s.party[0].role === 'девочка' && s.party[0].bond === 40);
+  applyDelta(s, { party: [{ name: 'ЛИ', role: 'спутница' }, { name: 'Ли', role: 'тень' }] });
+  check('актёры: дубликаты в пати слиты', s.party.length === 1, `party ${s.party.length}`);
+}
+
 testMechanics();
 testFixes();
+testActors();
 testDice();
 
 console.log('');

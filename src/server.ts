@@ -24,7 +24,7 @@ import {
   type TurnVariant,
 } from './core/storage.ts';
 import { OpenRouterModel, fetchPricing } from './core/openrouter.ts';
-import { applyDelta, type ActorPatch, type Delta } from './core/delta.ts';
+import { applyDelta, dedupeActorLists, type ActorPatch, type Delta } from './core/delta.ts';
 import { renderState } from './core/context.ts';
 import {
   DEFAULT_AGENTS,
@@ -825,6 +825,7 @@ async function getSession(id: string): Promise<Session | null> {
     windowTurns: 24,
     summarizeEvery: 10,
   });
+  const actorsDeduped = dedupeActorLists(session.state);
   session.agents = gameAgents;
   session.conspect = conspectFrom(saved);
   const originalSummary = saved.summary ?? '';
@@ -843,7 +844,7 @@ async function getSession(id: string): Promise<Session | null> {
         )
       : originalSummary,
   );
-  let cleanedSnapshots = false;
+  let cleanedSnapshots = actorsDeduped;
   if (mergedSummary !== originalSummary) cleanedSnapshots = true;
   session.summary = mergedSummary;
   session.arcArchive = saved.arcArchive ?? [];

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Изменения состояния: разбор блока из ответа модели и применение к стейту.
  *
  * Принцип: модель предлагает, движок проверяет. Непрошедшее изменение
@@ -144,14 +144,60 @@ function takeMatch(list: string[], needle: string): string | null {
 }
 
 /** Один и тот же человек мог прийти под именем и под прозвищем. */
+/** Ключ имени: без регистра, пробелов и пунктуации — «Ли» и «ли.» одно лицо. */
+export function actorKey(name: string): string {
+  return String(name ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[«»"'`.,!?;:()\[\]{}<>—–-]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
 function sameNpc(existing: Actor, incoming: { name: string; role?: string }): boolean {
-  const a = existing.name.toLowerCase();
-  const b = incoming.name.toLowerCase();
+  const a = actorKey(existing.name);
+  const b = actorKey(incoming.name);
+  if (!a || !b) return false;
   if (a === b) return true;
   if (a.length >= 4 && b.includes(a)) return true;
   if (b.length >= 4 && a.includes(b)) return true;
-  if (incoming.role && incoming.role.toLowerCase().includes(a)) return true;
+  if (incoming.role && actorKey(incoming.role).includes(a)) return true;
   return false;
+}
+
+/** Слить дубликаты в одном списке, сохраняя более полную карточку. */
+function dedupeList(list: Actor[]): Actor[] {
+  const byKey = new Map<string, Actor>();
+  for (const actor of list) {
+    const key = actorKey(actor.name);
+    if (!key) continue;
+    const previous = byKey.get(key);
+    if (!previous) {
+      byKey.set(key, { ...actor });
+      continue;
+    }
+    const merged: Actor = { ...previous };
+    for (const [field, value] of Object.entries(actor)) {
+      if (value === undefined || value === null || value === '') continue;
+      if (Array.isArray(value) && value.length === 0) continue;
+      (merged as unknown as Record<string, unknown>)[field] = value;
+    }
+    // Статус: dead/gone важнее alive; present — последний.
+    if (previous.status !== 'alive') merged.status = previous.status;
+    byKey.set(key, merged);
+  }
+  return [...byKey.values()];
+}
+
+/** Починить дубликаты в готовом состоянии. true — что-то изменилось. */
+export function dedupeActorLists(state: GameState): boolean {
+  const partyBefore = state.party.length;
+  const npcsBefore = state.npcs.length;
+  state.party = dedupeList(state.party);
+  state.npcs = dedupeList(state.npcs);
+  // Если персонаж есть и в пати, и в знакомых — оставляем только в пати.
+  const partyKeys = new Set(state.party.map((actor) => actorKey(actor.name)));
+  state.npcs = state.npcs.filter((actor) => !partyKeys.has(actorKey(actor.name)));
+  return state.party.length !== partyBefore || state.npcs.length !== npcsBefore;
 }
 
 function clampScore(value: number | undefined): number | undefined {
@@ -160,10 +206,22 @@ function clampScore(value: number | undefined): number | undefined {
 }
 
 /** Добавляет или обновляет карточку персонажа: пати и знакомые устроены одинаково. */
-function upsertActor(list: Actor[], patch: ActorPatch, prefix: string): string {
+function upsertActor(
+  list: Actor[],
+  patch: ActorPatch,
+  prefix: string,
+  other?: Actor[],
+): string {
   const status: Actor['status'] =
     patch.status === 'dead' || patch.status === 'gone' ? patch.status : 'alive';
-  const existing = list.find((a) => sameNpc(a, patch));
+  let existing = list.find((a) => sameNpc(a, patch));
+  if (!existing && other) {
+    const index = other.findIndex((a) => sameNpc(a, patch));
+    if (index >= 0) {
+      existing = other.splice(index, 1)[0];
+      list.push(existing);
+    }
+  }
 
   if (existing) {
     if (patch.status) existing.status = status;
@@ -451,13 +509,15 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
       changes.push(`отброшено: безличный NPC «${npc.name}»`);
       continue;
     }
-    changes.push(upsertActor(state.npcs, npc, '+ NPC'));
+    const inParty = state.party.some((actor) => sameNpc(actor, npc));
+    changes.push(inParty ? upsertActor(state.party, npc, '= пати') : upsertActor(state.npcs, npc, '+ NPC'));
   }
 
   for (const member of delta.party ?? []) {
     if (!member.name) continue;
-    changes.push(upsertActor(state.party, member, '+ в пати'));
+    changes.push(upsertActor(state.party, member, '+ в пати', state.npcs));
   }
+  dedupeActorLists(state);
 
   // Знакомые тоже копятся: держим последних шестидесяти.
   const NPCS_LIMIT = 60;
