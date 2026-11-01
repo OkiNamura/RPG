@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Управление локальным сервером Omika.
  *
  *   node scripts/dev.mjs status
@@ -36,7 +36,7 @@ function pidsOnPort() {
 
 async function health() {
   try {
-    const res = await fetch(`http://127.0.0.1:${PORT}/api/stats`, {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/auth`, {
       signal: AbortSignal.timeout(3000),
     });
     return res.ok;

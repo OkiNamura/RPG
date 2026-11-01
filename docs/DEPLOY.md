@@ -1,4 +1,4 @@
-# Размещение Omika на хостинге
+﻿# Размещение Omika на хостинге
 
 Omika — один Node-процесс без внешней БД. Состояние игр, ключи, картинки и
 трейсы лежат в `data/`. Поэтому схема простая: **один контейнер + постоянный
@@ -129,6 +129,31 @@ sudo systemctl enable --now omika
 
 Дальше — тот же Caddy/nginx перед `127.0.0.1:7801`.
 
+
+## Вариант C: Cloudflare Tunnel (без VPS)
+
+Tunnel не требует открытых портов и белого IP. Компьютер должен быть включён.
+
+```bash
+cloudflared tunnel run --token <TUNNEL_TOKEN>
+```
+
+В Cloudflare заранее:
+
+- tunnel `omika`;
+- public hostname `game.okinamura.com` → `http://127.0.0.1:7801`;
+- DNS CNAME создаётся автоматически.
+
+В репозитории есть `scripts/start-tunnel.cmd` — он читает токен из
+`.cloudflare-tunnel.env` и запускает локальный `tools/cloudflared/cloudflared.exe`.
+
+После запуска проверь:
+
+```bash
+curl -I https://game.okinamura.com/   # 302 на /login
+```
+
+Пароль игры — в `.admin-password` (файл в `.gitignore`).
 ## Переменные окружения
 
 | Переменная | По умолчанию | Назначение |
