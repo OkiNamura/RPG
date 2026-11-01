@@ -1242,6 +1242,7 @@ const server = createServer(async (req, res) => {
           proto === 'https' ||
           Boolean((req.socket as { encrypted?: boolean }).encrypted) ||
           process.env.OMIKA_SECURE_COOKIE === 'true';
+        clearLoginAttempts(ip);
         res.setHeader('Set-Cookie', sessionCookie(createSessionToken(), secure));
         return sendJson(res, { ok: true });
       }
