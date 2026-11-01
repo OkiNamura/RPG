@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Состояние кампании — единственный источник правды о цифрах.
  *
  * Проза живёт отдельно: она для игрока. Если проза и стейт расходятся,
@@ -8,6 +8,7 @@
 export type Role = 'player' | 'gm' | 'system';
 
 import { defaultSkills } from './skills.ts';
+import type { Rank, RankChange } from './rank.ts';
 
 export interface Wound {
   where: string;
@@ -49,6 +50,11 @@ export interface Actor {
   portrait?: string;
   /** мастер-лист: референс для всех дальнейших кадров */
   card?: string;
+  /** ранг: FFF…SSR */
+  rank?: Rank;
+  rankPoints?: number;
+  rankHistory?: RankChange[];
+  rankLocked?: boolean;
   /** короткое описание для карточки */
   description?: string;
   /** способности из шаблона NPC */
@@ -161,6 +167,10 @@ export interface GameState {
     origin?: string;
     quirks?: string;
     start?: string;
+    /** ранг героя */
+    rank?: Rank;
+    rankPoints?: number;
+    rankHistory?: RankChange[];
     /** прошлое и способности — из шаблона героя */
     bio?: string;
     abilities?: string;

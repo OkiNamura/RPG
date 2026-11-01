@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Библиотека карточек: одна карточка — один JSON-файл в data/cards.
  *
  * Имя файла: {type}_{id9}_{slug}.json.
@@ -6,6 +6,7 @@
  */
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { Rank } from './rank.ts';
 
 export const CARD_TYPES = [
   'hero',
@@ -39,6 +40,9 @@ export interface GameCard {
   age?: number;
   role?: string;
   status?: string;
+  rank?: Rank;
+  rankPoints?: number;
+  rankLocked?: boolean;
   appearance?: string;
   character?: string;
   biography?: string;

@@ -26,6 +26,8 @@ export interface ActorPatch {
   /** способности/умения */
   abilities?: string;
   skills?: Record<string, number>;
+  rank?: Actor['rank'];
+  rankPoints?: number;
   relations?: { with: string; feeling: string }[];
 }
 
@@ -68,6 +70,9 @@ export interface Delta {
   lore?: { keys: string[]; content: string }[];
   intuition?: string;
   heroSkills?: Record<string, number>;
+  /** очки ранга за значимое событие (0..10); обычный ход — 0 или 1 */
+  rankGain?: number;
+  rankReason?: string;
   hooks?: string[];
   /** закрытые крючки и обещания уходят в архив, а не висят вечно */
   resolveHooks?: string[];
@@ -234,6 +239,8 @@ function upsertActor(
     if (patch.description) existing.description = patch.description;
     if (patch.abilities) existing.abilities = patch.abilities;
     if (patch.skills) existing.skills = { ...(existing.skills ?? {}), ...patch.skills };
+    if (patch.rank) existing.rank = patch.rank;
+    if (typeof patch.rankPoints === 'number') existing.rankPoints = patch.rankPoints;
     if (patch.relations) existing.relations = patch.relations;
     if (typeof patch.present === 'boolean') existing.present = patch.present;
 
@@ -261,6 +268,9 @@ function upsertActor(
     description: patch.description,
     abilities: patch.abilities,
     skills: patch.skills,
+    rank: patch.rank ?? 'F',
+    rankPoints: patch.rankPoints ?? 0,
+    rankHistory: [],
     relations: patch.relations,
   });
   return `${prefix}: ${patch.name}`;

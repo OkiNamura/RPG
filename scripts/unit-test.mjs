@@ -8,6 +8,7 @@ import { createState } from '../src/core/state.ts';
 import { applyDelta } from '../src/core/delta.ts';
 import { matchLore, renderLore } from '../src/core/lore.ts';
 import { resolveRoll, skillForAction } from '../src/core/dice.ts';
+import { addRankPoints, randomStartRank, RANKS } from '../src/core/rank.ts';
 
 let failed = 0;
 
@@ -315,9 +316,22 @@ function testActors() {
   check('актёры: дубликаты в пати слиты', s.party.length === 1, `party ${s.party.length}`);
 }
 
+function testRanks() {
+  check('ранги: 21 ступень и SSR на вершине', RANKS.length === 21 && RANKS.at(-1) === 'SSR');
+  check('ранги: старт только FFF/FF/F', ['FFF', 'FF', 'F'].includes(randomStartRank()));
+  const actor = { rank: 'FFF', rankPoints: 95, rankHistory: [] };
+  const changes = addRankPoints(actor, 10, 7, 'испытание');
+  check('ранги: 95+10 повышает FFF→FF', actor.rank === 'FF' && actor.rankPoints === 5);
+  check('ранги: повышение записано в историю', changes.length === 1 && actor.rankHistory[0].to === 'FF');
+  const locked = { rank: 'S', rankPoints: 99, rankLocked: true, rankHistory: [] };
+  addRankPoints(locked, 10, 8, 'босс');
+  check('ранги: locked не повышается', locked.rank === 'S');
+}
+
 testMechanics();
 testFixes();
 testActors();
+testRanks();
 testDice();
 
 console.log('');

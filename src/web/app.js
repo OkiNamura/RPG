@@ -1054,6 +1054,7 @@ function openLibraryCard(card, campaigns) {
   }
   const meta = el('div', 'library-sheet-meta');
   for (const [label, value] of [
+    ['Ранг', card.rank],
     ['Роль', card.role],
     ['Пол', card.gender === 'female' ? 'женский' : card.gender === 'male' ? 'мужской' : ''],
     ['Возраст', card.age ? `${card.age}` : ''],
@@ -2095,6 +2096,28 @@ async function viewNew(view) {
     );
     body.append(genderBox, deathBox);
 
+    const xpBox = el('div', 'field');
+    xpBox.append(el('label', '', 'Опыт пати'));
+    const xpRow = el('div', 'chips');
+    const xpChoices = [
+      ['own', 'Каждый свой'],
+      ['heroParty', 'Герой от пати'],
+      ['even', 'Равномерно'],
+      ['dynamic', 'Динамично'],
+    ];
+    for (const [value, label] of xpChoices) {
+      xpRow.append(
+        choice(label, wizard.xpMode === value, () => {
+          wizard.xpMode = value;
+        }),
+      );
+    }
+    xpBox.append(
+      xpRow,
+      el('p', 'page-sub', 'Как очки ранга делятся между героем и спутниками в сцене.'),
+    );
+    body.append(xpBox);
+
     // Навыки из шаблона можно проверить и поправить прямо в мастере.
     if (wizard.skills && Object.keys(wizard.skills).length) {
       const box = el('div', 'field');
@@ -2142,6 +2165,8 @@ async function viewNew(view) {
     summary.append(el('div', 'row', `Герой: ${wizard.hero.name || 'без имени'}`));
     summary.append(el('div', 'row', `Пол: ${wizard.gender === 'female' ? 'женский' : 'мужской'}`));
     summary.append(el('div', 'row', `Смерть: ${wizard.permadeath ? 'постоянная' : 'можно очнуться'}`));
+    const xpLabel = { own: 'каждый свой', heroParty: 'герой получает от пати', even: 'равномерно', dynamic: 'динамично' }[wizard.xpMode] ?? wizard.xpMode;
+    summary.append(el('div', 'row', `Опыт пати: ${xpLabel}`));
     if (wizard.skills && Object.keys(wizard.skills).length) {
       summary.append(
         el(
@@ -2176,6 +2201,7 @@ async function viewNew(view) {
             epochYear: wizard.epochYear,
             gender: wizard.gender,
             permadeath: wizard.permadeath,
+            xpMode: wizard.xpMode,
             picks,
             world: {
               description: wizard.customWorld.trim(),
@@ -2263,6 +2289,7 @@ async function viewNew(view) {
             heroStart: wizard.hero.start || undefined,
             gender: wizard.gender,
             permadeath: wizard.permadeath,
+            xpMode: wizard.xpMode,
             toneLevel: wizard.toneLevel,
             epochYear: wizard.epochYear,
             meta: {
@@ -2773,6 +2800,7 @@ function personCard(actor, campaignId) {
   if (actor.role) titles.append(el('div', 'person-role', actor.role));
   const chips = el('div', 'chips');
   if (actor.status) chips.append(el('span', 'chip', actor.status));
+  chips.append(el('span', 'chip gold', `ранг ${actor.rank ?? 'F'}`));
   if (typeof actor.attitude === 'number') {
     chips.append(el('span', 'chip', `отношение ${actor.attitude > 0 ? '+' : ''}${actor.attitude}`));
   }
@@ -2866,6 +2894,7 @@ function heroCard(hero, money, campaignId) {
   titles.append(el('div', 'person-role', 'главный герой'));
   const chips = el('div', 'chips');
   chips.append(el('span', 'chip', `здоровье ${hero.health ?? 100}/100`));
+  chips.append(el('span', 'chip gold', `ранг ${hero.rank ?? 'F'}`));
   if (hero.gender) {
     chips.append(el('span', 'chip', hero.gender === 'female' ? 'женщина' : 'мужчина'));
   }
@@ -2985,6 +3014,7 @@ function openActorModal(actor, campaignId) {
   }
 
   const chips = el('div', 'chips');
+  chips.append(el('span', 'chip gold', `ранг ${actor.rank ?? 'F'}`));
   if (typeof actor.attitude === 'number') {
     chips.append(el('span', 'chip', `отношение ${actor.attitude > 0 ? '+' : ''}${actor.attitude}`));
   }

@@ -76,6 +76,7 @@ export function renderState(s: GameState): string {
   lines.push(`Раны: ${wounds}`);
   lines.push(`Состояния: ${s.hero.conditions.join(', ') || 'нет'}`);
   lines.push(`Здоровье: ${s.hero.health ?? 100}`);
+  if (s.hero.rank) lines.push(`Ранг героя: ${s.hero.rank} (${s.hero.rankPoints ?? 0}/100)`);
 
   if (s.hero.statuses?.length) {
     lines.push(
@@ -100,7 +101,7 @@ export function renderState(s: GameState): string {
 
   lines.push(`Предметы: ${s.items.map((i) => `${i.name}×${i.qty} [${i.where}]`).join('; ') || 'пусто'}`);
   if (s.party.length) {
-    lines.push(`Пати: ${s.party.map((a) => `${a.name} (${a.status}, связь ${a.bond})`).join('; ')}`);
+    lines.push(`Пати: ${s.party.map((a) => `${a.name} (${a.status}, связь ${a.bond}, ранг ${a.rank ?? 'F'})`).join('; ')}`);
   }
   if (s.npcs?.length) {
     lines.push(

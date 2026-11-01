@@ -27,6 +27,7 @@ import { OpenRouterModel, fetchPricing } from './core/openrouter.ts';
 import { applyDelta, dedupeActorLists, type ActorPatch, type Delta } from './core/delta.ts';
 import { listCards, nextCardId, saveCard, type CardType, type GameCard } from './core/cards.ts';
 import { deletePreset, listPresets, nextPresetId, savePreset, type GamePreset } from './core/presets.ts';
+import { addRankPoints, normalizeRank, randomStartRank, type Rank } from './core/rank.ts';
 import { renderState } from './core/context.ts';
 import {
   DEFAULT_AGENTS,
@@ -213,9 +214,18 @@ function parseJsonObject(raw: string): Record<string, unknown> | null {
 async function runStateAgent(
   session: Session,
   prose: string,
-): Promise<{ changes: string[]; cost: number; tokensIn: number; tokensOut: number }> {
+): Promise<{
+  changes: string[];
+  cost: number;
+  tokensIn: number;
+  tokensOut: number;
+  rankGain: number;
+  rankReason: string;
+}> {
   const agent = session.agents?.state ?? agents.state;
-  if (!agent.enabled) return { changes: [], cost: 0, tokensIn: 0, tokensOut: 0 };
+  if (!agent.enabled) {
+    return { changes: [], cost: 0, tokensIn: 0, tokensOut: 0, rankGain: 1, rankReason: 'ход' };
+  }
 
   const model = makeAgentModel(agent);
   const reply = await model.complete([
@@ -233,7 +243,63 @@ async function runStateAgent(
 
   const delta = parseJsonObject(reply.text);
   const changes = delta ? applyDelta(session.state, delta as Delta) : [];
-  return { changes, cost, tokensIn, tokensOut };
+  return {
+    changes,
+    cost,
+    tokensIn,
+    tokensOut,
+    rankGain: Math.max(0, Math.min(10, Number(delta?.rankGain ?? 1))),
+    rankReason: String(delta?.rankReason ?? 'значимый ход').slice(0, 200),
+  };
+}
+
+/** Распределить опыт ранга по выбранному в новой игре режиму. */
+function awardRankXp(
+  id: string,
+  session: Session,
+  gain: number,
+  reason: string,
+): string[] {
+  const changes: string[] = [];
+  const mode = metas.get(id)?.xpMode ?? 'dynamic';
+  const active = session.state.party.filter((actor) => actor.present && actor.status === 'alive');
+  const turn = session.state.turn;
+  const amount = Math.max(0, Math.min(10, Math.round(gain)));
+  if (!amount) return changes;
+
+  let heroGain = amount;
+  const partyGains = new Map<string, number>();
+  if (mode === 'own') {
+    // Каждый растёт сам; опыт героя не перетекает в пати.
+  } else if (mode === 'heroParty') {
+    // Герой забирает часть темпа пати.
+    heroGain = amount + active.length;
+  } else if (mode === 'even') {
+    const share = Math.max(1, Math.floor(amount / (active.length + 1)));
+    heroGain = share;
+    for (const actor of active) partyGains.set(actor.name, share);
+  } else if (active.length) {
+    heroGain = Math.max(1, Math.round(amount * 0.6));
+    const rest = Math.max(0, amount - heroGain);
+    const weight = active.reduce((sum, actor) => sum + Math.max(1, actor.bond ?? 0), 0);
+    for (const actor of active) {
+      partyGains.set(actor.name, Math.max(0, Math.round((rest * Math.max(1, actor.bond ?? 0)) / weight)));
+    }
+  }
+
+  const heroRanks = addRankPoints(session.state.hero, heroGain, turn, reason);
+  for (const change of heroRanks) {
+    changes.push(`ранг героя: ${change.from} → ${change.to} (${change.reason})`);
+  }
+  for (const actor of session.state.party) {
+    const partyGain = partyGains.get(actor.name) ?? 0;
+    if (!partyGain) continue;
+    const partyRanks = addRankPoints(actor, partyGain, turn, reason);
+    for (const change of partyRanks) {
+      changes.push(`ранг ${actor.name}: ${change.from} → ${change.to}`);
+    }
+  }
+  return changes;
 }
 
 /**
@@ -616,6 +682,11 @@ function reviveIfAllowed(id: string, session: Session): void {
   ]);
 
   const agentChanges = stateResult.status === 'fulfilled' ? stateResult.value.changes : [];
+  if (stateResult.status === 'fulfilled') {
+    agentChanges.push(
+      ...awardRankXp(id, session, stateResult.value.rankGain, stateResult.value.rankReason),
+    );
+  }
   if (stateResult.status === 'rejected') console.error('[state agent]', stateResult.reason);
   reviveIfAllowed(id, session);
 
@@ -759,6 +830,12 @@ async function getSession(id: string): Promise<Session | null> {
     model = makeAgentModel({ ...gameAgents.gm, temperature: saved.meta.prompts.temperature }, !gameAgents.state.enabled);
   }
   const settingsList = saved.meta?.aiSettings ?? [];
+  const xpModeLabel: Record<string, string> = {
+    own: 'каждый растит свой опыт',
+    heroParty: 'герой получает опыт от пати',
+    even: 'опыт делится равномерно',
+    dynamic: 'опыт делится по участию',
+  };
   const gameRules = [
     `- Пол героя: ${saved.meta?.gender === 'female' ? 'женский' : 'мужской'}`,
     `- Смерть: ${
@@ -766,6 +843,8 @@ async function getSession(id: string): Promise<Session | null> {
         ? 'не постоянная — при нуле здоровья герой может очнуться, а не исчезнуть'
         : 'постоянная — при нуле здоровья герой погибает окончательно'
     }`,
+    '- Ранги: FFF→FF→F→EEE→EE→E→DDD→DD→D→CCC→CC→C→BBB→BB→B→AAA→AA→A→S→SS→SSR. Обычный NPC — F, герой стартует FFF–F. Ранг босса/глобального злодея закреплён карточкой и не меняется от ходов.',
+    `- Опыт пати: ${xpModeLabel[saved.meta?.xpMode ?? 'dynamic'] ?? 'по динамике'}.`,
   ];
   const settingsLine = `\n\n# НАСТРОЙКИ ИГРЫ\n${gameRules.join('\n')}${
     settingsList.length ? `\n\n# НАСТРОЙКИ ИИ\n${settingsList.map((s) => `- ${s}`).join('\n')}` : ''
@@ -1647,6 +1726,10 @@ const server = createServer(async (req, res) => {
       meta.createdAt = new Date().toISOString();
       meta.gender = body.gender === 'female' ? 'female' : 'male';
       meta.permadeath = body.permadeath !== false;
+      const xpModeRaw = String(body.xpMode ?? meta.xpMode ?? 'dynamic');
+      meta.xpMode = ['own', 'heroParty', 'even', 'dynamic'].includes(xpModeRaw)
+        ? (xpModeRaw as CampaignMeta['xpMode'])
+        : 'dynamic';
 
       // Уровень повествования: 0 — детская сказка, 11 — предел жестокости.
       const levelRaw = Number(body.toneLevel ?? (meta as { toneLevel?: number }).toneLevel);
@@ -1692,6 +1775,10 @@ const server = createServer(async (req, res) => {
       const place = meta.presetTitle ? `Начало: ${meta.presetTitle}` : START_PLACE;
 
       const state = createState(heroName, place);
+      // Стартовый ранг — случайно FFF/FF/F, развитие идёт через rankPoints.
+      state.hero.rank = randomStartRank();
+      state.hero.rankPoints = 0;
+      state.hero.rankHistory = [];
       // Все поля формы героя сохраняем в карточку, а не только в промт.
       state.hero.gender = meta.gender;
       const heroField = (key: keyof typeof state.hero, bodyKey: string, limit = 2000): void => {
@@ -2134,6 +2221,9 @@ const server = createServer(async (req, res) => {
           attitude: clamp(body.attitude, -100, 100),
           present: true,
           skills,
+          rank: normalizeRank(body.rank, 'F'),
+          rankPoints: clamp(body.rankPoints, 0, 99),
+          rankHistory: [],
           wounds: [],
           appearance: text(body.appearance),
           character: text(body.character),

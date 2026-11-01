@@ -39,6 +39,8 @@ export interface CampaignMeta {
   gender?: 'male' | 'female';
   /** смерть постоянная; false — герой может очнуться */
   permadeath?: boolean;
+  /** распределение опыта пати */
+  xpMode?: 'own' | 'heroParty' | 'even' | 'dynamic';
 }
 
 /** Один вариант ответа на ход: проза и состояние после него. */
