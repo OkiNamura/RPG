@@ -46,6 +46,15 @@ function scrollDown(node) {
   if (node) node.scrollTop = node.scrollHeight;
 }
 
+function scrollToNode(container, node) {
+  if (!container || !node) return;
+  const top =
+    node.getBoundingClientRect().top -
+    container.getBoundingClientRect().top +
+    container.scrollTop;
+  container.scrollTop = Math.max(0, top - 12);
+}
+
 function safeDecode(value) {
   try {
     return decodeURIComponent(value);
@@ -4070,6 +4079,7 @@ async function viewPlay(view, id) {
     input.value = '';
     input.style.height = 'auto';
     addPlayer(log, text);
+    scrollDown(log);
     typing.classList.remove('hidden');
 
     const wrap = el('div', 'msg gm');
@@ -4086,19 +4096,22 @@ async function viewPlay(view, id) {
             started = true;
             typing.classList.add('hidden');
             log.append(wrap);
+            scrollToNode(log, wrap);
           }
           prose.textContent += piece;
-          scrollDown(log);
+          // Дальше не тянем прокрутку: остаёмся на первом сообщении ответа.
         },
         Boolean(diceBox.checked),
       );
 
       typing.classList.add('hidden');
-      if (!started) log.append(wrap);
+      if (!started) {
+        log.append(wrap);
+        scrollToNode(log, wrap);
+      }
       prose.textContent = result.prose || prose.textContent;
       wrap.append(metaLine(result));
       wrap.append(actionsBar({ turn: result.stats?.turn ?? result.state.turn, variants: 1, input: text }, id));
-      scrollDown(log);
 
       renderPanel(result.state, panel, id, result.worldMap ?? '', result.map ?? '', result.summary);
       renderThoughts(result.state);

@@ -22,6 +22,7 @@ async function readEnv() {
 }
 
 const env = await readEnv();
+const rate = new Map();
 if (!env.token) {
   console.error('Нет TELEGRAM_BOT_TOKEN в .telegram.env');
   process.exit(1);
@@ -85,7 +86,7 @@ function safeName(name, fallback) {
 async function accept(message) {
   const user = message.from;
   const chat = message.chat;
-  const text = String(message.text ?? message.caption ?? '').trim();
+  const text = String(message.text ?? message.caption ?? '').trim().slice(0, 20000);
 
   if (text === '/start') {
     await api('sendMessage', {
