@@ -41,6 +41,8 @@ export interface CampaignMeta {
   permadeath?: boolean;
   /** распределение опыта пати */
   xpMode?: 'own' | 'heroParty' | 'even' | 'dynamic';
+  /** заморожена в админке: ходы запрещены */
+  frozen?: boolean;
 }
 
 /** Один вариант ответа на ход: проза и состояние после него. */

@@ -1,4 +1,4 @@
-/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
+﻿/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -146,6 +146,7 @@ async function router() {
     else if (name === 'core') await viewCore(view);
     else if (name === 'keys') await viewKeys(view);
     else if (name === 'stats') await viewStats(view);
+    else if (name === 'admin') await viewAdmin(view);
     else if (name === 'new') await viewNew(view, arg);
     else if (name === 'play') await viewPlay(view, arg);
     else if (name === 'view') await viewContainer(view, arg);
@@ -875,6 +876,162 @@ async function loreCard() {
 
 /* ================= статистика ================= */
 
+async function adminSessionsTab(container) {
+  const data = await api('/api/admin/sessions');
+  const active = (data.active ?? []).map((row) => ({
+    ...row,
+    status: row.frozen ? 'frozen' : row.turn === 0 ? 'abandoned' : 'active',
+    deleted: false,
+  }));
+  const trash = (data.trash ?? []).map((row) => ({ ...row, status: 'deleted', deleted: true }));
+  const all = [...active, ...trash];
+  const state = { filter: 'all' };
+  const tabs = el('div', 'chips admin-filter');
+  const list = el('div', 'admin-list');
+  const filters = [
+    ['all', 'Все'],
+    ['active', 'Играю'],
+    ['abandoned', 'Брошенные'],
+    ['frozen', 'Замороженные'],
+    ['deleted', 'Удалённые'],
+  ];
+
+  const reload = async () => {
+    container.replaceChildren(tabs, list);
+    const fresh = await api('/api/admin/sessions');
+    const rows = [
+      ...(fresh.active ?? []).map((row) => ({
+        ...row,
+        status: row.frozen ? 'frozen' : row.turn === 0 ? 'abandoned' : 'active',
+        deleted: false,
+      })),
+      ...(fresh.trash ?? []).map((row) => ({ ...row, status: 'deleted', deleted: true })),
+    ];
+    all.length = 0;
+    all.push(...rows);
+    renderList();
+  };
+
+  const renderList = () => {
+    tabs.replaceChildren();
+    for (const [key, label] of filters) {
+      const count = key === 'all' ? all.length : all.filter((row) => row.status === key).length;
+      const chip = el('button', `chip${state.filter === key ? ' active' : ''}`, `${label} (${count})`);
+      chip.type = 'button';
+      chip.addEventListener('click', () => {
+        state.filter = key;
+        renderList();
+      });
+      tabs.append(chip);
+    }
+    list.replaceChildren();
+    const rows = all.filter((row) => state.filter === 'all' || row.status === state.filter);
+    if (!rows.length) {
+      list.append(emptyBox('Пусто', 'В этой вкладке пока нет историй.'));
+      return;
+    }
+    for (const row of rows) {
+      const card = el('div', 'row-card');
+      card.append(el('div', 'row-cover c5', row.deleted ? '🗑' : '🜂'));
+      const main = el('div', 'row-main');
+      main.append(el('h3', '', row.title || row.id));
+      const meta = el('div', 'row-meta');
+      meta.append(
+        el('span', '', row.id),
+        el('span', '', `ход ${row.turn ?? 0}`),
+        el('span', '', row.place ?? '—'),
+        el('span', '', row.savedAt ? dateLabel(row.savedAt) : 'без даты'),
+      );
+      main.append(meta);
+      const actions = el('div', 'row-actions');
+      if (!row.deleted) {
+        const go = el('button', 'btn small', 'Продолжить');
+        go.addEventListener('click', () => {
+          location.hash = `#/play/${encodeURIComponent(row.id)}`;
+        });
+        const freeze = el('button', 'btn small', row.frozen ? 'Разморозить' : 'Заморозить');
+        freeze.addEventListener('click', async () => {
+          await api(`/api/admin/sessions/${encodeURIComponent(row.id)}/freeze`, {
+            method: 'POST',
+            body: JSON.stringify({ frozen: !row.frozen }),
+          });
+          await reload();
+        });
+        const del = el('button', 'btn small danger', 'Удалить');
+        del.addEventListener('click', async () => {
+          if (!confirm(`Удалить «${row.title || row.id}»? Файл уйдёт в корзину.`)) return;
+          await api(`/api/campaign/${encodeURIComponent(row.id)}`, { method: 'DELETE' });
+          await reload();
+        });
+        actions.append(go, freeze, del);
+      } else {
+        const restore = el('button', 'btn small', 'Восстановить');
+        restore.addEventListener('click', async () => {
+          await api(`/api/admin/trash/${encodeURIComponent(row.file)}/restore`, { method: 'POST' });
+          await reload();
+        });
+        const erase = el('button', 'btn small danger', 'Стереть');
+        erase.addEventListener('click', async () => {
+          if (!confirm(`Стереть «${row.title || row.id}» навсегда?`)) return;
+          await api(`/api/admin/trash/${encodeURIComponent(row.file)}`, { method: 'DELETE' });
+          await reload();
+        });
+        actions.append(restore, erase);
+      }
+      card.append(main, actions);
+      list.append(card);
+    }
+  };
+
+  container.append(tabs, list);
+  renderList();
+}
+
+async function viewAdmin(view) {
+  const page = el('div', 'page');
+  page.append(
+    pageHead(
+      'Служебный режим',
+      'Админка',
+      'Все сессии, включая брошенные и удалённые. Статистика, ключи, ядро и агенты — вкладками.',
+    ),
+  );
+  const tabs = el('div', 'chips admin-tabs');
+  const content = el('div', 'admin-content');
+  page.append(tabs, content);
+  view.append(page);
+
+  const sections = [
+    ['sessions', 'Сессии'],
+    ['stats', 'Статистика'],
+    ['keys', 'Ключи'],
+    ['core', 'Ядро'],
+    ['agents', 'Агенты'],
+  ];
+  let active = 'sessions';
+
+  const render = async () => {
+    tabs.replaceChildren();
+    for (const [key, label] of sections) {
+      const chip = el('button', `chip${active === key ? ' active' : ''}`, label);
+      chip.type = 'button';
+      chip.addEventListener('click', () => {
+        active = key;
+        render();
+      });
+      tabs.append(chip);
+    }
+    content.replaceChildren();
+    if (active === 'sessions') await adminSessionsTab(content);
+    else if (active === 'stats') await viewStats(content);
+    else if (active === 'keys') await viewKeys(content);
+    else if (active === 'core') await viewCore(content);
+    else await viewAgents(content);
+  };
+
+  await render();
+}
+
 async function viewStats(view) {
   const stats = await api('/api/stats');
   const t = stats.totals;
@@ -1339,7 +1496,7 @@ async function viewNew(view) {
     };
     wizard.skills = tpl.skills;
     app.pendingHero = null;
-    toast(`шаблон героя: ${tpl.name}`);
+    toast(`карточка героя: ${tpl.name}`);
   }
 
   const page = el('div', 'page wizard');
@@ -1450,6 +1607,13 @@ async function viewNew(view) {
       });
       row.append(select, load, remove);
       block.append(row);
+      body.append(block);
+    } else {
+      const block = el('div', 'preset-block');
+      block.append(el('div', 'field-label', 'Мои пресеты'));
+      block.append(
+        el('p', 'page-sub', 'Пока пусто. Заполни историю и нажми «Сохранить пресет» на шаге 3.'),
+      );
       body.append(block);
     }
 
@@ -2795,7 +2959,7 @@ function actorCard(actor, campaignId) {
       bodyEl.prepend(img);
       toast(`лист персонажа · $${(res.cost ?? 0).toFixed(3)}`);
     }));
-    actions.append(miniBtn('＋ в шаблоны', 'сохранить карточку в библиотеку', () => saveToLibrary(campaignId, 'npc', actor.name)));
+    actions.append(miniBtn('＋ в карточки', 'сохранить карточку в библиотеку', () => saveToLibrary(campaignId, 'npc', actor.name)));
     if (actions.children.length) bodyEl.append(actions);
   }
 
@@ -2905,7 +3069,7 @@ function personCard(actor, campaignId) {
       }
       toast(`лист персонажа · $${(res.cost ?? 0).toFixed(3)}`);
     }));
-    actions.append(miniBtn('＋ в шаблоны', 'сохранить карточку в библиотеку', () => saveToLibrary(campaignId, 'npc', actor.name)));
+    actions.append(miniBtn('＋ в карточки', 'сохранить карточку в библиотеку', () => saveToLibrary(campaignId, 'npc', actor.name)));
     card.append(actions);
   }
   return card;
@@ -2992,7 +3156,7 @@ function openHeroSheet(hero, money, campaignId) {
         sheetBtn.disabled = false;
       }
     });
-    const saveCard = el('button', 'btn small', '＋ в шаблоны');
+    const saveCard = el('button', 'btn small', '＋ в карточки');
     saveCard.type = 'button';
     saveCard.addEventListener('click', async () => {
       saveCard.disabled = true;
@@ -3107,7 +3271,7 @@ function heroCard(hero, money, campaignId) {
       }
       toast(`лист героя · $${(res.cost ?? 0).toFixed(3)}`);
     }));
-    actions.append(miniBtn('＋ в шаблоны', 'сохранить героя в библиотеку', () => saveToLibrary(campaignId, 'hero', hero.name)));
+    actions.append(miniBtn('＋ в карточки', 'сохранить героя в библиотеку', () => saveToLibrary(campaignId, 'hero', hero.name)));
     card.append(actions);
   }
   card.title = 'открыть карточку героя';
@@ -3241,7 +3405,7 @@ function openActorModal(actor, campaignId) {
     }
   });
   actions.append(sheetBtn, portraitBtn);
-  const saveCardBtn = el('button', 'btn small', '＋ в шаблоны');
+  const saveCardBtn = el('button', 'btn small', '＋ в карточки');
   saveCardBtn.type = 'button';
   saveCardBtn.addEventListener('click', async () => {
     saveCardBtn.disabled = true;

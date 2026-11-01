@@ -1016,7 +1016,7 @@ async function listCampaigns(): Promise<CampaignRow[]> {
           state?: { turn?: number; place?: string };
           savedAt?: string;
           totals?: { cost?: number; tokensIn?: number; tokensOut?: number; cached?: number };
-          meta?: { title?: string; presetTitle?: string };
+          meta?: { title?: string; presetTitle?: string; frozen?: boolean };
         };
         items.push({
           id: file.replace(/\.json$/, ''),
@@ -1035,6 +1035,46 @@ async function listCampaigns(): Promise<CampaignRow[]> {
       }
     }
     return items.sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
+  } catch {
+    return [];
+  }
+}
+
+interface TrashRow {
+  file: string;
+  id: string;
+  title: string;
+  turn: number;
+  place: string;
+  savedAt: string | null;
+}
+
+async function listTrash(): Promise<TrashRow[]> {
+  try {
+    const files = await readdir(TRASH_DIR);
+    const rows: TrashRow[] = [];
+    for (const file of files.filter((f) => f.endsWith('.json'))) {
+      const match = /^(.*)-\d+\.json$/.exec(file);
+      if (!match) continue;
+      try {
+        const raw = JSON.parse(await readFile(join(TRASH_DIR, file), 'utf8')) as {
+          state?: { turn?: number; place?: string };
+          savedAt?: string;
+          meta?: { title?: string };
+        };
+        rows.push({
+          file,
+          id: match[1],
+          title: raw.meta?.title ?? match[1],
+          turn: raw.state?.turn ?? 0,
+          place: raw.state?.place ?? '—',
+          savedAt: raw.savedAt ?? null,
+        });
+      } catch {
+        /* битый файл пропускаем */
+      }
+    }
+    return rows.sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
   } catch {
     return [];
   }
@@ -1126,6 +1166,49 @@ const server = createServer(async (req, res) => {
   try {
     if (path === '/api/campaigns' && req.method === 'GET') {
       return sendJson(res, await listCampaigns());
+    }
+
+    if (path === '/api/admin/sessions' && req.method === 'GET') {
+      return sendJson(res, {
+        active: await listCampaigns(),
+        trash: await listTrash(),
+      });
+    }
+
+    if (path.startsWith('/api/admin/sessions/') && path.endsWith('/freeze') && req.method === 'POST') {
+      const sessionId = decodeURIComponent(
+        path.slice('/api/admin/sessions/'.length, -'/freeze'.length),
+      );
+      const session = await getSession(sessionId);
+      if (!session) return sendJson(res, { error: 'кампания не найдена' }, 404);
+      const body = await readBody(req);
+      const meta = metas.get(sessionId) ?? {};
+      meta.frozen = Boolean(body.frozen);
+      metas.set(sessionId, meta);
+      await persist(sessionId, session);
+      return sendJson(res, { ok: true, frozen: meta.frozen });
+    }
+
+    if (path.startsWith('/api/admin/trash/') && path.endsWith('/restore') && req.method === 'POST') {
+      const file = decodeURIComponent(path.slice('/api/admin/trash/'.length, -'/restore'.length));
+      if (basename(file) !== file || !/^[^/\\]+\.json$/.test(file)) {
+        return sendJson(res, { error: 'недопустимый файл' }, 400);
+      }
+      const id = file.replace(/-\d+\.json$/, '');
+      if (!id || (await loadCampaign(DATA_DIR, id))) {
+        return sendJson(res, { error: 'кампания с таким id уже есть' }, 409);
+      }
+      await rename(join(TRASH_DIR, file), join(DATA_DIR, `${id}.json`));
+      return sendJson(res, { ok: true, id });
+    }
+
+    if (path.startsWith('/api/admin/trash/') && req.method === 'DELETE') {
+      const file = decodeURIComponent(path.slice('/api/admin/trash/'.length));
+      if (basename(file) !== file || !/^[^/\\]+\.json$/.test(file)) {
+        return sendJson(res, { error: 'недопустимый файл' }, 400);
+      }
+      await unlink(join(TRASH_DIR, file)).catch(() => undefined);
+      return sendJson(res, { ok: true });
     }
 
     if (path === '/api/stats' && req.method === 'GET') {
@@ -2715,6 +2798,9 @@ const server = createServer(async (req, res) => {
       }
 
       if ((isTurn || action === 'stream') && req.method === 'POST') {
+        if (metas.get(id)?.frozen) {
+          return sendJson(res, { error: 'кампания заморожена в админке' }, 409);
+        }
         const body = await readBody(req);
         const input = String(body.input ?? '').trim();
         if (!input) return sendJson(res, { error: 'пустой ход' }, 400);

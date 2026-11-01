@@ -3669,3 +3669,22 @@ select {
 .hero-card .person-actions {
   display: none;
 }
+
+/* админка */
+.admin-tabs {
+  margin: 4px 0 14px;
+}
+
+.admin-filter {
+  margin-bottom: 12px;
+}
+
+.admin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-content > .page {
+  padding: 0;
+}
