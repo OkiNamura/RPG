@@ -1719,15 +1719,54 @@ const server = createServer(async (req, res) => {
       });
     }
 
+    if (path === '/api/generate/world-brief' && req.method === 'POST') {
+      const body = await readBody(req);
+      const description = String(body.description ?? '').trim().slice(0, 2000);
+      const tags = Array.isArray(body.tags) ? body.tags.map(String).filter(Boolean).slice(0, 40) : [];
+      const level = Number(body.toneLevel);
+      const pack = compositionModel(
+        700,
+        'Ты кратко формулируешь мир текстовой RPG. Верни 5–7 тезисов, каждый с новой строки через «— »: устройство мира, силы, экономика, угрозы, тон. Без вступления и markdown-заголовков.',
+      );
+      if (!pack) return sendJson(res, { error: 'нет OPENROUTER_API_KEY в .env' }, 500);
+      const t0 = Date.now();
+      const reply = await pack.model.complete([
+        { role: 'system', content: pack.system },
+        {
+          role: 'user',
+          content: [
+            description ? `Описание мира: ${description}` : '',
+            tags.length ? `Теги: ${tags.join(', ')}` : '',
+            Number.isFinite(level) ? toneDirective(level) : '',
+            'Сформулируй коротко, тезисно, без воды.',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        },
+      ]);
+      const text = reply.text
+        .replace(/^```[\s\S]*?```$/g, '')
+        .replace(/^#+\s*/gm, '')
+        .trim()
+        .slice(0, 1800);
+      return sendJson(res, {
+        text,
+        ms: Date.now() - t0,
+        cost: costOf(reply.inputTokens ?? 0, reply.outputTokens),
+      });
+    }
+
     if (path === '/api/generate/world' && req.method === 'POST') {
       const body = await readBody(req);
       const presetId = String(body.presetId ?? '');
       const tagList = Array.isArray(body.tags) ? body.tags.map(String).filter(Boolean).slice(0, 40) : [];
       const descriptionText = String(body.description ?? '').trim();
       const eraLabel = String(body.eraLabel ?? '').trim().slice(0, 200);
-      // Мир собирается из свободного описания, тегов и своего летоисчисления.
+      const brief = String(body.brief ?? '').trim().slice(0, 1800);
+      // Мир собирается из описания, тегов, тезисов и летоисчисления.
       const custom = [
         descriptionText,
+        brief ? `Тезисы мира:\n${brief}` : '',
         tagList.length ? `Теги: ${tagList.join(', ')}` : '',
         eraLabel ? `Летоисчисление: ${eraLabel}` : '',
       ]

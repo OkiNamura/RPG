@@ -1472,6 +1472,7 @@ async function viewNew(view) {
     title: '',
     customWorld: '',
     worldText: '',
+    worldBrief: '',
     worldDescription: '',
     tagQuery: '',
     tagWords: '',
@@ -1583,6 +1584,7 @@ async function viewNew(view) {
         wizard.permadeath = preset.permadeath !== false;
         wizard.customWorld = preset.world?.description ?? '';
         wizard.worldText = preset.world?.text ?? '';
+        wizard.worldBrief = preset.world?.brief ?? '';
         wizard.worldDescription = preset.world?.description ?? '';
         wizard.hero = {
           name: '', essence: '', appearance: '', bodyAttitude: '',
@@ -2242,6 +2244,49 @@ async function viewNew(view) {
       wizard.worldText = worldOut.value;
     });
     worldField.append(worldOut);
+    const briefOut = el('textarea', 'world-brief');
+    briefOut.placeholder = 'Коротко о мире: 5–7 тезисов — устройство, силы, экономика, угрозы, тон.';
+    briefOut.value = wizard.worldBrief ?? '';
+    briefOut.addEventListener('input', () => {
+      wizard.worldBrief = briefOut.value;
+    });
+    const briefRow = el('div', 'world-row');
+    const briefBtn = el('button', 'btn small', 'Тезисно о мире');
+    briefBtn.type = 'button';
+    const briefDice = el('button', 'btn small level-dice', '🎲');
+    briefDice.type = 'button';
+    briefDice.title = 'другой короткий вариант';
+    const briefStatus = el('span', 'page-sub', '');
+    const makeBrief = async () => {
+      briefBtn.disabled = true;
+      briefDice.disabled = true;
+      briefStatus.textContent = 'собираю…';
+      try {
+        const tags = [...wizard.picks.values()]
+          .filter((pick) => pick.mode === 'include')
+          .map((pick) => pick.field);
+        const res = await api('/api/generate/world-brief', {
+          method: 'POST',
+          body: JSON.stringify({
+            description: wizard.customWorld.trim() || wizard.worldText.trim(),
+            tags,
+            toneLevel: wizard.toneLevel,
+          }),
+        });
+        wizard.worldBrief = res.text ?? '';
+        briefOut.value = wizard.worldBrief;
+        briefStatus.textContent = res.cost ? `готово · $${res.cost.toFixed(4)}` : 'готово';
+      } catch (err) {
+        briefStatus.textContent = err.message;
+      } finally {
+        briefBtn.disabled = false;
+        briefDice.disabled = false;
+      }
+    };
+    briefBtn.addEventListener('click', makeBrief);
+    briefDice.addEventListener('click', makeBrief);
+    briefRow.append(briefBtn, briefDice, briefStatus);
+    worldField.append(briefOut, briefRow);
     const worldRow = el('div', 'world-row');
     const genWorld = el('button', 'btn small', 'Сгенерировать мир');
     genWorld.type = 'button';
@@ -2529,6 +2574,7 @@ async function viewNew(view) {
             world: {
               description: wizard.customWorld.trim(),
               text: wizard.worldText.trim(),
+              brief: wizard.worldBrief.trim(),
               generated: Boolean(wizard.worldText.trim()),
               source: wizard.customWorld.trim() ? 'tags+description' : 'tags',
             },
@@ -2576,18 +2622,23 @@ async function viewNew(view) {
           .filter((pick) => pick.mode === 'include')
           .map((pick) => pick.field);
         const world = wizard.worldText.trim()
-          ? { text: wizard.worldText.trim() }
+          ? {
+              text: `${wizard.worldText.trim()}${
+                wizard.worldBrief.trim() ? `\n\n# ТЕЗИСЫ МИРА\n${wizard.worldBrief.trim()}` : ''
+              }`,
+            }
           : await api('/api/generate/world', {
               method: 'POST',
               body: JSON.stringify({
                 presetId: '',
                 toneLevel: wizard.toneLevel,
                 epochYear: wizard.epochYear,
-            altTime: wizard.altTime,
-            eraLabel: wizard.eraLabel,
+                altTime: wizard.altTime,
+                eraLabel: wizard.eraLabel,
                 description:
                   wizard.customWorld.trim() ||
                   'Тёмное фэнтези: погибающий мир, серые земли, голод и древние долги.',
+                brief: wizard.worldBrief.trim(),
                 tags: chosenTags,
                 title: wizard.title,
               }),
