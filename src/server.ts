@@ -1772,6 +1772,47 @@ const server = createServer(async (req, res) => {
     }
 
     // Мастер промтов собирает героя из формы и возвращает готовый блок.
+    if (path === '/api/generate/era' && req.method === 'POST') {
+      const body = await readBody(req);
+      const tone = String(body.tone ?? '').trim().slice(0, 1200);
+      const world = String(body.world ?? '').trim().slice(0, 1200);
+      const level = Number(body.toneLevel);
+      const pack = compositionModel(
+        500,
+        'Ты придумываешь название эпохи и летоисчисления для мира текстовой RPG. Верни только одну короткую строку без markdown и кавычек: например «Третий век Пепла, 12-й год после Разлома».',
+      );
+      if (!pack) return sendJson(res, { error: 'нет OPENROUTER_API_KEY в .env' }, 500);
+      const t0 = Date.now();
+      const reply = await pack.model.complete([
+        { role: 'system', content: pack.system },
+        {
+          role: 'user',
+          content: [
+            tone ? `Тон игры: ${tone}` : '',
+            world ? `Мир: ${world}` : '',
+            Number.isFinite(level) ? toneDirective(level) : '',
+            'Придумай своё летоисчисление: название эпохи и год/отсчёт, одной строкой.',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        },
+      ]);
+      const parsed = parseJsonObject(reply.text) ?? {};
+      const era =
+        (typeof parsed.era === 'string' && parsed.era.trim()) ||
+        reply.text
+          .replace(/^```[\s\S]*?```$/g, '')
+          .split('\n')
+          .map((line) => line.replace(/^[-*#\s]+/, '').trim())
+          .find(Boolean) ||
+        '';
+      return sendJson(res, {
+        era: era.slice(0, 160),
+        ms: Date.now() - t0,
+        cost: costOf(reply.inputTokens ?? 0, reply.outputTokens),
+      });
+    }
+
     if (path === '/api/generate/hero' && req.method === 'POST') {
       const body = await readBody(req);
       const form = (body.form ?? {}) as Record<string, string>;

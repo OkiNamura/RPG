@@ -1,4 +1,4 @@
-﻿/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
+/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -1738,9 +1738,40 @@ async function viewNew(view) {
       wizard.eraLabel = eraInput.value;
       if (wizard.altTime) epochLabel.textContent = eraInput.value.trim() || 'своё летоисчисление';
     });
+    const eraRow = el('div', 'era-row');
+    const eraDice = el('button', 'btn small level-dice', '🎲');
+    eraDice.type = 'button';
+    eraDice.title = 'придумать эпоху и летоисчисление';
+    eraDice.addEventListener('click', async () => {
+      eraDice.disabled = true;
+      try {
+        const tags = [...wizard.picks.values()]
+          .filter((pick) => pick.mode === 'include')
+          .map((pick) => pick.field);
+        const res = await api('/api/generate/era', {
+          method: 'POST',
+          body: JSON.stringify({
+            tone: tags.join(', '),
+            world: wizard.customWorld.trim() || wizard.worldText.trim(),
+            toneLevel: wizard.toneLevel,
+          }),
+        });
+        if (res.era) {
+          wizard.eraLabel = res.era;
+          eraInput.value = res.era;
+          epochLabel.textContent = res.era;
+          toast(`эпоха: ${res.era}${res.cost ? ` · $${res.cost.toFixed(4)}` : ''}`);
+        }
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        eraDice.disabled = false;
+      }
+    });
+    eraRow.append(eraInput, eraDice);
     const syncTimeMode = () => {
       timeAlt.classList.toggle('alt-time-on', wizard.altTime);
-      eraInput.classList.toggle('hidden', !wizard.altTime);
+      eraRow.classList.toggle('hidden', !wizard.altTime);
       epochRange.classList.toggle('hidden', wizard.altTime);
       manualYear.classList.toggle('hidden', wizard.altTime);
       epochHint.classList.toggle('hidden', wizard.altTime);
@@ -1755,7 +1786,7 @@ async function viewNew(view) {
       wizard.altTime = altToggle.checked;
       syncTimeMode();
     });
-    timeAlt.append(altLabel, eraInput);
+    timeAlt.append(altLabel, eraRow);
     body.append(timeAlt);
     syncTimeMode();
 

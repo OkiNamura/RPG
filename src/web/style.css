@@ -3705,3 +3705,15 @@ select {
 .era-input {
   margin-top: 8px;
 }
+
+.era-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.era-row .era-input {
+  flex: 1;
+  margin-top: 0;
+}
