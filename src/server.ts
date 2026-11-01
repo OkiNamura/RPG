@@ -28,6 +28,7 @@ import { applyDelta, dedupeActorLists, type ActorPatch, type Delta } from './cor
 import { listCards, nextCardId, saveCard, type CardType, type GameCard } from './core/cards.ts';
 import { deletePreset, listPresets, nextPresetId, savePreset, type GamePreset } from './core/presets.ts';
 import { addRankPoints, normalizeRank, randomStartRank, type Rank } from './core/rank.ts';
+import { allowLogin, authEnabled, checkPassword, clearCookie, createSessionToken, loginPage, requestSession, sessionCookie, verifySessionToken } from './core/auth.ts';
 import { renderState } from './core/context.ts';
 import {
   DEFAULT_AGENTS,
@@ -1189,6 +1190,58 @@ const server = createServer(async (req, res) => {
   const path = url.pathname;
 
   try {
+    if (path === '/api/auth' && req.method === 'GET') {
+      return sendJson(res, { enabled: authEnabled() });
+    }
+
+    if (authEnabled()) {
+      if (path === '/login' && req.method === 'GET') {
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'X-Frame-Options': 'DENY',
+          'X-Content-Type-Options': 'nosniff',
+          'Content-Security-Policy': "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'",
+        });
+        res.end(loginPage());
+        return;
+      }
+
+      if (path === '/api/login' && req.method === 'POST') {
+        const body = await readBody(req);
+        const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? 'local')
+          .split(',')[0]
+          .trim();
+        if (!allowLogin(ip)) {
+          return sendJson(res, { error: 'слишком много попыток, подожди 15 минут' }, 429);
+        }
+        if (!checkPassword(String(body.password ?? ''))) {
+          return sendJson(res, { error: 'неверный пароль' }, 401);
+        }
+        const proto = String(req.headers['x-forwarded-proto'] ?? '');
+        const secure =
+          proto === 'https' ||
+          Boolean((req.socket as { encrypted?: boolean }).encrypted) ||
+          process.env.OMIKA_SECURE_COOKIE === 'true';
+        res.setHeader('Set-Cookie', sessionCookie(createSessionToken(), secure));
+        return sendJson(res, { ok: true });
+      }
+
+      if (path === '/api/logout') {
+        res.setHeader('Set-Cookie', clearCookie());
+        return sendJson(res, { ok: true });
+      }
+
+      if (!verifySessionToken(requestSession(req))) {
+        if (path.startsWith('/api/')) {
+          return sendJson(res, { error: 'нужен вход' }, 401);
+        }
+        res.writeHead(302, { Location: '/login', 'Cache-Control': 'no-store' });
+        res.end();
+        return;
+      }
+    }
+
     if (path === '/api/campaigns' && req.method === 'GET') {
       return sendJson(res, await listCampaigns());
     }

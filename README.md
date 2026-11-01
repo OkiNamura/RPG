@@ -308,8 +308,8 @@ UI-тест поднимает настоящую страницу с серве
 ## Хостинг
 
 `Dockerfile`, `docker-compose.yml`, `.env.example` и инструкция
-`docs/DEPLOY.md`. Нужен постоянный диск под `data/` и reverse proxy с HTTPS
-и Basic Auth — встроенной авторизации нет.
+`docs/DEPLOY.md`. Нужен постоянный диск под `data/` и reverse proxy с HTTPS.
+Вход по паролю — `OMIKA_PASSWORD`; без него авторизация выключена (локально).
 
 ## Ключ
 

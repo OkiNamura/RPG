@@ -8,8 +8,8 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 7801
-    # Снаружи порт не открываем: рядом должен стоять reverse proxy с HTTPS
-    # и Basic Auth. Для локальной проверки можно временно поставить "7801:7801".
+    # Снаружи порт не открываем: рядом reverse proxy с HTTPS.
+    # Вход в игру — по OMIKA_PASSWORD.
     ports:
       - "127.0.0.1:7801:7801"
     volumes:

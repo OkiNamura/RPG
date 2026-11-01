@@ -1,4 +1,4 @@
-﻿# Размещение Omika на хостинге
+# Размещение Omika на хостинге
 
 Omika — один Node-процесс без внешней БД. Состояние игр, ключи, картинки и
 трейсы лежат в `data/`. Поэтому схема простая: **один контейнер + постоянный
@@ -9,7 +9,8 @@ Omika — один Node-процесс без внешней БД. Состоя�
 | Компонент | Минимум | Рекомендуется |
 |---|---|---|
 | VPS | 1 vCPU, 1 ГБ RAM | 2 vCPU, 2 ГБ RAM, 20 ГБ SSD |
-| Node | 24 (умеет `.ts` из коробки) | Docker-образ `node:24-alpine` |
+| Node | 24 (умеет `.ts` из коробки) | Docker-образ 
+ode:24-alpine` |
 | Домен | не обязателен | да, для HTTPS |
 | Диск | 5 ГБ | 20 ГБ под кампании и картинки |
 | Ключ | `OPENROUTER_API_KEY` | отдельный ключ только для Omika |
@@ -20,14 +21,22 @@ Functions) не подходит: там нетпостоянного диска
 
 ## Важно про безопасность
 
-В приложении **нет встроенной авторизации**: кто открыл адрес — тот видит
-кампании, ключи (маскированные) и может тратить токены. Поэтому:
+В приложении есть **вход по паролю**. Пока `OMIKA_PASSWORD` пуст, авторизация
+выключена — так удобно локально, но **не для интернета**.
 
-1. Не открывай `7801` в интернет напрямую.
-2. Поставь reverse proxy с HTTPS и Basic Auth (Caddy/nginx).
+Для публичного сервера:
+
+1. Задай `OMIKA_PASSWORD` в `.env` и `OMIKA_SESSION_SECRET` (длинная случайная
+   строка).
+2. Поставь reverse proxy с HTTPS (Caddy/nginx).
 3. Держи `data/` вне публичного доступа.
 4. Ограничь файрвол: открыты только 80/443.
 5. Используй отдельный ключ OpenRouter с лимитом.
+6. Дополнительно можно включить Basic Auth в Caddy — как второй слой.
+
+Сессия — подписанная HttpOnly-cookie на 30 дней, `SameSite=Lax`; на HTTPS
+автоматически ставится `Secure`. Вход: `/login`, выход: `/api/logout`.
+Не более 10 попыток пароля за 15 минут с одного IP.
 
 ## Вариант A: Docker + Caddy (рекомендуется)
 
@@ -37,7 +46,7 @@ Functions) не подходит: там нетпостоянного диска
 git clone git@github.com:OkiNamura/RPG.git omika
 cd omika
 cp .env.example .env
-nano .env            # OPENROUTER_API_KEY
+nano .env            # OPENROUTER_API_KEY, OMIKA_PASSWORD, OMIKA_SESSION_SECRET
 docker compose up -d --build
 docker compose logs -f
 ```
@@ -48,21 +57,20 @@ docker compose logs -f
 `Caddyfile`:
 
 ```caddyfile
-omika.example.com {
-    basic_auth {
-        omika $2a$14$ЗАМЕНИ_НА_ХЕШ
-    }
+game.okinamura.com {
     reverse_proxy 127.0.0.1:7801
 }
 ```
 
-Хеш пароля: `caddy hash-password --plaintext 'мой-пароль'`.
-Caddy сам получит сертификат Let's Encrypt.
+Caddy сам получит сертификат Let's Encrypt. Вход в игру — через `/login`.
 
 Проверка:
 
 ```bash
-curl -u omika:пароль https://omika.example.com/api/stats
+curl -I https://game.okinamura.com/          # 302 на /login без cookie
+curl -X POST https://game.okinamura.com/api/login \
+  -H 'Content-Type: application/json' \
+  -d '{"password":"твой-пароль"}'
 ```
 
 ### Обновление
@@ -129,17 +137,21 @@ sudo systemctl enable --now omika
 | `HOST` | `127.0.0.1` | `0.0.0.0` в контейнере |
 | `PORT` | `7801` | порт приложения |
 | `OMIKA_MODEL` | `deepseek/...` | модель ведущего |
+| `OMIKA_PASSWORD` | — | пароль входа; пусто — авторизация выключена |
+| `OMIKA_SESSION_SECRET` | из пароля | секрет подписи cookie |
+| `OMIKA_SECURE_COOKIE` | авто | `true` принудительно включает Secure-cookie |
 | `OMIKA_TRACE` | включено | `0` отключает трейсы |
 
 Файл `.env` читается автоматически, в Docker — через `env_file`.
 
 ## Что проверить после деплоя
 
-- `GET /api/stats` отвечает 200;
+- без cookie `/api/stats` отвечает 401, `/` ведёт на `/login`;
+- с верным паролем вход открывает игру;
 - создаётся игра, проходит ход, приходит SSE-поток;
 - картинка сохраняется в `data/images` и отдаётся по `/api/images/...`;
 - после `docker compose restart` кампании на месте;
-- Basic Auth спрашивает пароль, без пароля — 401;
+- неверный пароль не пускает, после 10 попыток — 429;
 - в логах нет `EACCES` на `data/`.
 
 ## Ограничения текущей архитектуры
@@ -148,7 +160,7 @@ sudo systemctl enable --now omika
   контейнера на одном томе подерутся за файлы.
 - **SSE держит соединение** — прокси должен не буферизовать ответ
   (`proxy_buffering off` в nginx; Caddy по умолчанию нормально).
-- **Нет авторизации** — только reverse proxy с паролем.
+- **Включён один пароль** на всю игру; отдельные пользователи не поддерживаются.
 - **Трейсы растут** — чистить `data/traces` по расписанию или ставить
   `OMIKA_TRACE=0`.
 - **Картинки** — самая дорогая часть; лимитируй через ключ и тариф.

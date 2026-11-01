@@ -3717,3 +3717,20 @@ select {
   flex: 1;
   margin-top: 0;
 }
+
+.logout-btn {
+  margin-top: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.logout-btn:hover {
+  color: var(--text);
+  border-color: var(--gold-dim);
+}

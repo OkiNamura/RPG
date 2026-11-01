@@ -187,6 +187,7 @@ async function viewProfile(view) {
   }
 
   page.append(cardBox);
+  if (await isAuthEnabled()) page.append(logoutButton());
   view.append(page);
 }
 
@@ -4735,5 +4736,32 @@ async function openArtDialog(campaignId, onSaved) {
 
 const app = { game: null, campaigns: [], pendingHero: null };
 
+async function isAuthEnabled() {
+  try {
+    const res = await fetch('/api/auth');
+    return res.ok && (await res.json()).enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+function logoutButton() {
+  const btn = el('button', 'logout-btn', 'Выйти');
+  btn.type = 'button';
+  btn.addEventListener('click', async () => {
+    await fetch('/api/logout', { method: 'POST' }).catch(() => undefined);
+    location.href = '/login';
+  });
+  return btn;
+}
+
+async function setupAuthBar() {
+  if (!(await isAuthEnabled())) return;
+  app.authEnabled = true;
+  const foot = document.querySelector('.side-foot');
+  if (foot) foot.append(logoutButton());
+}
+
 window.addEventListener('hashchange', router);
+setupAuthBar();
 router();
