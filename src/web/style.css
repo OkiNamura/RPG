@@ -3542,3 +3542,16 @@ button.primary {
     flex-basis: 86px;
   }
 }
+
+.library-tabs .chip {
+  background: #121216;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.library-tabs .chip.active {
+  color: var(--gold);
+  border-color: var(--gold-dim);
+  background: #17161a;
+}
