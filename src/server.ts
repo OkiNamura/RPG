@@ -1,4 +1,4 @@
-﻿/**
+/**
  * HTTP-сервер игры: статика и API. Без зависимостей.
  *
  *   node src/server.ts
@@ -28,7 +28,7 @@ import { applyDelta, dedupeActorLists, type ActorPatch, type Delta } from './cor
 import { listCards, nextCardId, saveCard, type CardType, type GameCard } from './core/cards.ts';
 import { deletePreset, listPresets, nextPresetId, savePreset, type GamePreset } from './core/presets.ts';
 import { addRankPoints, normalizeRank, randomStartRank, type Rank } from './core/rank.ts';
-import { allowLogin, authEnabled, checkPassword, clearCookie, createCaptcha, createSessionToken, loginPage, requestSession, sessionCookie, turnstileConfigured, verifyCaptcha, verifySessionToken, verifyTurnstile } from './core/auth.ts';
+import { allowLogin, authEnabled, checkPassword, clearCookie, clearLoginAttempts, createCaptcha, createSessionToken, loginPage, requestSession, sessionCookie, turnstileConfigured, verifyCaptcha, verifySessionToken, verifyTurnstile } from './core/auth.ts';
 import { renderState } from './core/context.ts';
 import {
   DEFAULT_AGENTS,
@@ -1178,6 +1178,11 @@ async function serveStatic(pathname: string, res: ServerResponse): Promise<void>
       'Cache-Control': 'no-store, no-cache, must-revalidate',
       Pragma: 'no-cache',
       Expires: '0',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Content-Security-Policy':
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'",
     });
     res.end(data);
   } catch {
@@ -2060,7 +2065,11 @@ const server = createServer(async (req, res) => {
 
       const heroName =
         typeof body.heroName === 'string' && body.heroName.trim() ? body.heroName.trim() : HERO_NAME;
-      const place = meta.presetTitle ? `Начало: ${meta.presetTitle}` : START_PLACE;
+      const place = meta.presetTitle
+        ? `Начало: ${meta.presetTitle}`
+        : (meta.toneLevel ?? 5) <= 4
+          ? 'Тихая деревня на опушке'
+          : START_PLACE;
 
       const state = createState(heroName, place);
       // Стартовый ранг — случайно FFF/FF/F, развитие идёт через rankPoints.

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Простая авторизация для self-hosted игры.
  *
  * Один пароль из OMIKA_PASSWORD. Сессия — подписанная HttpOnly-cookie.
@@ -56,7 +56,12 @@ export function parseCookies(header: string | undefined): Record<string, string>
     if (index < 0) continue;
     const key = part.slice(0, index).trim();
     const value = part.slice(index + 1).trim();
-    if (key) cookies[key] = decodeURIComponent(value);
+    if (!key) continue;
+    try {
+      cookies[key] = decodeURIComponent(value);
+    } catch {
+      cookies[key] = value;
+    }
   }
   return cookies;
 }
@@ -87,7 +92,12 @@ export function clearCookie(): string {
 
 const attempts = new Map<string, { count: number; resetAt: number }>();
 
+export function clearLoginAttempts(ip: string): void {
+  attempts.delete(ip);
+}
+
 export function allowLogin(ip: string): boolean {
+  if (attempts.size > 5000) attempts.clear();
   const now = Date.now();
   const entry = attempts.get(ip);
   if (!entry || entry.resetAt < now) {

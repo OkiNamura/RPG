@@ -9,9 +9,35 @@
  */
 
 import { JSDOM } from 'jsdom';
+import { readFile } from 'node:fs/promises';
 
 const BASE = process.env.OMIKA_BASE ?? 'http://127.0.0.1:7801';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const rawFetch = globalThis.fetch;
+
+let sessionCookie = '';
+async function authenticate() {
+  const state = await (await rawFetch(BASE + '/api/auth')).json();
+  if (!state.enabled) return;
+  const password =
+    process.env.OMIKA_TEST_PASSWORD ?? (await readFile('.admin-password', 'utf8')).trim();
+  const page = await (await rawFetch(BASE + '/login')).text();
+  const question = (page.match(/id="captcha-question">([^<]+)</) ?? [])[1] ?? '';
+  const captchaId = (page.match(/id="captcha-id"[^>]*value="([^"]+)"/) ?? [])[1] ?? '';
+  const [a, b] = question.split('+').map((x) => Number(x.trim()));
+  const res = await rawFetch(BASE + '/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password, captchaId, captchaAnswer: String(a + b) }),
+  });
+  if (!res.ok) throw new Error(`вход для UI-теста: ${res.status}`);
+  sessionCookie = (res.headers.get('set-cookie') ?? '').split(';')[0];
+  globalThis.fetch = (input, init = {}) => {
+    const headers = new Headers(init.headers);
+    if (sessionCookie) headers.set('Cookie', sessionCookie);
+    return rawFetch(input, { ...init, headers });
+  };
+}
 
 const errors = [];
 const results = [];
@@ -37,6 +63,7 @@ async function until(fn, timeout = 12000, step = 100) {
 }
 
 async function main() {
+  await authenticate();
   const html = await (await fetch(BASE + '/')).text();
   const dom = new JSDOM(html, {
     url: BASE + '/#/profile',
