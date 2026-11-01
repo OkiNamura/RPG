@@ -26,6 +26,8 @@ export interface CampaignMeta {
   /** промты, собранные мастером промтов под эту игру */
   prompts?: {
     gm?: string;
+    /** версия сборки статики: 2 — GM+ТОН, ПРАВИЛА, МИР, ГЕРОЙ */
+    assembly?: number;
     temperature?: number;
     artists?: { hero?: string; npc?: string; item?: string; scene?: string };
   };

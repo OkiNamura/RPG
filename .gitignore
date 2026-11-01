@@ -34,3 +34,6 @@ data/tmp/
 # локальные контентные пробы (взрослый контент, не в репозиторий)
 data/content-test.*
 scripts/content-test.mjs
+
+data/presets/
+data/trash/

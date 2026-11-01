@@ -808,6 +808,26 @@ function costOf(inputTokens: number, outputTokens: number): number {
   return (inputTokens / 1_000_000) * prices.input + (outputTokens / 1_000_000) * prices.output;
 }
 
+function gameRulesFor(meta: CampaignMeta): string[] {
+  const xpModeLabel: Record<string, string> = {
+    own: 'каждый растит свой опыт',
+    heroParty: 'герой получает опыт от пати',
+    even: 'опыт делится равномерно',
+    dynamic: 'опыт делится по участию',
+  };
+  return [
+    `- Пол героя: ${meta.gender === 'female' ? 'женский' : 'мужской'}`,
+    `- Смерть: ${
+      meta.permadeath === false
+        ? 'не постоянная — при нуле здоровья герой может очнуться, а не исчезнуть'
+        : 'постоянная — при нуле здоровья герой погибает окончательно'
+    }`,
+    '- Ранги: FFF→FF→F→EEE→EE→E→DDD→DD→D→CCC→CC→C→BBB→BB→B→AAA→AA→A→S→SS→SSR. Обычный NPC — F, герой стартует FFF–F. Ранг босса/глобального злодея закреплён карточкой и не меняется от ходов.',
+    `- Опыт пати: ${xpModeLabel[meta.xpMode ?? 'dynamic'] ?? 'по динамике'}.`,
+    `- Летоисчисление: ${meta.altTime ? (meta.eraLabel || 'своё, вне обычного года') : `${meta.epochYear ?? 2000} год`}.`,
+  ];
+}
+
 async function getSession(id: string): Promise<Session | null> {
   const cached = sessions.get(id);
   if (cached) return cached;
@@ -831,30 +851,34 @@ async function getSession(id: string): Promise<Session | null> {
     model = makeAgentModel({ ...gameAgents.gm, temperature: saved.meta.prompts.temperature }, !gameAgents.state.enabled);
   }
   const settingsList = saved.meta?.aiSettings ?? [];
-  const xpModeLabel: Record<string, string> = {
-    own: 'каждый растит свой опыт',
-    heroParty: 'герой получает опыт от пати',
-    even: 'опыт делится равномерно',
-    dynamic: 'опыт делится по участию',
-  };
-  const gameRules = [
-    `- Пол героя: ${saved.meta?.gender === 'female' ? 'женский' : 'мужской'}`,
-    `- Смерть: ${
-      saved.meta?.permadeath === false
-        ? 'не постоянная — при нуле здоровья герой может очнуться, а не исчезнуть'
-        : 'постоянная — при нуле здоровья герой погибает окончательно'
-    }`,
-    '- Ранги: FFF→FF→F→EEE→EE→E→DDD→DD→D→CCC→CC→C→BBB→BB→B→AAA→AA→A→S→SS→SSR. Обычный NPC — F, герой стартует FFF–F. Ранг босса/глобального злодея закреплён карточкой и не меняется от ходов.',
-    `- Опыт пати: ${xpModeLabel[saved.meta?.xpMode ?? 'dynamic'] ?? 'по динамике'}.`,
-    `- Летоисчисление: ${saved.meta?.altTime ? (saved.meta?.eraLabel || 'своё, вне обычного года') : `${saved.meta?.epochYear ?? 2000} год`}.`,
-  ];
+  const gameRules = gameRulesFor(saved.meta ?? {});
   const settingsLine = `\n\n# НАСТРОЙКИ ИГРЫ\n${gameRules.join('\n')}${
     settingsList.length ? `\n\n# НАСТРОЙКИ ИИ\n${settingsList.map((s) => `- ${s}`).join('\n')}` : ''
   }`;
-  const core = gmPrompt ? `${gmPrompt}${settingsLine}\n\n${coreFile}` : `${coreFile}${settingsLine}`;
+
+  // Новая сборка: GM+ТОН, затем ПРАВИЛА, сразу МИР, затем ГЕРОЙ.
+  const assembly2 = saved.meta?.prompts?.assembly === 2;
+  let staticText: { core: string; world: string; tone: string; hero: string };
+  if (assembly2) {
+    const heroText = saved.text.hero ?? '';
+    staticText = {
+      core: saved.text.core || `${gmPrompt}\n\n# ПРАВИЛА\n${await loadCore()}`,
+      world: saved.text.world ?? '',
+      hero: heroText.includes('# НАСТРОЙКИ ИГРЫ') ? heroText : `${heroText}${settingsLine}`,
+      tone: '',
+    };
+  } else {
+    const core = gmPrompt ? `${gmPrompt}${settingsLine}\n\n${coreFile}` : `${coreFile}${settingsLine}`;
+    staticText = {
+      core,
+      world: saved.text.world ?? '',
+      tone: saved.text.tone ?? '',
+      hero: saved.text.hero ?? '',
+    };
+  }
 
   const session = createSession({
-    text: { ...saved.text, core },
+    text: staticText,
     state: normalizeState(saved.state),
     model,
     prices,
@@ -1843,6 +1867,9 @@ const server = createServer(async (req, res) => {
         meta.toneLevelName = level.name;
       }
       const levelBlock = level ? `\n\n${toneDirective(level.value)}` : '';
+      const gmRole = gameAgents.gm.enabled ? gameAgents.gm.prompt : DEFAULT_AGENTS.gm.prompt;
+      const toneSection = toneText.replace(/^\s*#\s*ТОН\s*/i, '').trim();
+      const gmSection = `# ВЕДУЩИЙ\n${gmRole}\n\n# ТОН\n${toneSection}${levelBlock}`;
 
       // Каждая новая игра получает своих ведущего и иллюстратора под тон и мир.
       if (body.generatePrompts !== false && agents.prompter?.enabled) {
@@ -1854,7 +1881,9 @@ const server = createServer(async (req, res) => {
             level: level?.value ?? 5,
             temperature: requestedTemperature,
           });
-          gameAgents.gm.prompt = composed.gm;
+          // Тон не переписываем: он уже лежит в gmSection отдельной секцией.
+          // Мастер промтов отвечает только за промты иллюстратора.
+          gameAgents.gm.prompt = gmRole;
           // Ползунок важнее вкуса мастера промтов: температура ведущего
           // ровно такая, какую выставили перед созданием игры.
           gameAgents.gm.temperature = requestedTemperature;
@@ -1868,10 +1897,18 @@ const server = createServer(async (req, res) => {
             const prompt = composed.artists?.[kind];
             if (prompt) gameAgents[agentId] = { ...gameAgents[agentId], prompt, enabled: true };
           }
-          meta.prompts = { ...composed, temperature: requestedTemperature };
+          meta.prompts = {
+            ...composed,
+            gm: gmSection,
+            assembly: 2,
+            temperature: requestedTemperature,
+          };
         } catch (err) {
           console.error('[compose]', (err as Error).message);
         }
+      }
+      if (!meta.prompts?.gm) {
+        meta.prompts = { ...(meta.prompts ?? {}), gm: gmSection, assembly: 2 };
       }
 
       const heroName =
@@ -1912,13 +1949,24 @@ const server = createServer(async (req, res) => {
         }
         if (Object.keys(chosen).length) state.hero.skills = chosen;
       }
-      const gmPrompt =
-        meta.prompts?.gm ||
-    (gameAgents.gm.enabled ? gameAgents.gm.prompt : DEFAULT_AGENTS.gm.prompt);
+      const createSettings = `\n\n# НАСТРОЙКИ ИГРЫ\n${gameRulesFor(meta).join('\n')}`;
+      const rules = await loadCore();
+      const gmForSession = meta.prompts?.gm ?? gmSection;
+      const worldBlock = worldText.trimStart().startsWith('#')
+        ? worldText
+        : `# МИР\n${worldText}`;
+      const heroBlock = heroText.trimStart().startsWith('#')
+        ? heroText
+        : `# ГЕРОЙ\n${heroText}`;
       // Модель пересобираем после мастера: температура уже могла измениться.
       const sessionModel = makeAgentModel(gameAgents.gm, !gameAgents.state.enabled) ?? model;
       const session: Session = createSession({
-        text: { core: `${gmPrompt}\n\n${await loadCore()}`, world: worldText, tone: `${toneText}${levelBlock}`, hero: heroText },
+        text: {
+          core: `${gmForSession}\n\n# ПРАВИЛА\n${rules}`,
+          world: worldBlock,
+          hero: `${heroBlock}${createSettings}`,
+          tone: '',
+        },
         state,
         model: sessionModel,
         prices,
