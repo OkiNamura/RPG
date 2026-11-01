@@ -1302,16 +1302,21 @@ async function viewNew(view) {
   const levels = (await api('/api/tone-levels').catch(() => null))?.levels ?? [];
   artCardCache = await artTagsCard().catch(() => null);
 
+  const presetsData = await api('/api/presets').catch(() => ({ presets: [] }));
   const wizard = {
     step: 1,
     title: '',
     customWorld: '',
+    worldText: '',
+    worldDescription: '',
     tagQuery: '',
     tagWords: '',
     toneLevel: 5,
     epochYear: 2000,
     gender: 'male',
     permadeath: true,
+    presets: presetsData.presets ?? [],
+    presetId: '',
     picks: new Map(),
     skills: undefined,
     hero: { name: '', essence: '', appearance: '', bodyAttitude: '', origin: '', quirks: '', abilities: '', start: '' },
@@ -1387,6 +1392,66 @@ async function viewNew(view) {
   });
 
   function stepTone() {
+    if (wizard.presets.length) {
+      const block = el('div', 'preset-block');
+      block.append(el('div', 'field-label', 'Мои пресеты'));
+      const row = el('div', 'preset-row');
+      const select = el('select', 'preset-select');
+      for (const preset of wizard.presets) {
+        const option = el('option', '', `${preset.name} · ур. ${preset.toneLevel ?? '?'}`);
+        option.value = preset.id;
+        select.append(option);
+      }
+      select.value = wizard.presetId || wizard.presets[0].id;
+      const load = el('button', 'btn small', 'Загрузить');
+      load.type = 'button';
+      load.addEventListener('click', () => {
+        const preset = wizard.presets.find((entry) => entry.id === select.value);
+        if (!preset) return;
+        wizard.title = preset.title ?? '';
+        wizard.toneLevel = Number(preset.toneLevel ?? 5);
+        wizard.epochYear = Number(preset.epochYear ?? 2000);
+        wizard.gender = preset.gender === 'female' ? 'female' : 'male';
+        wizard.permadeath = preset.permadeath !== false;
+        wizard.customWorld = preset.world?.description ?? '';
+        wizard.worldText = preset.world?.text ?? '';
+        wizard.worldDescription = preset.world?.description ?? '';
+        wizard.hero = {
+          name: '', essence: '', appearance: '', bodyAttitude: '',
+          origin: '', quirks: '', abilities: '', start: '',
+          ...(preset.hero ?? {}),
+        };
+        wizard.skills = preset.hero?.skills ?? preset.skills;
+        wizard.picks = new Map();
+        for (const pick of preset.picks ?? []) {
+          if (!pick?.group || !pick?.field) continue;
+          const key = `T|${pick.group}|${pick.subgroup ?? ''}|${pick.field}`;
+          wizard.picks.set(key, {
+            group: pick.group,
+            subgroup: pick.subgroup ?? '',
+            field: pick.field,
+            mode: pick.mode === 'exclude' ? 'exclude' : 'include',
+          });
+        }
+        wizard.presetId = preset.id;
+        wizard.step = 1;
+        render();
+        toast(`пресет загружен: ${preset.name}`);
+      });
+      const remove = el('button', 'btn small', 'Удалить');
+      remove.type = 'button';
+      remove.addEventListener('click', async () => {
+        const preset = wizard.presets.find((entry) => entry.id === select.value);
+        if (!preset || !window.confirm(`Удалить пресет «${preset.name}»?`)) return;
+        await api(`/api/presets/${encodeURIComponent(preset.id)}`, { method: 'DELETE' });
+        wizard.presets = wizard.presets.filter((entry) => entry.id !== preset.id);
+        render();
+      });
+      row.append(select, load, remove);
+      block.append(row);
+      body.append(block);
+    }
+
     const titleField = el('div', 'field');
     titleField.append(el('label', '', 'Название истории'));
     const titleInput = el('input');
@@ -1930,7 +1995,48 @@ async function viewNew(view) {
       wizard.customWorld = custom.value;
     });
     worldField.append(custom);
-    body.append(worldField, el('p', 'page-sub', 'Предустановленных миров нет — каждый мир собирается из твоего описания.'));
+    const worldOut = el('textarea', 'world-generated');
+    worldOut.placeholder = 'Сгенерированный мир появится здесь — его можно править.';
+    worldOut.value = wizard.worldText ?? '';
+    worldOut.addEventListener('input', () => {
+      wizard.worldText = worldOut.value;
+    });
+    worldField.append(worldOut);
+    const worldRow = el('div', 'world-row');
+    const genWorld = el('button', 'btn small', 'Сгенерировать мир');
+    genWorld.type = 'button';
+    const worldStatus = el('span', 'page-sub', '');
+    genWorld.addEventListener('click', async () => {
+      genWorld.disabled = true;
+      worldStatus.textContent = 'собираю…';
+      try {
+        const tags = [...wizard.picks.values()]
+          .filter((pick) => pick.mode === 'include')
+          .map((pick) => pick.field);
+        const res = await api('/api/generate/world', {
+          method: 'POST',
+          body: JSON.stringify({
+            presetId: '',
+            toneLevel: wizard.toneLevel,
+            epochYear: wizard.epochYear,
+            description: wizard.customWorld.trim(),
+            title: wizard.title,
+            tags,
+          }),
+        });
+        wizard.worldText = res.text ?? '';
+        wizard.worldDescription = wizard.customWorld.trim();
+        worldOut.value = wizard.worldText;
+        worldStatus.textContent = res.cost ? `готово · $${res.cost.toFixed(4)}` : 'готово';
+      } catch (err) {
+        worldStatus.textContent = err.message;
+      } finally {
+        genWorld.disabled = false;
+      }
+    });
+    worldRow.append(genWorld, worldStatus);
+    worldField.append(worldRow);
+    body.append(worldField, el('p', 'page-sub', 'Предустановленных миров нет — каждый мир собирается из твоего описания и тегов.'));
   }
 
   function field(labelText, key, multiline) {
@@ -2047,6 +2153,52 @@ async function viewNew(view) {
     }
     body.append(summary);
 
+    const savePreset = el('button', 'btn', 'Сохранить пресет');
+    savePreset.type = 'button';
+    savePreset.addEventListener('click', async () => {
+      const name = window.prompt('Название пресета', wizard.title || 'Мой старт');
+      if (!name || !name.trim()) return;
+      savePreset.disabled = true;
+      try {
+        const picks = [...wizard.picks.values()].map((pick) => ({
+          group: pick.group,
+          subgroup: pick.subgroup,
+          field: pick.field,
+          mode: pick.mode,
+        }));
+        const res = await api('/api/presets', {
+          method: 'POST',
+          body: JSON.stringify({
+            id: wizard.presetId || undefined,
+            name: name.trim(),
+            title: wizard.title,
+            toneLevel: wizard.toneLevel,
+            epochYear: wizard.epochYear,
+            gender: wizard.gender,
+            permadeath: wizard.permadeath,
+            picks,
+            world: {
+              description: wizard.customWorld.trim(),
+              text: wizard.worldText.trim(),
+              generated: Boolean(wizard.worldText.trim()),
+              source: wizard.customWorld.trim() ? 'tags+description' : 'tags',
+            },
+            hero: { ...wizard.hero, skills: wizard.skills },
+          }),
+        });
+        wizard.presetId = res.preset?.id ?? wizard.presetId;
+        if (res.preset) {
+          wizard.presets = [res.preset, ...wizard.presets.filter((entry) => entry.id !== res.preset.id)];
+        }
+        toast(`пресет сохранён: ${name.trim()}`);
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        savePreset.disabled = false;
+      }
+    });
+
+    body.append(savePreset);
     const status = el('div', 'status', '');
     const build = el('button', 'btn primary', 'Собрать историю');
     build.addEventListener('click', async () => {
@@ -2069,16 +2221,24 @@ async function viewNew(view) {
         });
 
         status.textContent = 'Собираю мир…';
-        const world = await api('/api/generate/world', {
-          method: 'POST',
-          body: JSON.stringify({
-            presetId: '',
-            toneLevel: wizard.toneLevel,
-            epochYear: wizard.epochYear,
-            description: wizard.customWorld.trim() || 'Тёмное фэнтези: погибающий мир, серые земли, голод и древние долги.',
-            title: wizard.title,
-          }),
-        });
+        const chosenTags = [...wizard.picks.values()]
+          .filter((pick) => pick.mode === 'include')
+          .map((pick) => pick.field);
+        const world = wizard.worldText.trim()
+          ? { text: wizard.worldText.trim() }
+          : await api('/api/generate/world', {
+              method: 'POST',
+              body: JSON.stringify({
+                presetId: '',
+                toneLevel: wizard.toneLevel,
+                epochYear: wizard.epochYear,
+                description:
+                  wizard.customWorld.trim() ||
+                  'Тёмное фэнтези: погибающий мир, серые земли, голод и древние долги.',
+                tags: chosenTags,
+                title: wizard.title,
+              }),
+            });
 
         status.textContent = 'Создаю хронику…';
         const base = wizard.title.trim() || 'история';

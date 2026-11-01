@@ -26,6 +26,7 @@ import {
 import { OpenRouterModel, fetchPricing } from './core/openrouter.ts';
 import { applyDelta, dedupeActorLists, type ActorPatch, type Delta } from './core/delta.ts';
 import { listCards, nextCardId, saveCard, type CardType, type GameCard } from './core/cards.ts';
+import { deletePreset, listPresets, nextPresetId, savePreset, type GamePreset } from './core/presets.ts';
 import { renderState } from './core/context.ts';
 import {
   DEFAULT_AGENTS,
@@ -117,6 +118,7 @@ const HOST = process.env.HOST ?? '127.0.0.1';
 const WEB_DIR = join(import.meta.dirname, 'web');
 const DATA_DIR = join(import.meta.dirname, '..', 'data', 'campaigns');
 const CARDS_DIR = join(import.meta.dirname, '..', 'data', 'cards');
+const PRESETS_DIR = join(import.meta.dirname, '..', 'data', 'presets');
 const TRACES_DIR = join(import.meta.dirname, '..', 'data', 'traces');
 const IMAGES_DIR = join(import.meta.dirname, '..', 'data', 'images');
 const AGENTS_DIR = join(import.meta.dirname, '..', 'data');
@@ -1294,6 +1296,30 @@ const server = createServer(async (req, res) => {
       return sendJson(res, { ok: true, card });
     }
 
+    // Пресеты новой игры: настройки мастера для повторного старта.
+    if (path === '/api/presets' && req.method === 'GET') {
+      return sendJson(res, { presets: await listPresets(PRESETS_DIR) });
+    }
+
+    if (path === '/api/presets' && req.method === 'POST') {
+      const body = await readBody(req);
+      const presets = await listPresets(PRESETS_DIR);
+      const existing = String(body.id ?? '').match(/^game_\d{9}$/) ? String(body.id) : '';
+      const preset = await savePreset(PRESETS_DIR, {
+        ...(body as unknown as GamePreset),
+        schema: 1,
+        id: existing || nextPresetId(presets),
+        name: String(body.name ?? '').trim(),
+      } as GamePreset);
+      return sendJson(res, { ok: true, preset });
+    }
+
+    if (path.startsWith('/api/presets/') && req.method === 'DELETE') {
+      const presetId = decodeURIComponent(path.slice('/api/presets/'.length));
+      const removed = await deletePreset(PRESETS_DIR, presetId);
+      return sendJson(res, { ok: removed }, removed ? 200 : 404);
+    }
+
     // Теги иллюстратора: каталог и текущий выбор.
     if (path === '/api/art-tags' && req.method === 'GET') {
       return sendJson(res, { groups: artTags.groups, selection: artSelection });
@@ -1472,10 +1498,29 @@ const server = createServer(async (req, res) => {
 
       const parsed = parseJsonObject(reply.text) ?? {};
       const raw = Array.isArray(parsed.tags) ? (parsed.tags as unknown[]) : [];
-      const tags = raw
+      const modelTags = raw
         .map((name) => String(name ?? '').trim())
-        .filter((name) => name.length > 0)
-        .slice(0, limit);
+        .filter((name) => name.length > 0);
+      // Локальная страховка: даже если модель промолчала, «фэнтези» и
+      // «боевик» находят теги по названию, а не только сложная фраза.
+      const norm = (text: string): string =>
+        String(text).toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+      const query = norm(description);
+      const localTags: string[] = [];
+      if (query.length >= 3) {
+        for (const group of catalog.tone.groups) {
+          for (const sg of group.subgroups) {
+            for (const field of sg.fields) {
+              const name = norm(field.name);
+              if (!name) continue;
+              if (name === query || name.includes(query) || query.includes(name)) {
+                localTags.push(field.name);
+              }
+            }
+          }
+        }
+      }
+      const tags = [...new Set([...localTags, ...modelTags])].slice(0, limit);
 
       return sendJson(res, {
         tags,
@@ -1489,7 +1534,12 @@ const server = createServer(async (req, res) => {
     if (path === '/api/generate/world' && req.method === 'POST') {
       const body = await readBody(req);
       const presetId = String(body.presetId ?? '');
-      const custom = String(body.description ?? '').trim();
+      const tagList = Array.isArray(body.tags) ? body.tags.map(String).filter(Boolean).slice(0, 40) : [];
+      const descriptionText = String(body.description ?? '').trim();
+      // Мир собирается из свободного описания и выбранных тегов вместе.
+      const custom = [descriptionText, tagList.length ? `Теги: ${tagList.join(', ')}` : '']
+        .filter(Boolean)
+        .join('\n\n');
 
       let preset = catalog.worlds.presets.find((p) => p.id === presetId);
       // Свой мир: описание игрока важнее пресета.
