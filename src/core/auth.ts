@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Простая авторизация для self-hosted игры.
  *
  * Один пароль из OMIKA_PASSWORD. Сессия — подписанная HttpOnly-cookie.
@@ -98,7 +98,50 @@ export function allowLogin(ip: string): boolean {
   return entry.count <= 10;
 }
 
-export function loginPage(): string {
+// --- капча -------------------------------------------------------------------
+
+interface Captcha {
+  question: string;
+  answer: number;
+  expiresAt: number;
+}
+
+const captchas = new Map<string, Captcha>();
+
+function cleanupCaptchas(now: number): void {
+  for (const [id, captcha] of captchas) {
+    if (captcha.expiresAt < now) captchas.delete(id);
+  }
+  while (captchas.size > 500) {
+    const first = captchas.keys().next().value;
+    if (!first) break;
+    captchas.delete(first);
+  }
+}
+
+export function createCaptcha(): { id: string; question: string } {
+  const now = Date.now();
+  cleanupCaptchas(now);
+  const a = 2 + Math.floor(Math.random() * 8);
+  const b = 2 + Math.floor(Math.random() * 8);
+  const id = randomBytes(12).toString('base64url');
+  captchas.set(id, { question: `${a} + ${b}`, answer: a + b, expiresAt: now + 10 * 60 * 1000 });
+  return { id, question: `${a} + ${b}` };
+}
+
+export function verifyCaptcha(id: string, answer: string): boolean {
+  const now = Date.now();
+  cleanupCaptchas(now);
+  const captcha = captchas.get(String(id ?? ''));
+  if (!captcha) return false;
+  captchas.delete(String(id));
+  if (captcha.expiresAt < now) return false;
+  return Number(String(answer ?? '').trim()) === captcha.answer;
+}
+
+export function loginPage(captcha: { id: string; question: string }): string {
+  const question = captcha.question.replace(/[^0-9+\s]/g, '');
+  const id = captcha.id.replace(/[^A-Za-z0-9_-]/g, '');
   return `<!doctype html>
 <html lang="ru">
 <head>
@@ -114,6 +157,8 @@ export function loginPage(): string {
   h1 { margin: 0 0 6px; font: 26px Georgia, serif; letter-spacing: .08em; }
   p { margin: 0 0 18px; color: #a8a196; font-size: 14px; }
   input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #33333b; background: #0b0b0e; color: #e8e3d8; font: inherit; }
+  .captcha { margin-top: 10px; padding: 10px 12px; border: 1px solid #26262c; border-radius: 8px; color: #a8a196; font-size: 13px; }
+  .captcha b { color: #e8e3d8; font-size: 16px; }
   button { width: 100%; margin-top: 12px; padding: 12px; border-radius: 8px; border: 1px solid #8a723f; background: #c9a45c; color: #17130c; font: inherit; font-weight: 600; font-size: 15px; cursor: pointer; }
   button:disabled { opacity: .6; }
   .err { min-height: 20px; margin-top: 10px; color: #d8897b; font-size: 13px; }
@@ -125,6 +170,8 @@ export function loginPage(): string {
   <p>Вход в игру. Пароль выдаётся владельцем сервера.</p>
   <form id="form">
     <input id="password" type="password" autocomplete="current-password" placeholder="Пароль" autofocus>
+    <div class="captcha">Проверка: <b id="captcha-question">${question}</b> = <input id="captcha-answer" inputmode="numeric" autocomplete="off" placeholder="ответ" style="margin-top:8px"></div>
+    <input id="captcha-id" type="hidden" value="${id}">
     <button id="submit" type="submit">Войти</button>
     <div class="err" id="error"></div>
   </form>
@@ -132,6 +179,9 @@ export function loginPage(): string {
 <script>
   const form = document.getElementById('form');
   const input = document.getElementById('password');
+  const answer = document.getElementById('captcha-answer');
+  const captchaId = document.getElementById('captcha-id');
+  const question = document.getElementById('captcha-question');
   const error = document.getElementById('error');
   const submit = document.getElementById('submit');
   form.addEventListener('submit', async (event) => {
@@ -142,11 +192,20 @@ export function loginPage(): string {
       const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: input.value }),
+        body: JSON.stringify({
+          password: input.value,
+          captchaId: captchaId.value,
+          captchaAnswer: answer.value,
+        }),
       });
       if (res.ok) { location.replace('/'); return; }
       const data = await res.json().catch(() => ({}));
       error.textContent = data.error || 'Неверный пароль';
+      if (data.captcha) {
+        captchaId.value = data.captcha.id;
+        question.textContent = data.captcha.question;
+        answer.value = '';
+      }
     } catch {
       error.textContent = 'Сервер недоступен';
     } finally {

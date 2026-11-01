@@ -28,7 +28,7 @@ import { applyDelta, dedupeActorLists, type ActorPatch, type Delta } from './cor
 import { listCards, nextCardId, saveCard, type CardType, type GameCard } from './core/cards.ts';
 import { deletePreset, listPresets, nextPresetId, savePreset, type GamePreset } from './core/presets.ts';
 import { addRankPoints, normalizeRank, randomStartRank, type Rank } from './core/rank.ts';
-import { allowLogin, authEnabled, checkPassword, clearCookie, createSessionToken, loginPage, requestSession, sessionCookie, verifySessionToken } from './core/auth.ts';
+import { allowLogin, authEnabled, checkPassword, clearCookie, createCaptcha, createSessionToken, loginPage, requestSession, sessionCookie, verifyCaptcha, verifySessionToken } from './core/auth.ts';
 import { renderState } from './core/context.ts';
 import {
   DEFAULT_AGENTS,
@@ -1203,7 +1203,7 @@ const server = createServer(async (req, res) => {
           'X-Content-Type-Options': 'nosniff',
           'Content-Security-Policy': "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'",
         });
-        res.end(loginPage());
+        res.end(loginPage(createCaptcha()));
         return;
       }
 
@@ -1215,8 +1215,11 @@ const server = createServer(async (req, res) => {
         if (!allowLogin(ip)) {
           return sendJson(res, { error: 'слишком много попыток, подожди 15 минут' }, 429);
         }
+        if (!verifyCaptcha(String(body.captchaId ?? ''), String(body.captchaAnswer ?? ''))) {
+          return sendJson(res, { error: 'капча неверна', captcha: createCaptcha() }, 400);
+        }
         if (!checkPassword(String(body.password ?? ''))) {
-          return sendJson(res, { error: 'неверный пароль' }, 401);
+          return sendJson(res, { error: 'неверный пароль', captcha: createCaptcha() }, 401);
         }
         const proto = String(req.headers['x-forwarded-proto'] ?? '');
         const secure =
