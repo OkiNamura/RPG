@@ -1,4 +1,4 @@
-﻿/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
+/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -877,10 +877,16 @@ async function loreCard() {
 /* ================= статистика ================= */
 
 async function adminSessionsTab(container) {
+  const statusOf = (row) => {
+    if (row.frozen) return 'frozen';
+    const saved = row.savedAt ? new Date(row.savedAt).getTime() : 0;
+    const old = saved > 0 && Date.now() - saved > 7 * 24 * 60 * 60 * 1000;
+    return row.turn === 0 || old ? 'abandoned' : 'active';
+  };
   const data = await api('/api/admin/sessions');
   const active = (data.active ?? []).map((row) => ({
     ...row,
-    status: row.frozen ? 'frozen' : row.turn === 0 ? 'abandoned' : 'active',
+    status: statusOf(row),
     deleted: false,
   }));
   const trash = (data.trash ?? []).map((row) => ({ ...row, status: 'deleted', deleted: true }));
@@ -902,7 +908,7 @@ async function adminSessionsTab(container) {
     const rows = [
       ...(fresh.active ?? []).map((row) => ({
         ...row,
-        status: row.frozen ? 'frozen' : row.turn === 0 ? 'abandoned' : 'active',
+        status: statusOf(row),
         deleted: false,
       })),
       ...(fresh.trash ?? []).map((row) => ({ ...row, status: 'deleted', deleted: true })),
