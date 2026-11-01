@@ -1615,6 +1615,10 @@ const server = createServer(async (req, res) => {
       const gameAgents = structuredClone(agents);
       const model = makeAgentModel(gameAgents.gm, !gameAgents.state.enabled);
       if (!model) return sendJson(res, { error: 'нет OPENROUTER_API_KEY в .env' }, 500);
+      const rawTemperature = Number(gameAgents.gm.temperature);
+      const requestedTemperature = Number.isFinite(rawTemperature)
+        ? Math.max(0, Math.min(2, rawTemperature))
+        : 1;
 
       const toneText = typeof body.tone === 'string' && body.tone.length > 200 ? body.tone : TONE;
       const worldText = typeof body.world === 'string' && body.world.length > 200 ? body.world : WORLD;
@@ -1641,10 +1645,12 @@ const server = createServer(async (req, res) => {
             world: worldText,
             hero: heroText,
             level: level?.value ?? 5,
-            temperature: gameAgents.gm.temperature,
+            temperature: requestedTemperature,
           });
           gameAgents.gm.prompt = composed.gm;
-          gameAgents.gm.temperature = composed.temperature;
+          // Ползунок важнее вкуса мастера промтов: температура ведущего
+          // ровно такая, какую выставили перед созданием игры.
+          gameAgents.gm.temperature = requestedTemperature;
           const artistMap: Record<string, keyof AgentSet> = {
             hero: 'artistHero',
             npc: 'artistNpc',
@@ -1655,7 +1661,7 @@ const server = createServer(async (req, res) => {
             const prompt = composed.artists?.[kind];
             if (prompt) gameAgents[agentId] = { ...gameAgents[agentId], prompt, enabled: true };
           }
-          meta.prompts = composed;
+          meta.prompts = { ...composed, temperature: requestedTemperature };
         } catch (err) {
           console.error('[compose]', (err as Error).message);
         }
@@ -1684,10 +1690,12 @@ const server = createServer(async (req, res) => {
       const gmPrompt =
         meta.prompts?.gm ||
     (gameAgents.gm.enabled ? gameAgents.gm.prompt : DEFAULT_AGENTS.gm.prompt);
+      // Модель пересобираем после мастера: температура уже могла измениться.
+      const sessionModel = makeAgentModel(gameAgents.gm, !gameAgents.state.enabled) ?? model;
       const session: Session = createSession({
         text: { core: `${gmPrompt}\n\n${await loadCore()}`, world: worldText, tone: `${toneText}${levelBlock}`, hero: heroText },
         state,
-        model,
+        model: sessionModel,
         prices,
         windowTurns: 24,
         summarizeEvery: 10,
