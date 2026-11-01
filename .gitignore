@@ -40,3 +40,4 @@ data/presets/
 data/trash/
 
 .admin-password
+.cloudflare-tunnel.env
