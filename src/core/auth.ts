@@ -119,6 +119,31 @@ function cleanupCaptchas(now: number): void {
   }
 }
 
+export function turnstileSiteKey(): string {
+  return String(process.env.TURNSTILE_SITE_KEY ?? '').trim();
+}
+
+export function turnstileConfigured(): boolean {
+  return Boolean(turnstileSiteKey() && String(process.env.TURNSTILE_SECRET ?? '').trim());
+}
+
+export async function verifyTurnstile(token: string, ip: string): Promise<boolean> {
+  const secret = String(process.env.TURNSTILE_SECRET ?? '').trim();
+  if (!secret || !token) return false;
+  const body = new URLSearchParams({ secret, response: String(token), remoteip: ip });
+  try {
+    const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      body,
+      signal: AbortSignal.timeout(5000),
+    });
+    const data = (await res.json()) as { success?: boolean };
+    return data.success === true;
+  } catch {
+    return false;
+  }
+}
+
 export function createCaptcha(): { id: string; question: string } {
   const now = Date.now();
   cleanupCaptchas(now);
@@ -140,6 +165,8 @@ export function verifyCaptcha(id: string, answer: string): boolean {
 }
 
 export function loginPage(captcha: { id: string; question: string }): string {
+  const siteKey = turnstileSiteKey();
+  if (siteKey) return loginPageWithTurnstile(siteKey, captcha);
   const question = captcha.question.replace(/[^0-9+\s]/g, '');
   const id = captcha.id.replace(/[^A-Za-z0-9_-]/g, '');
   return `<!doctype html>
@@ -205,6 +232,88 @@ export function loginPage(captcha: { id: string; question: string }): string {
         captchaId.value = data.captcha.id;
         question.textContent = data.captcha.question;
         answer.value = '';
+      }
+    } catch {
+      error.textContent = 'Сервер недоступен';
+    } finally {
+      submit.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>`;
+}
+
+function loginPageWithTurnstile(siteKey: string, captcha: { id: string; question: string }): string {
+  const key = siteKey.replace(/[^A-Za-z0-9_-]/g, '');
+  const question = captcha.question.replace(/[^0-9+\\s]/g, '');
+  const id = captcha.id.replace(/[^A-Za-z0-9_-]/g, '');
+  return `<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OMIKA — вход</title>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0a0a0c; color: #e8e3d8;
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+  main { width: min(360px, calc(100vw - 32px)); padding: 24px; border: 1px solid #26262c; border-radius: 14px; background: #101013; }
+  h1 { margin: 0 0 6px; font: 26px Georgia, serif; letter-spacing: .08em; }
+  p { margin: 0 0 18px; color: #a8a196; font-size: 14px; }
+  input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #33333b; background: #0b0b0e; color: #e8e3d8; font: inherit; }
+  .turnstile { margin-top: 12px; min-height: 65px; }
+  .captcha { margin-top: 10px; padding: 10px 12px; border: 1px solid #26262c; border-radius: 8px; color: #a8a196; font-size: 13px; }
+  .captcha b { color: #e8e3d8; font-size: 16px; }
+  button { width: 100%; margin-top: 12px; padding: 12px; border-radius: 8px; border: 1px solid #8a723f; background: #c9a45c; color: #17130c; font: inherit; font-weight: 600; font-size: 15px; cursor: pointer; }
+  button:disabled { opacity: .6; }
+  .err { min-height: 20px; margin-top: 10px; color: #d8897b; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>OMIKA</h1>
+  <p>Вход в игру. Пароль выдаётся владельцем сервера.</p>
+  <form id="form">
+    <input id="password" type="password" autocomplete="current-password" placeholder="Пароль" autofocus>
+    <div class="turnstile cf-turnstile" data-sitekey="${key}" data-theme="dark"></div>
+    <div class="captcha">Если Cloudflare не загрузился: <b id="captcha-question">${question}</b> = <input id="captcha-answer" inputmode="numeric" autocomplete="off" placeholder="ответ" style="margin-top:8px"></div>
+    <input id="captcha-id" type="hidden" value="${id}">
+    <button id="submit" type="submit">Войти</button>
+    <div class="err" id="error"></div>
+  </form>
+</main>
+<script>
+  const form = document.getElementById('form');
+  const input = document.getElementById('password');
+  const error = document.getElementById('error');
+  const submit = document.getElementById('submit');
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    error.textContent = '';
+    const token = window.turnstile ? turnstile.getResponse() : '';
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          password: input.value,
+          turnstileToken: token,
+          captchaId: document.getElementById('captcha-id').value,
+          captchaAnswer: document.getElementById('captcha-answer').value,
+        }),
+      });
+      if (res.ok) { location.replace('/'); return; }
+      const data = await res.json().catch(() => ({}));
+      error.textContent = data.error || 'Неверный пароль';
+      if (window.turnstile) turnstile.reset();
+      if (data.captcha) {
+        document.getElementById('captcha-id').value = data.captcha.id;
+        document.getElementById('captcha-question').textContent = data.captcha.question;
+        document.getElementById('captcha-answer').value = '';
       }
     } catch {
       error.textContent = 'Сервер недоступен';
