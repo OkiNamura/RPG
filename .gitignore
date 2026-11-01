@@ -38,3 +38,5 @@ scripts/content-test.mjs
 
 data/presets/
 data/trash/
+
+.admin-password
