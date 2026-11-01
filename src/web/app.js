@@ -1,4 +1,4 @@
-/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
+﻿/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -1477,6 +1477,8 @@ async function viewNew(view) {
     tagWords: '',
     toneLevel: 5,
     epochYear: 2000,
+    altTime: false,
+    eraLabel: '',
     gender: 'male',
     permadeath: true,
     presets: presetsData.presets ?? [],
@@ -1575,6 +1577,8 @@ async function viewNew(view) {
         wizard.title = preset.title ?? '';
         wizard.toneLevel = Number(preset.toneLevel ?? 5);
         wizard.epochYear = Number(preset.epochYear ?? 2000);
+        wizard.altTime = preset.altTime === true;
+        wizard.eraLabel = String(preset.eraLabel ?? '');
         wizard.gender = preset.gender === 'female' ? 'female' : 'male';
         wizard.permadeath = preset.permadeath !== false;
         wizard.customWorld = preset.world?.description ?? '';
@@ -1720,6 +1724,40 @@ async function viewNew(view) {
     epochRow.append(epochWrap, manualYear);
     body.append(epochRow);
     applyEpoch(wizard.epochYear ?? 2000);
+
+    const timeAlt = el('div', 'field alt-time');
+    const altLabel = el('label', 'check-line');
+    const altToggle = el('input');
+    altToggle.type = 'checkbox';
+    altToggle.checked = wizard.altTime === true;
+    altLabel.append(altToggle, el('span', '', 'Своё летоисчисление — мир живёт вне обычного года'));
+    const eraInput = el('input', 'era-input');
+    eraInput.placeholder = 'например: Третий век Пепла, 12-й год после Разлома';
+    eraInput.value = wizard.eraLabel ?? '';
+    eraInput.addEventListener('input', () => {
+      wizard.eraLabel = eraInput.value;
+      if (wizard.altTime) epochLabel.textContent = eraInput.value.trim() || 'своё летоисчисление';
+    });
+    const syncTimeMode = () => {
+      timeAlt.classList.toggle('alt-time-on', wizard.altTime);
+      eraInput.classList.toggle('hidden', !wizard.altTime);
+      epochRange.classList.toggle('hidden', wizard.altTime);
+      manualYear.classList.toggle('hidden', wizard.altTime);
+      epochHint.classList.toggle('hidden', wizard.altTime);
+      if (wizard.altTime) {
+        epochLabel.textContent = wizard.eraLabel.trim() || 'своё летоисчисление';
+        epochValue.textContent = 'альтернативное';
+      } else {
+        applyEpoch(wizard.epochYear);
+      }
+    };
+    altToggle.addEventListener('change', () => {
+      wizard.altTime = altToggle.checked;
+      syncTimeMode();
+    });
+    timeAlt.append(altLabel, eraInput);
+    body.append(timeAlt);
+    syncTimeMode();
 
     const picker = el('div', 'tag-picker');
     const words = el('input', 'tag-words');
@@ -2190,6 +2228,8 @@ async function viewNew(view) {
             presetId: '',
             toneLevel: wizard.toneLevel,
             epochYear: wizard.epochYear,
+            altTime: wizard.altTime,
+            eraLabel: wizard.eraLabel,
             description: wizard.customWorld.trim(),
             title: wizard.title,
             tags,
@@ -2206,11 +2246,58 @@ async function viewNew(view) {
       }
     });
     worldRow.append(genWorld, worldStatus);
+    const tagsFromWorld = el('button', 'btn small', 'Подобрать теги по миру');
+    tagsFromWorld.type = 'button';
+    tagsFromWorld.addEventListener('click', async () => {
+      const text = wizard.customWorld.trim() || wizard.worldText.trim();
+      if (!text) {
+        toast('сначала опиши мир или сгенерируй его');
+        return;
+      }
+      tagsFromWorld.disabled = true;
+      try {
+        const res = await api('/api/tags/suggest', {
+          method: 'POST',
+          body: JSON.stringify({ description: text, level: wizard.toneLevel, limit: 150 }),
+        });
+        const index = new Map();
+        for (const group of catalog.tone.groups) {
+          for (const sg of group.subgroups) {
+            for (const field of sg.fields) index.set(field.name.toLowerCase(), { group, sg, field });
+          }
+        }
+        const matched = [];
+        for (const name of res.tags ?? []) {
+          const hit = index.get(String(name).trim().toLowerCase());
+          if (hit) matched.push(hit);
+        }
+        if (!matched.length) {
+          toast('по этому миру теги не нашлись — добавь деталей');
+          return;
+        }
+        wizard.picks.clear();
+        for (const { group, sg, field } of matched) {
+          wizard.picks.set(`T|${group.group}|${sg.subgroup}|${field.name}`, {
+            group: group.group,
+            subgroup: sg.subgroup,
+            field: field.name,
+            mode: 'include',
+          });
+        }
+        render();
+        toast(`по миру выбрано тегов: ${matched.length}`);
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        tagsFromWorld.disabled = false;
+      }
+    });
+    worldRow.append(tagsFromWorld);
     worldField.append(worldRow);
     const worldHint = el('p', 'page-sub', 'Предустановленных миров нет — каждый мир собирается из твоего описания и тегов.');
     body.append(worldField, worldHint);
-    // Мир идёт сразу после названия, выше уровня повествования.
-    titleField.after(worldField, worldHint);
+    // Уровень и эпоха влияют на мир, поэтому стоят выше него.
+    timeAlt.after(worldField, worldHint);
   }
 
   function field(labelText, key, multiline) {
@@ -2402,6 +2489,8 @@ async function viewNew(view) {
             title: wizard.title,
             toneLevel: wizard.toneLevel,
             epochYear: wizard.epochYear,
+            altTime: wizard.altTime,
+            eraLabel: wizard.eraLabel,
             gender: wizard.gender,
             permadeath: wizard.permadeath,
             xpMode: wizard.xpMode,
@@ -2441,6 +2530,8 @@ async function viewNew(view) {
           body: JSON.stringify({
             toneLevel: wizard.toneLevel,
             epochYear: wizard.epochYear,
+            altTime: wizard.altTime,
+            eraLabel: wizard.eraLabel,
             selections: [...wizard.picks.values()].map((p) => ({
               group: p.group,
               field: p.field,
@@ -2461,6 +2552,8 @@ async function viewNew(view) {
                 presetId: '',
                 toneLevel: wizard.toneLevel,
                 epochYear: wizard.epochYear,
+            altTime: wizard.altTime,
+            eraLabel: wizard.eraLabel,
                 description:
                   wizard.customWorld.trim() ||
                   'Тёмное фэнтези: погибающий мир, серые земли, голод и древние долги.',
@@ -2495,10 +2588,14 @@ async function viewNew(view) {
             xpMode: wizard.xpMode,
             toneLevel: wizard.toneLevel,
             epochYear: wizard.epochYear,
+            altTime: wizard.altTime,
+            eraLabel: wizard.eraLabel,
             meta: {
               title: wizard.title,
               toneLevel: wizard.toneLevel,
               epochYear: wizard.epochYear,
+            altTime: wizard.altTime,
+            eraLabel: wizard.eraLabel,
               tags: [...wizard.picks.values()].map((p) => ({ group: p.group, field: p.field, value: p.mode })),
             },
           }),

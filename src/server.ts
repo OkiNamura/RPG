@@ -846,6 +846,7 @@ async function getSession(id: string): Promise<Session | null> {
     }`,
     '- Ранги: FFF→FF→F→EEE→EE→E→DDD→DD→D→CCC→CC→C→BBB→BB→B→AAA→AA→A→S→SS→SSR. Обычный NPC — F, герой стартует FFF–F. Ранг босса/глобального злодея закреплён карточкой и не меняется от ходов.',
     `- Опыт пати: ${xpModeLabel[saved.meta?.xpMode ?? 'dynamic'] ?? 'по динамике'}.`,
+    `- Летоисчисление: ${saved.meta?.altTime ? (saved.meta?.eraLabel || 'своё, вне обычного года') : `${saved.meta?.epochYear ?? 2000} год`}.`,
   ];
   const settingsLine = `\n\n# НАСТРОЙКИ ИГРЫ\n${gameRules.join('\n')}${
     settingsList.length ? `\n\n# НАСТРОЙКИ ИИ\n${settingsList.map((s) => `- ${s}`).join('\n')}` : ''
@@ -1699,8 +1700,13 @@ const server = createServer(async (req, res) => {
       const presetId = String(body.presetId ?? '');
       const tagList = Array.isArray(body.tags) ? body.tags.map(String).filter(Boolean).slice(0, 40) : [];
       const descriptionText = String(body.description ?? '').trim();
-      // Мир собирается из свободного описания и выбранных тегов вместе.
-      const custom = [descriptionText, tagList.length ? `Теги: ${tagList.join(', ')}` : '']
+      const eraLabel = String(body.eraLabel ?? '').trim().slice(0, 200);
+      // Мир собирается из свободного описания, тегов и своего летоисчисления.
+      const custom = [
+        descriptionText,
+        tagList.length ? `Теги: ${tagList.join(', ')}` : '',
+        eraLabel ? `Летоисчисление: ${eraLabel}` : '',
+      ]
         .filter(Boolean)
         .join('\n\n');
 
@@ -1822,6 +1828,8 @@ const server = createServer(async (req, res) => {
       meta.createdAt = new Date().toISOString();
       meta.gender = body.gender === 'female' ? 'female' : 'male';
       meta.permadeath = body.permadeath !== false;
+      meta.altTime = body.altTime === true;
+      meta.eraLabel = String(body.eraLabel ?? '').trim().slice(0, 200);
       const xpModeRaw = String(body.xpMode ?? meta.xpMode ?? 'dynamic');
       meta.xpMode = ['own', 'heroParty', 'even', 'dynamic'].includes(xpModeRaw)
         ? (xpModeRaw as CampaignMeta['xpMode'])

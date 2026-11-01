@@ -3688,3 +3688,20 @@ select {
 .admin-content > .page {
   padding: 0;
 }
+
+.check-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #c9c2b6;
+  font-size: 13px;
+}
+
+.check-line input {
+  width: auto;
+}
+
+.era-input {
+  margin-top: 8px;
+}

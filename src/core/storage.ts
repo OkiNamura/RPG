@@ -35,6 +35,10 @@ export interface CampaignMeta {
   aiSettings?: string[];
   /** эпоха игры: год, выбранный бегунком */
   epochYear?: number;
+  /** мир живёт вне обычного года */
+  altTime?: boolean;
+  /** своё название эпохи/летоисчисления */
+  eraLabel?: string;
   /** пол героя: male | female */
   gender?: 'male' | 'female';
   /** смерть постоянная; false — герой может очнуться */
