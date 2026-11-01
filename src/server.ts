@@ -25,6 +25,7 @@ import {
 } from './core/storage.ts';
 import { OpenRouterModel, fetchPricing } from './core/openrouter.ts';
 import { applyDelta, dedupeActorLists, type ActorPatch, type Delta } from './core/delta.ts';
+import { listCards, nextCardId, saveCard, type CardType, type GameCard } from './core/cards.ts';
 import { renderState } from './core/context.ts';
 import {
   DEFAULT_AGENTS,
@@ -93,54 +94,6 @@ try {
 }
 
 // Шаблоны героя и NPC: карточки с историей, характером, навыками и способностями.
-interface HeroTemplate {
-  id: string;
-  name: string;
-  title: string;
-  quote?: string;
-  age?: number;
-  appearance?: string;
-  essence?: string;
-  bodyAttitude?: string;
-  origin?: string;
-  quirks?: string;
-  abilities?: string;
-  skills?: Record<string, number>;
-  start?: string;
-  tags?: string[];
-}
-
-interface NpcTemplate {
-  id: string;
-  name: string;
-  role: string;
-  quote?: string;
-  appearance?: string;
-  character?: string;
-  clothes?: string;
-  bio?: string;
-  abilities?: string;
-  note?: string;
-  skills?: Record<string, number>;
-  attitude?: number;
-  bond?: number;
-  tags?: string[];
-}
-
-let templates: { heroes: HeroTemplate[]; npcs: NpcTemplate[] } = { heroes: [], npcs: [] };
-const TEMPLATES_PATH = join(import.meta.dirname, '..', 'data', 'templates.json');
-try {
-  const parsed = JSON.parse(await readFile(TEMPLATES_PATH, 'utf8')) as {
-    heroes?: unknown;
-    npcs?: unknown;
-  } | null;
-  templates = {
-    heroes: Array.isArray(parsed?.heroes) ? (parsed.heroes as HeroTemplate[]) : [],
-    npcs: Array.isArray(parsed?.npcs) ? (parsed.npcs as NpcTemplate[]) : [],
-  };
-} catch {
-  console.error('[templates] не найден или битый data/templates.json');
-}
 
 // Лор-книга: записи, которые подмешиваются только при совпадении ключей.
 const LOREBOOK_PATH = join(import.meta.dirname, '..', 'data', 'lorebook.json');
@@ -163,6 +116,7 @@ const PORT = Number(process.env.PORT ?? 7801);
 const HOST = process.env.HOST ?? '127.0.0.1';
 const WEB_DIR = join(import.meta.dirname, 'web');
 const DATA_DIR = join(import.meta.dirname, '..', 'data', 'campaigns');
+const CARDS_DIR = join(import.meta.dirname, '..', 'data', 'cards');
 const TRACES_DIR = join(import.meta.dirname, '..', 'data', 'traces');
 const IMAGES_DIR = join(import.meta.dirname, '..', 'data', 'images');
 const AGENTS_DIR = join(import.meta.dirname, '..', 'data');
@@ -1318,9 +1272,26 @@ const server = createServer(async (req, res) => {
       return sendJson(res, agents);
     }
 
-    // Шаблоны героя и NPC: карточки для новой игры и добавления в кампанию.
-    if (path === '/api/templates' && req.method === 'GET') {
-      return sendJson(res, templates);
+    // Библиотека карточек: один JSON на карточку в data/cards.
+    if (path === '/api/cards' && req.method === 'GET') {
+      return sendJson(res, { cards: await listCards(CARDS_DIR) });
+    }
+
+    if (path === '/api/cards' && req.method === 'POST') {
+      const body = await readBody(req);
+      const cards = await listCards(CARDS_DIR);
+      const type = String(body.type ?? '') as CardType;
+      if (!['hero', 'npc', 'item', 'location', 'faction', 'quest', 'creature'].includes(type)) {
+        return sendJson(res, { error: 'неизвестный тип карточки' }, 400);
+      }
+      const card = await saveCard(CARDS_DIR, {
+        ...(body as unknown as GameCard),
+        schema: 1,
+        id: String(body.id ?? '') || nextCardId(cards, type),
+        type,
+        name: String(body.name ?? '').trim(),
+      } as GameCard);
+      return sendJson(res, { ok: true, card });
     }
 
     // Теги иллюстратора: каталог и текущий выбор.
@@ -1726,7 +1697,7 @@ const server = createServer(async (req, res) => {
       return sendJson(res, { id, state, history: [], totals: session.totals, meta });
     }
 
-    const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|context|container|npc|reset|restart))?$/.exec(path);
+    const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|context|container|npc|reset|restart|save-card))?$/.exec(path);
     if (campaignMatch) {
       const id = decodeURIComponent(campaignMatch[1]);
       // Id — это имя файла кампании: никаких слэшей и переходов вверх.
@@ -2160,6 +2131,154 @@ const server = createServer(async (req, res) => {
         snapshots.set(id, []);
         await persist(id, session);
         return sendJson(res, { ok: true, state: session.state });
+      }
+
+      // Сохранить карточку из игры в библиотеку data/cards.
+      if (action === 'save-card' && req.method === 'POST') {
+        const body = await readBody(req);
+        const type = String(body.type ?? '') as CardType;
+        const allowed: CardType[] = ['hero', 'npc', 'item', 'location', 'faction', 'quest', 'creature'];
+        if (!allowed.includes(type)) return sendJson(res, { error: 'неизвестный тип карточки' }, 400);
+        const cards = await listCards(CARDS_DIR);
+        const now = new Date().toISOString();
+        const title = metas.get(id)?.title || id;
+        const common = {
+          schema: 1 as const,
+          id: nextCardId(cards, type),
+          type,
+          origin: { campaignId: id, turn: session.state.turn, title },
+          createdAt: now,
+          updatedAt: now,
+          tags: [] as string[],
+        };
+        let card: GameCard;
+        if (type === 'hero') {
+          const hero = session.state.hero;
+          card = {
+            ...common,
+            name: hero.name,
+            subtitle: 'герой',
+            description: hero.essence ?? '',
+            image: hero.card ?? '',
+            gender: hero.gender,
+            role: 'герой',
+            status: session.state.flags.dead ? 'dead' : 'alive',
+            appearance: hero.appearance,
+            character: hero.essence,
+            biography: hero.origin ?? hero.bio,
+            habits: hero.quirks,
+            abilities: hero.abilities,
+            attributes: {},
+            skills: hero.skills ?? {},
+            relations: [],
+            equipment: session.state.items.map((item) => ({ name: item.name, qty: item.qty, where: item.where })),
+            data: {
+              level: 0,
+              bodyAttitude: hero.bodyAttitude,
+              start: hero.start,
+              quote: hero.intuition,
+            },
+          };
+        } else if (type === 'npc') {
+          const name = String(body.name ?? '').trim();
+          const actor = [...session.state.party, ...session.state.npcs].find((a) => a.name === name);
+          if (!actor) return sendJson(res, { error: 'персонаж не найден' }, 404);
+          card = {
+            ...common,
+            name: actor.name,
+            subtitle: actor.role,
+            description: actor.description ?? actor.character ?? '',
+            image: actor.card || actor.portrait || '',
+            role: actor.role,
+            status: actor.status,
+            appearance: actor.appearance,
+            character: actor.character,
+            biography: actor.bio,
+            abilities: actor.abilities,
+            attributes: {},
+            skills: actor.skills ?? {},
+            relations: actor.relations ?? [],
+            equipment: [],
+            data: {
+              attitude: actor.attitude ?? 0,
+              bond: actor.bond ?? 0,
+              clothes: actor.clothes,
+              note: actor.note,
+              present: actor.present,
+            },
+          };
+        } else if (type === 'item') {
+          const name = String(body.name ?? '').trim();
+          const item = session.state.items.find((entry) => entry.name === name);
+          if (!item) return sendJson(res, { error: 'предмет не найден' }, 404);
+          card = {
+            ...common,
+            name: item.name,
+            subtitle: item.where,
+            description: item.note ?? '',
+            image: item.card ?? '',
+            data: {
+              category: /меч|клин|нож|топор|лук|копь|кинжал/i.test(item.name) ? 'weapon' : 'item',
+              qty: item.qty,
+              where: item.where,
+            },
+          };
+        } else if (type === 'location') {
+          const name = String(body.name ?? '').trim();
+          const place = session.state.locations.find((entry) => entry.name === name);
+          if (!place) return sendJson(res, { error: 'локация не найдена' }, 404);
+          card = {
+            ...common,
+            name: place.name,
+            subtitle: 'локация',
+            description: place.note ?? '',
+            data: { note: place.note },
+          };
+        } else if (type === 'faction') {
+          const name = String(body.name ?? '').trim();
+          const faction = session.state.factions.find((entry) => entry.name === name);
+          if (!faction) return sendJson(res, { error: 'фракция не найдена' }, 404);
+          card = {
+            ...common,
+            name: faction.name,
+            subtitle: 'фракция',
+            description: faction.note ?? '',
+            data: {
+              attitude: faction.attitude,
+              leader: faction.leader,
+              shadow: faction.shadow,
+              roster: faction.roster,
+            },
+          };
+        } else if (type === 'quest') {
+          const name = String(body.name ?? '').trim();
+          const quest = session.state.quests.find((entry) => entry.title === name);
+          if (!quest) return sendJson(res, { error: 'задание не найдено' }, 404);
+          card = {
+            ...common,
+            name: quest.title,
+            subtitle: 'задание',
+            description: quest.steps?.join('; ') ?? '',
+            data: {
+              status: quest.status,
+              steps: quest.steps,
+              turnsLimit: quest.turnsLimit,
+            },
+          };
+        } else {
+          const name = String(body.name ?? '').trim();
+          const beast = session.state.bestiary.find((entry) => entry.name === name);
+          if (!beast) return sendJson(res, { error: 'тварь не найдена' }, 404);
+          card = {
+            ...common,
+            name: beast.name,
+            subtitle: 'тварь',
+            description: beast.note ?? '',
+            data: { danger: beast.danger },
+          };
+        }
+        const saved = await saveCard(CARDS_DIR, card);
+        return sendJson(res, { ok: true, card: saved });
       }
 
       if (action === 'drop' && req.method === 'POST') {

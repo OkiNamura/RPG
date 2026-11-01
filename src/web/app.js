@@ -1,4 +1,4 @@
-/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
+﻿/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -369,9 +369,10 @@ async function viewContainer(view, id) {
     const box = el('div', 'location-card');
     box.append(el('b', '', place.name));
     if (place.note) box.append(el('span', '', place.note));
+    box.append(miniBtn('＋', 'сохранить локацию в библиотеку', () => saveToLibrary(id, 'location', place.name)));
     locationGrid.append(box);
   }
-  if (locations.length === 0) locationGrid.append(el('p', 'page-sub', 'карта мира пока пуста'));
+  if (locations.length === 0) locationGrid.append(el('p', 'page-sub', 'локации пока не открыты'));
   locationSection.append(locationGrid);
   page.append(locationSection);
 
@@ -407,6 +408,7 @@ async function viewContainer(view, id) {
     meta.append(el('span', '', `×${item.qty ?? 1}`), el('span', '', item.where ?? ''));
     box.append(meta);
     if (item.note) box.append(el('p', 'page-sub', item.note));
+    box.append(miniBtn('＋', 'сохранить предмет в библиотеку', () => saveToLibrary(id, 'item', item.name)));
     items.append(box);
   }
   if (!(data.items ?? []).length) items.append(el('p', 'page-sub', 'пока пусто'));
@@ -987,119 +989,310 @@ function templateField(label, value) {
   return box;
 }
 
+async function saveToLibrary(campaignId, type, name) {
+  const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/save-card`, {
+    method: 'POST',
+    body: JSON.stringify({ type, name }),
+  });
+  toast(`карточка сохранена: ${res.card?.name ?? name}`);
+  return res.card;
+}
+
+const CARD_TYPE_LABELS = {
+  hero: 'Герой',
+  npc: 'NPC',
+  item: 'Предмет',
+  location: 'Локация',
+  faction: 'Фракция',
+  quest: 'Задание',
+  creature: 'Тварь',
+};
+
+function cardSkillList(card) {
+  const list = [];
+  for (const [name, value] of Object.entries(card.attributes ?? {})) list.push([name, value, 'attr']);
+  for (const [name, value] of Object.entries(card.skills ?? {})) list.push([name, value, 'skill']);
+  return list;
+}
+
+function cardToHeroTemplate(card) {
+  const start = card.data?.start ?? {};
+  return {
+    name: card.name,
+    title: card.subtitle ?? 'герой',
+    essence: card.description ?? card.character ?? '',
+    appearance: card.appearance ?? '',
+    bodyAttitude: card.data?.bodyAttitude ?? '',
+    origin: card.biography ?? '',
+    quirks: card.habits ?? '',
+    abilities: card.abilities ?? '',
+    start: start.description ?? '',
+    skills: card.skills ?? {},
+  };
+}
+
+function openLibraryCard(card, campaigns) {
+  const overlay = el('div', 'library-modal');
+  const sheet = el('article', 'library-sheet');
+  const head = el('div', 'library-sheet-head');
+  const titles = el('div');
+  titles.append(el('h2', 'person-name', card.name));
+  if (card.subtitle) titles.append(el('div', 'person-role', card.subtitle));
+  const badge = el('span', 'chip gold', CARD_TYPE_LABELS[card.type] ?? card.type);
+  const close = el('button', 'btn small', '✕');
+  head.append(titles, badge, close);
+
+  const top = el('div', 'library-sheet-top');
+  const media = el('div', 'library-sheet-media');
+  if (card.image) {
+    const img = el('img', 'library-sheet-img');
+    img.src = card.image;
+    img.alt = card.name;
+    media.append(img);
+  } else {
+    media.append(el('div', 'library-sheet-img actor-tile-initial', (card.name || '?').slice(0, 1)));
+  }
+  const meta = el('div', 'library-sheet-meta');
+  for (const [label, value] of [
+    ['Роль', card.role],
+    ['Пол', card.gender === 'female' ? 'женский' : card.gender === 'male' ? 'мужской' : ''],
+    ['Возраст', card.age ? `${card.age}` : ''],
+    ['Статус', card.status],
+    ['Происхождение', card.origin?.title],
+  ]) {
+    if (!value) continue;
+    const row = el('div', 'person-field');
+    row.append(el('span', 'person-label', label), el('div', 'person-value', value));
+    meta.append(row);
+  }
+  if (card.tags?.length) {
+    const chips = el('div', 'chips');
+    for (const tag of card.tags) chips.append(el('span', 'chip', tag));
+    meta.append(chips);
+  }
+  top.append(media, meta);
+
+  const body = el('div', 'library-sheet-body');
+  for (const [label, value] of [
+    ['Описание', card.description],
+    ['Биография', card.biography],
+    ['Характер', card.character],
+    ['Привычки', card.habits],
+    ['Способности', card.abilities],
+    ['Внешность', card.appearance],
+  ]) {
+    const node = templateField(label, value);
+    if (node) body.append(node);
+  }
+
+  const stats = cardSkillList(card);
+  if (stats.length) {
+    const block = el('div', 'person-field');
+    block.append(el('span', 'person-label', 'Характеристики и навыки'));
+    const wrap = el('div', 'library-stats');
+    for (const [name, value] of stats) {
+      const line = el('div', 'skill-row');
+      line.append(el('span', 'skill-name', name));
+      const bar = el('div', 'skill-bar');
+      const fill = el('i');
+      fill.style.width = `${Math.max(0, Math.min(20, Number(value) || 0)) * 5}%`;
+      bar.append(fill);
+      line.append(bar, el('span', 'skill-value', String(value)));
+      wrap.append(line);
+    }
+    block.append(wrap);
+    body.append(block);
+  }
+
+  const extra = card.data ?? {};
+  const extraRows = [
+    ['Класс', extra.class],
+    ['Уровень', extra.level],
+    ['Редкость', extra.rarity],
+    ['Урон', extra.damage],
+    ['Вес', extra.weight],
+    ['Цена', extra.price],
+    ['Регион', extra.region],
+    ['Опасность', extra.danger],
+    ['Глава', extra.leader],
+    ['Идеология', extra.ideology],
+    ['Статус задания', extra.status],
+    ['Награда', extra.reward],
+  ].filter(([, value]) => value !== undefined && value !== null && value !== '');
+  if (extraRows.length) {
+    const block = el('div', 'person-field');
+    block.append(el('span', 'person-label', 'Дополнительно'));
+    for (const [label, value] of extraRows) {
+      block.append(el('div', 'person-value', `${label}: ${value}`));
+    }
+    body.append(block);
+  }
+
+  const actions = el('div', 'library-sheet-actions');
+  if (card.type === 'hero') {
+    const take = el('button', 'btn primary small', 'В новую игру');
+    take.type = 'button';
+    take.addEventListener('click', () => {
+      app.pendingHero = cardToHeroTemplate(card);
+      overlay.remove();
+      location.hash = '#/new';
+    });
+    actions.append(take);
+  }
+  if (card.type === 'npc' && campaigns.length) {
+    const select = el('select', 'template-select');
+    for (const camp of campaigns) {
+      const option = el('option', '', `${camp.title || camp.id} · ход ${camp.turn ?? 0}`);
+      option.value = camp.id;
+      select.append(option);
+    }
+    const add = el('button', 'btn small', 'Добавить в игру');
+    add.type = 'button';
+    add.addEventListener('click', async () => {
+      add.disabled = true;
+      try {
+        await api(`/api/campaign/${encodeURIComponent(select.value)}/npc`, {
+          method: 'POST',
+          body: JSON.stringify({
+            name: card.name,
+            role: card.role,
+            attitude: card.data?.attitude ?? 0,
+            bond: card.data?.bond ?? 0,
+            appearance: card.appearance,
+            character: card.character,
+            clothes: card.data?.clothes,
+            bio: card.biography,
+            description: card.description,
+            abilities: card.abilities,
+            note: card.data?.note,
+            skills: card.skills,
+          }),
+        });
+        toast(`${card.name} добавлен в игру`);
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        add.disabled = false;
+      }
+    });
+    actions.append(select, add);
+  }
+  if (!['hero', 'npc'].includes(card.type)) {
+    actions.append(el('span', 'page-sub', 'добавление этого типа — следующий шаг'));
+  }
+  sheet.append(head, top, body, actions);
+  overlay.append(sheet);
+  close.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  document.addEventListener('keydown', function onKey(event) {
+    if (event.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+  });
+  document.body.append(overlay);
+}
+
 async function viewTemplates(view) {
-  const [data, campaigns] = await Promise.all([api('/api/templates'), api('/api/campaigns')]);
+  const [data, campaigns] = await Promise.all([api('/api/cards'), api('/api/campaigns')]);
+  const all = data.cards ?? [];
   const page = el('div', 'page');
   page.append(
     pageHead(
-      'Библиотека шаблонов',
-      'Шаблоны',
-      'Готовые карточки героев и NPC: история, характер, способности и навыки. Героя можно взять в новую игру, NPC — добавить в текущую.',
+      'Библиотека карточек',
+      'Карточки',
+      'Один файл — одна карточка. Герой, NPC, предмет, локация, фракция, задание, тварь.',
     ),
   );
 
-  const tabs = el('div', 'chips template-tabs');
-  const grid = el('div', 'template-grid');
-  let tab = 'heroes';
+  const state = { type: 'all', query: '' };
+  const toolbar = el('div', 'library-toolbar');
+  const tabs = el('div', 'chips library-tabs');
+  const search = el('input', 'library-search');
+  search.placeholder = 'поиск: имя, описание, биография, теги';
+  toolbar.append(tabs, search);
+  const grid = el('div', 'library-grid');
+  page.append(toolbar, grid);
 
   const render = () => {
     tabs.replaceChildren();
-    for (const [key, label] of [['heroes', 'Герои'], ['npcs', 'NPC']]) {
-      const chip = el('button', `chip${tab === key ? ' active' : ''}`, `${label} (${(data[key] ?? []).length})`);
+    const types = ['all', ...Object.keys(CARD_TYPE_LABELS)];
+    for (const type of types) {
+      const count = type === 'all' ? all.length : all.filter((card) => card.type === type).length;
+      if (type !== 'all' && !count) continue;
+      const chip = el('button', `chip${state.type === type ? ' active' : ''}`, `${type === 'all' ? 'Все' : CARD_TYPE_LABELS[type]} (${count})`);
       chip.type = 'button';
       chip.addEventListener('click', () => {
-        tab = key;
+        state.type = type;
         render();
       });
       tabs.append(chip);
     }
 
+    const query = state.query.trim().toLowerCase();
+    const list = all.filter((card) => {
+      if (state.type !== 'all' && card.type !== state.type) return false;
+      if (!query) return true;
+      return [card.name, card.subtitle, card.description, card.biography, card.character, ...(card.tags ?? [])]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(query);
+    });
+
     grid.replaceChildren();
-    const list = data[tab] ?? [];
-    if (!list.length) grid.append(emptyBox('Пусто', 'В data/templates.json нет карточек этого типа.'));
-
-    for (const tpl of list) {
-      const card = el('article', 'template-card');
-      const head = el('div', 'template-head');
-      head.append(el('div', 'person-avatar person-initial', (tpl.name || '?').slice(0, 1)));
-      const titles = el('div', 'person-titles');
-      titles.append(el('h3', 'person-name', tpl.name));
-      titles.append(el('div', 'person-role', tab === 'heroes' ? tpl.title : tpl.role));
-      if (tpl.quote) titles.append(el('div', 'template-quote', `«${tpl.quote}»`));
-      head.append(titles);
-      card.append(head);
-
-      if (tpl.tags?.length) {
-        const chips = el('div', 'chips');
-        for (const tag of tpl.tags) chips.append(el('span', 'chip', tag));
-        card.append(chips);
-      }
-
-      const fields = el('div', 'template-fields');
-      const history = tab === 'heroes' ? tpl.origin : tpl.bio;
-      const character =
-        tab === 'heroes' ? [tpl.essence, tpl.quirks].filter(Boolean).join(' ') : tpl.character;
-      for (const node of [
-        templateField('История', history),
-        templateField('Характер', character),
-        templateField('Способности', tpl.abilities),
-        tab === 'heroes' ? templateField('О теле', tpl.bodyAttitude) : templateField('Одет', tpl.clothes),
-        tab === 'heroes' ? templateField('Начало', tpl.start) : templateField('Заметка', tpl.note),
-      ]) {
-        if (node) fields.append(node);
-      }
-      card.append(fields);
-
-      if (tpl.skills && Object.keys(tpl.skills).length) card.append(templateSkills(tpl.skills));
-
-      const actions = el('div', 'template-actions');
-      if (tab === 'heroes') {
-        const take = el('button', 'btn primary small', 'Взять в новую игру');
-        take.type = 'button';
-        take.addEventListener('click', () => {
-          app.pendingHero = tpl;
-          location.hash = '#/new';
-        });
-        actions.append(take);
+    if (!list.length) {
+      grid.append(emptyBox('Пусто', 'Карточек этого типа пока нет.'));
+      return;
+    }
+    for (const card of list) {
+      const tile = el('article', 'library-card');
+      tile.tabIndex = 0;
+      const image = el('div', 'library-card-image');
+      if (card.image) {
+        const img = el('img');
+        img.src = card.image;
+        img.loading = 'lazy';
+        img.alt = card.name;
+        image.append(img);
       } else {
-        const select = el('select', 'template-select');
-        if (!campaigns.length) {
-          const option = el('option', '', 'нет игр');
-          select.append(option);
-          select.disabled = true;
-        } else {
-          for (const camp of campaigns) {
-            const option = el('option', '', `${camp.title || camp.id} · ход ${camp.turn ?? 0}`);
-            option.value = camp.id;
-            if (camp.id === currentCampaignId()) option.selected = true;
-            select.append(option);
-          }
-        }
-        const add = el('button', 'btn small', 'Добавить в игру');
-        add.type = 'button';
-        add.addEventListener('click', async () => {
-          if (!select.value) return;
-          add.disabled = true;
-          try {
-            await api(`/api/campaign/${encodeURIComponent(select.value)}/npc`, {
-              method: 'POST',
-              body: JSON.stringify(tpl),
-            });
-            toast(`${tpl.name} добавлен в игру`);
-          } catch (err) {
-            toast(err.message);
-          } finally {
-            add.disabled = false;
-          }
-        });
-        actions.append(select, add);
+        image.append(el('span', 'library-card-initial', (card.name || '?').slice(0, 1)));
       }
-      card.append(actions);
-      grid.append(card);
+      const body = el('div', 'library-card-body');
+      const type = el('span', 'chip gold', CARD_TYPE_LABELS[card.type] ?? card.type);
+      body.append(type);
+      body.append(el('h3', 'person-name', card.name));
+      if (card.subtitle) body.append(el('div', 'person-role', card.subtitle));
+      if (card.description) body.append(el('p', 'library-desc', card.description));
+      if (card.tags?.length) {
+        const chips = el('div', 'chips');
+        for (const tag of card.tags.slice(0, 4)) chips.append(el('span', 'chip', tag));
+        body.append(chips);
+      }
+      const topStats = cardSkillList(card).slice(0, 3);
+      if (topStats.length) {
+        const wrap = el('div', 'library-mini-stats');
+        for (const [name, value] of topStats) {
+          wrap.append(el('span', 'library-mini-stat', `${name} ${value}`));
+        }
+        body.append(wrap);
+      }
+      tile.append(image, body);
+      const open = () => openLibraryCard(card, campaigns);
+      tile.addEventListener('click', open);
+      tile.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') open();
+      });
+      grid.append(tile);
     }
   };
 
-  page.append(tabs, grid);
+  search.addEventListener('input', () => {
+    state.query = search.value;
+    render();
+  });
   view.append(page);
   render();
 }
@@ -2345,15 +2538,6 @@ function actorCard(actor, campaignId) {
 
   if (campaignId) {
     const actions = el('div', 'card-actions');
-    const imageUrl = actor.card || actor.portrait || '';
-    const asPng = /\.png$/i.test(imageUrl);
-    const download = el('a', 'ma-btn', asPng ? '⤓ PNG' : '⤓');
-    download.title = asPng ? 'скачать карточку PNG' : 'скачать карточку JSON';
-    download.href = `/api/campaign/${encodeURIComponent(campaignId)}/card?name=${encodeURIComponent(actor.name)}${asPng ? '&format=png' : ''}`;
-    download.download = `${actor.name}.${asPng ? 'png' : 'json'}`;
-    download.style.width = 'auto';
-    download.style.padding = '0 6px';
-    actions.append(download);
 
     if (!actor.card) {
       actions.append(miniBtn('✎ мастер-лист', 'нарисовать референс', async () => {
@@ -2391,6 +2575,7 @@ function actorCard(actor, campaignId) {
       bodyEl.prepend(img);
       toast(`лист персонажа · $${(res.cost ?? 0).toFixed(3)}`);
     }));
+    actions.append(miniBtn('＋ в шаблоны', 'сохранить карточку в библиотеку', () => saveToLibrary(campaignId, 'npc', actor.name)));
     if (actions.children.length) bodyEl.append(actions);
   }
 
@@ -2483,10 +2668,6 @@ function personCard(actor, campaignId) {
 
   if (campaignId) {
     const actions = el('div', 'person-actions');
-    const download = el('a', 'btn small', '⤓ карточка');
-    download.href = `/api/campaign/${encodeURIComponent(campaignId)}/card?name=${encodeURIComponent(actor.name)}`;
-    download.download = `${actor.name}.json`;
-    actions.append(download);
     actions.append(miniBtn('▣ в полный рост', 'одна фигура в полный рост', async () => {
       const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/image`, {
         method: 'POST',
@@ -2503,6 +2684,7 @@ function personCard(actor, campaignId) {
       }
       toast(`лист персонажа · $${(res.cost ?? 0).toFixed(3)}`);
     }));
+    actions.append(miniBtn('＋ в шаблоны', 'сохранить карточку в библиотеку', () => saveToLibrary(campaignId, 'npc', actor.name)));
     card.append(actions);
   }
   return card;
@@ -2590,6 +2772,7 @@ function heroCard(hero, money, campaignId) {
       }
       toast(`лист героя · $${(res.cost ?? 0).toFixed(3)}`);
     }));
+    actions.append(miniBtn('＋ в шаблоны', 'сохранить героя в библиотеку', () => saveToLibrary(campaignId, 'hero', hero.name)));
     card.append(actions);
   }
   return card;
@@ -2691,9 +2874,6 @@ function openActorModal(actor, campaignId) {
       sheetBtn.disabled = false;
     }
   });
-  const exportBtn = el('a', 'btn small', '⤓ карточка');
-  exportBtn.href = `/api/campaign/${encodeURIComponent(campaignId)}/card?name=${encodeURIComponent(actor.name)}`;
-  exportBtn.download = `${actor.name}.json`;
   const portraitBtn = el('button', 'btn small', '◉ портрет');
   portraitBtn.type = 'button';
   portraitBtn.addEventListener('click', async () => {
@@ -2718,7 +2898,20 @@ function openActorModal(actor, campaignId) {
       portraitBtn.disabled = false;
     }
   });
-  actions.append(sheetBtn, portraitBtn, exportBtn);
+  actions.append(sheetBtn, portraitBtn);
+  const saveCardBtn = el('button', 'btn small', '＋ в шаблоны');
+  saveCardBtn.type = 'button';
+  saveCardBtn.addEventListener('click', async () => {
+    saveCardBtn.disabled = true;
+    try {
+      await saveToLibrary(campaignId, 'npc', actor.name);
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      saveCardBtn.disabled = false;
+    }
+  });
+  actions.append(saveCardBtn);
 
   sheet.append(head, media, chips, info, actions);
   overlay.append(sheet);
@@ -3060,9 +3253,6 @@ async function viewPlay(view, id) {
   const panelBtn = el('button', 'btn small', 'состояние');
   panelBtn.addEventListener('click', () => document.body.classList.toggle('panel-open'));
 
-  const importBtn = el('button', 'btn small', '⤒');
-  importBtn.title = 'импортировать карточку V2';
-
   const shotBtn = el('button', 'btn small', '🖼');
   shotBtn.title = 'нарисовать кадр сцены';
 
@@ -3074,7 +3264,7 @@ async function viewPlay(view, id) {
   historyBtn.title = 'вся история: можно перечитать любой ход';
   historyBtn.addEventListener('click', () => openHistoryDialog(id));
 
-  head.append(back, title, cost, importBtn, shotBtn, artBtn, historyBtn, panelBtn);
+  head.append(back, title, cost, shotBtn, artBtn, historyBtn, panelBtn);
 
   const body = el('div', 'play-body');
   const log = el('div', 'log');
@@ -3150,12 +3340,6 @@ async function viewPlay(view, id) {
     dice: diceBox,
     known: new Set([...(data.state.party ?? []), ...(data.state.npcs ?? [])].map((a) => a.name)),
   };
-
-  importBtn.addEventListener('click', () => openImportDialog(id, async () => {
-    const fresh = await api(`/api/campaign/${encodeURIComponent(id)}`);
-    renderPanel(fresh.state, panel, id, fresh.worldMap ?? '', fresh.map ?? '', fresh.summary);
-    renderPlaceCards(fresh.state, placeCards, id, panel);
-  }));
 
   shotBtn.addEventListener('click', async () => {
     shotBtn.disabled = true;

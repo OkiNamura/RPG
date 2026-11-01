@@ -268,6 +268,26 @@ async function main() {
 
   // ---------- истории ----------
   try {
+    // После полной очистки тест сам создаёт одну игру и NPC для проверок.
+    const existing = await (await window.fetch('/api/campaigns')).json();
+    if (!existing.length) {
+      await window.fetch('/api/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'ui-test-run',
+          tone: 'тёмное фэнтези '.repeat(20),
+          world: 'пепельный город '.repeat(20),
+          hero: '# Герой\n- **Имя:** Тест',
+          generatePrompts: false,
+        }),
+      });
+      await window.fetch('/api/campaign/ui-test-run/npc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Кузнец', role: 'кузнец', skills: { Сила: 12 } }),
+      });
+    }
     window.location.hash = '#/stories';
     await until(
       () => window.document.querySelector('.row-card') || window.document.querySelector('.empty'),
@@ -303,21 +323,26 @@ async function main() {
     fail('истории', e.message);
   }
 
-  // ---------- шаблоны героя и NPC ----------
+  // ---------- библиотека карточек ----------
   try {
     window.location.hash = '#/templates';
-    await until(() => window.document.querySelector('.template-card'), 15000);
-    const cards = $$('.template-card').length;
-    if (cards < 6) throw new Error(`шаблонов мало: ${cards}`);
-    const npcTab = [...window.document.querySelectorAll('.template-tabs .chip')].find((b) =>
+    await until(() => window.document.querySelector('.library-card'), 15000);
+    const cards = $$('.library-card').length;
+    if (cards < 12) throw new Error(`карточек мало: ${cards}`);
+    click($$('.library-card')[0]);
+    await until(() => window.document.querySelector('.library-sheet'), 10000);
+    pass(`карточки: ${cards} в библиотеке, карточка открывается`);
+    const close = [...window.document.querySelectorAll('.library-sheet .btn')].find((b) => b.textContent === '✕');
+    if (close) click(close);
+    const npcTab = [...window.document.querySelectorAll('.library-tabs .chip')].find((b) =>
       b.textContent.startsWith('NPC'),
     );
-    if (!npcTab) throw new Error('нет вкладки NPC');
+    if (!npcTab) throw new Error('нет фильтра NPC');
     click(npcTab);
-    await until(() => window.document.querySelector('.template-select'), 10000);
-    pass(`шаблоны: ${cards} карточек героев, NPC и добавление в игру`);
+    await until(() => $$('.library-card').length >= 6, 10000);
+    pass('карточки: фильтр по типу работает');
   } catch (e) {
-    fail('шаблоны', e.message);
+    fail('карточки', e.message);
   }
 
   // ---------- игра ----------
@@ -335,6 +360,13 @@ async function main() {
       target = { id: 'ui-test-run' };
     }
     if (!target) throw new Error('нет кампаний для игры');
+
+    // Гарантируем персонажа для проверки сетки карточек.
+    await fetch(`${BASE}/api/campaign/${encodeURIComponent(target.id)}/npc`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Стражник', role: 'стражник', skills: { Сила: 12 } }),
+    }).catch(() => undefined);
 
     window.location.hash = `#/play/${encodeURIComponent(target.id)}`;
     await until(() => window.document.querySelector('.play'), 15000);
