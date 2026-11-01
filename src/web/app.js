@@ -1,4 +1,4 @@
-﻿/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
+/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -1902,6 +1902,12 @@ async function viewNew(view) {
             heroSkills: wizard.skills ?? undefined,
             heroBio: wizard.hero.origin || undefined,
             heroAbilities: wizard.hero.abilities || undefined,
+            heroEssence: wizard.hero.essence || undefined,
+            heroAppearance: wizard.hero.appearance || undefined,
+            heroBodyAttitude: wizard.hero.bodyAttitude || undefined,
+            heroOrigin: wizard.hero.origin || undefined,
+            heroQuirks: wizard.hero.quirks || undefined,
+            heroStart: wizard.hero.start || undefined,
             gender: wizard.gender,
             permadeath: wizard.permadeath,
             toneLevel: wizard.toneLevel,
@@ -2518,15 +2524,32 @@ function heroCard(hero, money, campaignId) {
   titles.append(el('div', 'person-role', 'главный герой'));
   const chips = el('div', 'chips');
   chips.append(el('span', 'chip', `здоровье ${hero.health ?? 100}/100`));
+  if (hero.gender) {
+    chips.append(el('span', 'chip', hero.gender === 'female' ? 'женщина' : 'мужчина'));
+  }
   if (money) chips.append(el('span', 'chip', `${money.gold ?? 0} з · ${money.silver ?? 0} с · ${money.copper ?? 0} м`));
   titles.append(chips);
   head.append(titles);
   card.append(head);
 
-  if (hero.abilities) {
-    card.append(el('div', 'person-field', `Способности: ${hero.abilities}`));
+  const heroFields = [
+    ['Суть', hero.essence],
+    ['Внешность', hero.appearance],
+    ['Отношение к телу', hero.bodyAttitude],
+    ['Прошлое', hero.origin ?? hero.bio],
+    ['Привычки', hero.quirks],
+    ['Способности', hero.abilities],
+    ['Начало истории', hero.start],
+  ].filter(([, value]) => value);
+  if (heroFields.length) {
+    const grid = el('div', 'person-grid');
+    for (const [label, value] of heroFields) {
+      const cell = el('div', 'person-field');
+      cell.append(el('span', 'person-label', label), el('div', 'person-value', value));
+      grid.append(cell);
+    }
+    card.append(grid);
   }
-  if (hero.bio) card.append(el('div', 'person-field', `Прошлое: ${hero.bio}`));
   if (hero.wounds?.length) {
     card.append(el('div', 'person-field', `Раны: ${hero.wounds.map((w) => `${w.where} (${w.severity}${w.treated ? ', обработано' : ''})`).join('; ')}`));
   }

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Состояние кампании — единственный источник правды о цифрах.
  *
  * Проза живёт отдельно: она для игрока. Если проза и стейт расходятся,
@@ -152,6 +152,15 @@ export interface GameState {
     intuition?: string;
     /** мастер-лист героя: по нему рисуются сцены */
     card?: string;
+    /** пол героя */
+    gender?: 'male' | 'female';
+    /** поля карточки из формы создания */
+    essence?: string;
+    appearance?: string;
+    bodyAttitude?: string;
+    origin?: string;
+    quirks?: string;
+    start?: string;
     /** прошлое и способности — из шаблона героя */
     bio?: string;
     abilities?: string;

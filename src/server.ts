@@ -797,9 +797,8 @@ async function getSession(id: string): Promise<Session | null> {
   // Ядро не хранится в кампании: подставляем неизменяемый файл.
   // Сверху — промт ведущего из настроек агентов.
   const coreFile = saved.text.core || (await loadCore());
-  const gmPrompt =
-    saved.meta?.prompts?.gm ||
-    (gameAgents.gm.enabled ? gameAgents.gm.prompt : DEFAULT_AGENTS.gm.prompt);
+  const basePrompt = gameAgents.gm.enabled ? gameAgents.gm.prompt : DEFAULT_AGENTS.gm.prompt;
+  const gmPrompt = saved.meta?.prompts?.gm || `${basePrompt}\n\n${saved.text.tone ?? ''}`;
   if (typeof saved.meta?.prompts?.temperature === 'number') {
     model = makeAgentModel({ ...gameAgents.gm, temperature: saved.meta.prompts.temperature }, !gameAgents.state.enabled);
   }
@@ -1672,6 +1671,20 @@ const server = createServer(async (req, res) => {
       const place = meta.presetTitle ? `Начало: ${meta.presetTitle}` : START_PLACE;
 
       const state = createState(heroName, place);
+      // Все поля формы героя сохраняем в карточку, а не только в промт.
+      state.hero.gender = meta.gender;
+      const heroField = (key: keyof typeof state.hero, bodyKey: string, limit = 2000): void => {
+        const value = body[bodyKey];
+        if (typeof value === 'string' && value.trim()) {
+          (state.hero as unknown as Record<string, unknown>)[key] = value.trim().slice(0, limit);
+        }
+      };
+      heroField('essence', 'heroEssence', 500);
+      heroField('appearance', 'heroAppearance');
+      heroField('bodyAttitude', 'heroBodyAttitude', 500);
+      heroField('origin', 'heroOrigin');
+      heroField('quirks', 'heroQuirks');
+      heroField('start', 'heroStart');
       // Карточка героя из шаблона: история и способности видны в контейнере.
       if (typeof body.heroBio === 'string' && body.heroBio.trim()) state.hero.bio = body.heroBio.trim();
       if (typeof body.heroAbilities === 'string' && body.heroAbilities.trim()) {

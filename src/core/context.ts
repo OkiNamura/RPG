@@ -172,7 +172,8 @@ export function buildContext(input: ContextInput): BuiltContext {
 
   // 1. Статика: ядро + мир + тон + герой. Не меняется после старта кампании.
   //    Блок должен быть байт-стабильным, иначе кэш провайдера не сработает.
-  const staticBlock = [input.core, input.world, input.tone, input.hero].filter(Boolean).join('\n\n');
+  // Тон уже внутри промта ведущего (input.core); отдельным блоком не дублируем.
+  const staticBlock = [input.core, input.world, input.hero].filter(Boolean).join('\n\n');
   if (staticBlock) {
     messages.push({ role: 'system', content: staticBlock });
     segments.push(seg('static', staticBlock));
