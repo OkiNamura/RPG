@@ -41,3 +41,6 @@ data/trash/
 
 .admin-password
 .cloudflare-tunnel.env
+.telegram.env
+data/feedback/
+data/telegram-offset.json
