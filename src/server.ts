@@ -9,7 +9,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { appendFile, mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, extname, join, normalize, sep } from 'node:path';
 import { characterSheetPrompt, generateImage, itemCardPrompt, masterCardPrompt, portraitPrompt, scenePrompt } from './core/images.ts';
 import { renderMap } from './core/map.ts';
@@ -120,6 +120,7 @@ const WEB_DIR = join(import.meta.dirname, 'web');
 const DATA_DIR = join(import.meta.dirname, '..', 'data', 'campaigns');
 const CARDS_DIR = join(import.meta.dirname, '..', 'data', 'cards');
 const PRESETS_DIR = join(import.meta.dirname, '..', 'data', 'presets');
+const TRASH_DIR = join(import.meta.dirname, '..', 'data', 'trash');
 const TRACES_DIR = join(import.meta.dirname, '..', 'data', 'traces');
 const IMAGES_DIR = join(import.meta.dirname, '..', 'data', 'images');
 const AGENTS_DIR = join(import.meta.dirname, '..', 'data');
@@ -1861,7 +1862,11 @@ const server = createServer(async (req, res) => {
         snapshots.delete(id);
         initials.delete(id);
         metas.delete(id);
-        await unlink(join(DATA_DIR, `${id}.json`)).catch(() => undefined);
+        await mkdir(TRASH_DIR, { recursive: true });
+        const file = join(DATA_DIR, `${id}.json`);
+        await rename(file, join(TRASH_DIR, `${id}-${Date.now()}.json`)).catch(async () => {
+          await unlink(file).catch(() => undefined);
+        });
         return sendJson(res, { ok: true });
       }
 

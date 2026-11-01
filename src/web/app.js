@@ -2037,7 +2037,10 @@ async function viewNew(view) {
     });
     worldRow.append(genWorld, worldStatus);
     worldField.append(worldRow);
-    body.append(worldField, el('p', 'page-sub', 'Предустановленных миров нет — каждый мир собирается из твоего описания и тегов.'));
+    const worldHint = el('p', 'page-sub', 'Предустановленных миров нет — каждый мир собирается из твоего описания и тегов.');
+    body.append(worldField, worldHint);
+    // Мир идёт сразу после названия, выше уровня повествования.
+    titleField.after(worldField, worldHint);
   }
 
   function field(labelText, key, multiline) {
