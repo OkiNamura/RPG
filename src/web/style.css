@@ -3629,3 +3629,43 @@ textarea,
 select {
   font-family: inherit;
 }
+
+.hero-card-clickable {
+  cursor: pointer;
+}
+
+.hero-card-clickable:hover {
+  border-color: var(--gold-dim);
+}
+
+.hero-card .person-grid {
+  grid-template-columns: 1fr;
+}
+
+.hero-sheet .library-sheet-body {
+  grid-template-columns: 1fr 1fr;
+}
+
+/* в панели — компактный превью-блок, полная карточка открывается кликом */
+.hero-card .person-grid,
+.hero-card .person-skills,
+.hero-card .person-quote,
+.hero-card > .person-field {
+  display: none;
+}
+
+.hero-card-summary {
+  margin: 6px 0 4px;
+  color: #c9c2b6;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.hero-card-hint {
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.hero-card .person-actions {
+  display: none;
+}

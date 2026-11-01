@@ -1662,6 +1662,8 @@ const server = createServer(async (req, res) => {
       const body = await readBody(req);
       const form = (body.form ?? {}) as Record<string, string>;
       const level = Number(body.toneLevel);
+      const world = String(body.world ?? '').trim().slice(0, 2000);
+      const gender = body.gender === 'female' ? 'женский' : 'мужской';
       const pack = compositionModel(2000, await loadHeroPrompt());
       if (!pack) return sendJson(res, { error: 'нет OPENROUTER_API_KEY в .env' }, 500);
 
@@ -1671,13 +1673,23 @@ const server = createServer(async (req, res) => {
         {
           role: 'user',
           content: [
+            'Заполни карточку героя для текстовой RPG. Сохрани имя и все конкретные',
+            'детали формы: шрамы, привычки, странности, способности. Пустые поля',
+            'дополни в духе уже написанного, мира и тона. Не пересказывай мир.',
+            '',
             'Форма героя:',
             ...Object.entries(form)
               .filter(([, value]) => String(value ?? '').trim())
               .map(([key, value]) => `- ${key}: ${String(value).trim()}`),
             '',
-            'Верни только JSON: {"essence":"","appearance":"","bodyAttitude":"",',
-            '"origin":"","quirks":"","abilities":"","start":""} — по одному-два предложения.',
+            `Пол: ${gender}`,
+            world ? `Мир (контекст): ${world}` : '',
+            '',
+            'Верни только JSON с ключами:',
+            '{"essence":"","appearance":"","bodyAttitude":"","origin":"","quirks":"","abilities":"","start":""}',
+            'Каждое поле — 2–4 конкретных предложения, без пафоса и без markdown.',
+            '«abilities» — только проявления уже заявленных способностей, не новые силы.',
+            '«start» — где герой просыпается и что происходит в первых сценах.',
             Number.isFinite(level) ? toneDirective(level) : '',
           ].join('\n'),
         },

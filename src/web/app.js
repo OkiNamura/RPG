@@ -1,4 +1,4 @@
-﻿/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
+/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -2064,6 +2064,36 @@ async function viewNew(view) {
       field('Начало истории', 'start', true),
     );
 
+    const fillCard = el('button', 'btn small', 'Заполнить карточку агентом');
+    fillCard.type = 'button';
+    const fillHint = el('span', 'page-sub', '');
+    fillCard.addEventListener('click', async () => {
+      if (wizard.busy) return;
+      wizard.busy = true;
+      fillCard.disabled = true;
+      fillHint.textContent = 'мастер промтов заполняет…';
+      try {
+        const res = await api('/api/generate/hero', {
+          method: 'POST',
+          body: JSON.stringify({
+            form: wizard.hero,
+            toneLevel: wizard.toneLevel,
+            world: wizard.worldText || wizard.customWorld,
+            gender: wizard.gender,
+          }),
+        });
+        wizard.hero = { ...wizard.hero, ...(res.hero ?? {}), name: wizard.hero.name };
+        fillHint.textContent = res.cost ? `готово · $${res.cost.toFixed(4)}` : 'готово';
+        render();
+      } catch (err) {
+        fillHint.textContent = err.message;
+      } finally {
+        wizard.busy = false;
+        fillCard.disabled = false;
+      }
+    });
+    body.append(el('div', 'preset-row', fillCard, fillHint));
+
     const choice = (label, active, onClick) => {
       const btn = el('button', `chip${active ? ' active' : ''}`, label);
       btn.type = 'button';
@@ -2878,6 +2908,117 @@ function personCard(actor, campaignId) {
   return card;
 }
 
+function openHeroSheet(hero, money, campaignId) {
+  const overlay = el('div', 'library-modal');
+  const sheet = el('article', 'library-sheet hero-sheet');
+  const head = el('div', 'library-sheet-head');
+  const titles = el('div');
+  titles.append(el('h2', 'person-name', hero.name || 'Герой'));
+  titles.append(el('div', 'person-role', 'главный герой'));
+  const close = el('button', 'btn small', '✕');
+  head.append(titles, el('span', 'chip gold', `ранг ${hero.rank ?? 'F'}`), close);
+
+  const top = el('div', 'library-sheet-top');
+  const media = el('div', 'library-sheet-media');
+  const image = el(hero.card ? 'img' : 'div', hero.card ? 'library-sheet-img' : 'library-sheet-img actor-tile-initial');
+  if (hero.card) {
+    image.src = hero.card;
+    image.alt = hero.name;
+  } else {
+    image.textContent = (hero.name || '?').slice(0, 1);
+  }
+  media.append(image);
+  const meta = el('div', 'library-sheet-meta');
+  for (const [label, value] of [
+    ['Пол', hero.gender === 'female' ? 'женский' : hero.gender === 'male' ? 'мужской' : ''],
+    ['Здоровье', `${hero.health ?? 100}/100`],
+    ['Деньги', money ? `${money.gold ?? 0} з · ${money.silver ?? 0} с · ${money.copper ?? 0} м` : ''],
+    ['Состояния', hero.conditions?.join(', ')],
+    ['Раны', hero.wounds?.map((w) => `${w.where} (${w.severity})`).join('; ')],
+  ]) {
+    if (!value) continue;
+    const row = el('div', 'person-field');
+    row.append(el('span', 'person-label', label), el('div', 'person-value', value));
+    meta.append(row);
+  }
+  top.append(media, meta);
+
+  const body = el('div', 'library-sheet-body');
+  for (const [label, value] of [
+    ['Суть', hero.essence],
+    ['Внешность', hero.appearance],
+    ['Отношение к телу', hero.bodyAttitude],
+    ['Прошлое', hero.origin ?? hero.bio],
+    ['Привычки', hero.quirks],
+    ['Способности', hero.abilities],
+    ['Начало истории', hero.start],
+  ]) {
+    const field = templateField(label, value);
+    if (field) body.append(field);
+  }
+  if (hero.intuition) body.append(el('div', 'person-quote', `«${hero.intuition}»`));
+  if (hero.skills && Object.keys(hero.skills).length) {
+    const wrap = el('div', 'person-field');
+    wrap.append(el('span', 'person-label', 'Навыки'));
+    wrap.append(templateSkills(hero.skills));
+    body.append(wrap);
+  }
+
+  const actions = el('div', 'library-sheet-actions');
+  if (campaignId) {
+    const sheetBtn = el('button', 'btn small', '▣ в полный рост');
+    sheetBtn.type = 'button';
+    sheetBtn.addEventListener('click', async () => {
+      sheetBtn.disabled = true;
+      try {
+        const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/image`, {
+          method: 'POST',
+          body: JSON.stringify({ mode: 'sheet', hero: true, name: hero.name }),
+        });
+        hero.card = res.url;
+        if (image.tagName === 'IMG') image.src = res.url;
+        else {
+          const img = el('img', 'library-sheet-img');
+          img.src = res.url;
+          image.replaceWith(img);
+        }
+        toast(`лист героя · $${(res.cost ?? 0).toFixed(3)}`);
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        sheetBtn.disabled = false;
+      }
+    });
+    const saveCard = el('button', 'btn small', '＋ в шаблоны');
+    saveCard.type = 'button';
+    saveCard.addEventListener('click', async () => {
+      saveCard.disabled = true;
+      try {
+        await saveToLibrary(campaignId, 'hero', hero.name);
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        saveCard.disabled = false;
+      }
+    });
+    actions.append(sheetBtn, saveCard);
+  }
+  sheet.append(head, top, body, actions);
+
+  close.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  document.addEventListener('keydown', function onKey(event) {
+    if (event.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+  });
+  overlay.append(sheet);
+  document.body.append(overlay);
+}
+
 function heroCard(hero, money, campaignId) {
   const card = el('article', 'person-card hero-card');
   const head = el('div', 'person-head');
@@ -2902,6 +3043,8 @@ function heroCard(hero, money, campaignId) {
   titles.append(chips);
   head.append(titles);
   card.append(head);
+  if (hero.essence) card.append(el('div', 'hero-card-summary', hero.essence));
+  card.append(el('div', 'hero-card-hint', 'нажми, чтобы открыть карточку'));
 
   const heroFields = [
     ['Суть', hero.essence],
@@ -2964,6 +3107,12 @@ function heroCard(hero, money, campaignId) {
     actions.append(miniBtn('＋ в шаблоны', 'сохранить героя в библиотеку', () => saveToLibrary(campaignId, 'hero', hero.name)));
     card.append(actions);
   }
+  card.title = 'открыть карточку героя';
+  card.classList.add('hero-card-clickable');
+  card.addEventListener('click', (event) => {
+    if (event.target.closest('button,a')) return;
+    openHeroSheet(hero, money, campaignId);
+  });
   return card;
 }
 

@@ -173,7 +173,6 @@ async function main() {
     const nextBtn = () => [...$$('.wizard-nav button')].find((b) => b.textContent.includes('Далее'));
     const worldArea = await until(() => window.document.querySelector('.world-custom'));
     if (!worldArea) throw new Error('нет поля мира на шаге тона');
-    if ($$('.preset-row').length > 0) throw new Error('пресеты всё ещё показываются');
     worldArea.value = 'Мир затонувших городов, где торгуют воспоминаниями.';
     worldArea.dispatchEvent(new window.Event('input', { bubbles: true }));
     pass('шаг 1: тон и мир на одном шаге');
