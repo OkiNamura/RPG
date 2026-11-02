@@ -61,6 +61,12 @@ export interface Actor {
   abilities?: string;
   /** чувства внутри пати: ревность, любовь, зависть */
   relations?: { with: string; feeling: string }[];
+  /** забыт в корзине контейнера, но не удалён */
+  archived?: boolean;
+  archivedAt?: string;
+  /** привычки и желания — для живой карточки */
+  habits?: string;
+  wants?: string;
 }
 
 /** Временный эффект: баф или дебаф, живёт до снятия. */

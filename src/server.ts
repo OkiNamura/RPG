@@ -868,6 +868,13 @@ function gameRulesFor(meta: CampaignMeta): string[] {
   ];
 }
 
+/** Герой хранится без служебных настроек и повторного тона. */
+function heroBaseText(value: string): string {
+  return String(value ?? '')
+    .split(/\n# (?:НАСТРОЙКИ ИГРЫ|ТОН)\s*/)[0]
+    .trim();
+}
+
 async function getSession(id: string): Promise<Session | null> {
   const cached = sessions.get(id);
   if (cached) return cached;
@@ -877,6 +884,8 @@ async function getSession(id: string): Promise<Session | null> {
 
   // У каждой игры свои агенты; старые кампании берут глобальные.
   const gameAgents = (saved.agents as unknown as AgentSet) ?? structuredClone(agents);
+  // Новый агент-наполнитель появляется и в старых кампаниях.
+  if (!gameAgents.filler) gameAgents.filler = structuredClone(DEFAULT_AGENTS.filler);
 
   const gmKey = keyStore.getSync(gameAgents.gm.keyRef);
   if (!gmKey?.apiKey && !API_KEY) throw new Error('нет ключа API для ведущего');
@@ -902,18 +911,14 @@ async function getSession(id: string): Promise<Session | null> {
   const toneAnchor = toneMatch ? `# ТОН\n${toneMatch[1].trim()}` : '';
   let staticText: { core: string; world: string; tone: string; hero: string };
   if (assembly2) {
-    const heroText = saved.text.hero ?? '';
-    const heroWithSettings = heroText.includes('# НАСТРОЙКИ ИГРЫ')
-      ? heroText
-      : `${heroText}${settingsLine}`;
+    const heroText = heroBaseText(saved.text.hero ?? '');
+    const heroWithSettings = `${heroText}${settingsLine}`;
     staticText = {
       core: saved.text.core || `# ПРАВИЛА\n${coreFile}\n\n${gmPrompt}`,
       world: saved.text.world ?? '',
       // Тон дублируем в конце статики: он ближе к ходу и не тонет в 112k ядра.
-      hero: heroWithSettings.includes('# ТОН')
-        ? heroWithSettings
-        : `${heroWithSettings}${toneAnchor ? `\n\n${toneAnchor}` : ''}`,
-      tone: '',
+      hero: `${heroWithSettings}${toneAnchor ? `\n\n${toneAnchor}` : ''}`,
+      tone: saved.text.tone ?? '',
     };
   } else {
     const core = gmPrompt ? `${gmPrompt}${settingsLine}\n\n${coreFile}` : `${coreFile}${settingsLine}`;
@@ -2199,7 +2204,7 @@ const server = createServer(async (req, res) => {
       return sendJson(res, { id, state, history: [], totals: session.totals, meta });
     }
 
-    const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|context|container|npc|reset|restart|save-card))?$/.exec(path);
+    const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|context|container|npc|forget|blocks|fill-card|reset|restart|save-card))?$/.exec(path);
     if (campaignMatch) {
       const id = decodeURIComponent(campaignMatch[1]);
       // Id — это имя файла кампании: никаких слэшей и переходов вверх.
@@ -2550,6 +2555,109 @@ const server = createServer(async (req, res) => {
         session.memory = String(body.text ?? '').slice(0, 4000);
         await persist(id, session);
         return sendJson(res, { memory: session.memory });
+      }
+
+      // Редактирование блоков тона, мира и героя внутри контейнера.
+      if (action === 'blocks' && (req.method === 'GET' || req.method === 'PUT')) {
+        const meta = metas.get(id) ?? ({} as CampaignMeta);
+        const gmPrompt = String(meta.prompts?.gm ?? '');
+        const toneFromGm =
+          /(?:^|\n)# ТОН\s*\n([\s\S]*?)(?=\n# |$)/.exec(gmPrompt)?.[1]?.trim() ?? '';
+        if (req.method === 'GET') {
+          return sendJson(res, {
+            tone: session.text.tone || toneFromGm,
+            world: session.text.world ?? '',
+            hero: heroBaseText(session.text.hero ?? ''),
+          });
+        }
+        const body = await readBody(req);
+        if (typeof body.tone === 'string') {
+          const tone = body.tone.slice(0, 12000);
+          session.text.tone = tone;
+          const cut = gmPrompt.search(/(?:^|\n)# ТОН\b/);
+          meta.prompts = {
+            ...(meta.prompts ?? {}),
+            gm:
+              cut >= 0
+                ? `${gmPrompt.slice(0, cut).trimEnd()}\n\n# ТОН\n${tone}`
+                : `${gmPrompt}${gmPrompt ? '\n\n' : ''}# ТОН\n${tone}`,
+          };
+        }
+        if (typeof body.world === 'string') session.text.world = body.world.slice(0, 20000);
+        if (typeof body.hero === 'string') session.text.hero = heroBaseText(body.hero).slice(0, 12000);
+        metas.set(id, meta);
+        await persist(id, session);
+        sessions.delete(id);
+        return sendJson(res, { ok: true });
+      }
+
+      // Агент-наполнитель: дописывает только пустые поля карточки.
+      if (action === 'fill-card' && req.method === 'POST') {
+        if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
+        const body = await readBody(req);
+        const name = String(body.name ?? '').trim();
+        const actor = [...session.state.party, ...session.state.npcs].find(
+          (item) => item.name.trim().toLowerCase() === name.toLowerCase(),
+        );
+        if (!actor) return sendJson(res, { error: 'персонаж не найден' }, 404);
+        const filler = session.agents?.filler ?? agents.filler;
+        if (!filler?.enabled) return sendJson(res, { error: 'наполнитель карточек выключен' }, 409);
+        const model = makeAgentModel(filler);
+        if (!model) return sendJson(res, { error: 'нет ключа у наполнителя' }, 500);
+        const reply = await model.complete([
+          { role: 'system', content: filler.prompt },
+          {
+            role: 'user',
+            content: [
+              `КАРТОЧКА:\n${JSON.stringify(actor, null, 2).slice(0, 6000)}`,
+              `МИР:\n${String(session.text.world ?? '').slice(0, 3000)}`,
+              'Дополни пустые поля. Верни только JSON.',
+            ].join('\n\n'),
+          },
+        ]);
+        const parsed = parseJsonObject(reply.text) ?? {};
+        const fields = [
+          'appearance',
+          'character',
+          'clothes',
+          'bio',
+          'habits',
+          'wants',
+          'abilities',
+          'description',
+          'note',
+        ];
+        const overwrite = body.overwrite === true;
+        const changed: string[] = [];
+        for (const field of fields) {
+          const value = parsed[field];
+          if (typeof value !== 'string' || !value.trim()) continue;
+          if (!overwrite && String((actor as unknown as Record<string, unknown>)[field] ?? '').trim()) continue;
+          (actor as unknown as Record<string, unknown>)[field] = value.trim().slice(0, 3000);
+          changed.push(field);
+        }
+        await persist(id, session);
+        return sendJson(res, { ok: true, actor, changed });
+      }
+
+      // Забыть NPC: не удаляем, а убираем в корзину контейнера.
+      if (action === 'forget' && req.method === 'POST') {
+        if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
+        const body = await readBody(req);
+        const name = String(body.name ?? '').trim().toLowerCase();
+        const actor = session.state.npcs.find((npc) => npc.name.trim().toLowerCase() === name);
+        if (!actor) return sendJson(res, { error: 'NPC не найден' }, 404);
+        if (body.purge === true) {
+          session.state.npcs = session.state.npcs.filter((npc) => npc !== actor);
+        } else if (body.restore === true) {
+          actor.archived = false;
+          actor.archivedAt = undefined;
+        } else {
+          actor.archived = true;
+          actor.archivedAt = new Date().toISOString();
+        }
+        await persist(id, session);
+        return sendJson(res, { ok: true, state: session.state });
       }
 
       // Добавить NPC из шаблона в текущую игру.

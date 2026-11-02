@@ -4163,3 +4163,42 @@ select {
     pointer-events: none;
   }
 }
+
+.rank-progress {
+  margin-top: 6px;
+  min-width: 180px;
+}
+
+.rank-progress-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.rank-bar {
+  height: 5px;
+  margin-top: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #232027;
+}
+
+.rank-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8a723f, #d1ad68);
+  transition: width 0.35s ease;
+}
+
+.container-agent-body {
+  padding: 10px;
+}
+
+.archived-card {
+  opacity: 0.75;
+  border-style: dashed;
+}

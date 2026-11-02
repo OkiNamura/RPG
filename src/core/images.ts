@@ -79,6 +79,49 @@ async function generateQwenImage(options: ImageOptions): Promise<ImageResult> {
   const local = /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/)/i.test(base);
   if (local) {
     await ensureLocalImage(base, options.apiKey, options.model, options.timeoutMs ?? 300_000);
+    if (options.references?.length) {
+      // Нативный endpoint умеет референсы и negative prompt; OpenAI-совместимый — нет.
+      const root = base.replace(/\/v1$/, '');
+      const [width, height] = (options.size ?? '512x768').split('x').map(Number);
+      const headers = { Authorization: `Bearer ${options.apiKey}`, 'Content-Type': 'application/json' };
+      try {
+        const ref = await fetch(`${root}/api/inference/images/generate`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            prompt: options.prompt,
+            negative_prompt:
+              'text, letters, captions, subtitles, speech bubbles, comic panels, watermark, logo, UI',
+            width: width || 512,
+            height: height || 768,
+            steps: 9,
+            guidance: 0,
+            reference_images: options.references.slice(0, 9),
+            reference_resolution: 512,
+          }),
+          signal: AbortSignal.timeout(options.timeoutMs ?? 300_000),
+        });
+        if (ref.ok) {
+          const found = (await ref.json()) as { images?: { url?: string }[] };
+          const imageUrl = found.images?.[0]?.url;
+          if (imageUrl) {
+            const absolute = imageUrl.startsWith('http') ? imageUrl : `${root}${imageUrl}`;
+            const image = await fetch(absolute, { headers, signal: AbortSignal.timeout(60_000) });
+            if (image.ok) {
+              return {
+                buffer: Buffer.from(await image.arrayBuffer()),
+                mime: 'image/png',
+                cost: 0,
+                ms: Date.now() - started,
+                model: options.model,
+              };
+            }
+          }
+        }
+      } catch {
+        /* ниже — обычный txt2img без референсов */
+      }
+    }
   }
   const body: Record<string, unknown> = local
     ? {

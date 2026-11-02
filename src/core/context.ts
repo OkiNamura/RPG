@@ -103,9 +103,10 @@ export function renderState(s: GameState): string {
   if (s.party.length) {
     lines.push(`Пати: ${s.party.map((a) => `${a.name} (${a.status}, связь ${a.bond}, ранг ${a.rank ?? 'F'})`).join('; ')}`);
   }
-  if (s.npcs?.length) {
+  const activeNpcs = (s.npcs ?? []).filter((a) => !a.archived);
+  if (activeNpcs.length) {
     lines.push(
-      `NPC: ${s.npcs.map((a) => `${a.name}${a.role ? ` — ${a.role}` : ''} (${a.status})`).join('; ')}`,
+      `NPC: ${activeNpcs.map((a) => `${a.name}${a.role ? ` — ${a.role}` : ''} (${a.status})`).join('; ')}`,
     );
   }
   if (s.quests.length) {

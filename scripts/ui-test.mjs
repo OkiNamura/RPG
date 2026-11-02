@@ -230,9 +230,9 @@ async function main() {
   // ---------- агенты ----------
   try {
     window.location.hash = '#/agents';
-    // восемь агентов + лор-книга
-    await until(() => $$('.agent-card').length === 9);
-    pass('агенты: 9 блоков (8 агентов + лор)');
+    // девять агентов + лор-книга
+    await until(() => $$('.agent-card').length === 10);
+    pass('агенты: 10 блоков (9 агентов + лор)');
 
     const cards = $$('.agent-card');
     const prompter = cards.find((c) => c.textContent.includes('Мастер промтов'));
@@ -329,9 +329,11 @@ async function main() {
     click(viewBtn);
     await until(() => window.document.querySelector('.container-page'));
     const agentBlocks = window.document.querySelectorAll('.container-agent');
-    if (agentBlocks.length < 8) throw new Error(`агентов в контейнере мало: ${agentBlocks.length}`);
-    const promptBlock = window.document.querySelector('.prompt-dump');
-    if (!promptBlock || promptBlock.textContent.length < 50) throw new Error('промты агентов не видны');
+    if (agentBlocks.length < 9) throw new Error(`агентов в контейнере мало: ${agentBlocks.length}`);
+    const promptAreas = window.document.querySelectorAll('.container-agent textarea.prompt-area');
+    if (promptAreas.length < 9 || [...promptAreas].every((area) => area.value.length < 50)) {
+      throw new Error('промты агентов не редактируются');
+    }
     const dump = window.document.querySelector('.conspect-dump');
     if (!dump) throw new Error('конспект не виден');
     if (!window.document.querySelector('.item-grid')) throw new Error('нет секции предметов');

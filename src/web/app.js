@@ -325,10 +325,12 @@ async function viewStories(view) {
 
 async function viewContainer(view, id) {
   // Собираем контейнер из существующих ручек: так страница живёт и на старом сервере.
-  const [campaign, gameAgents, list] = await Promise.all([
+  const [campaign, gameAgents, list, blocks, keys] = await Promise.all([
     api(`/api/campaign/${encodeURIComponent(id)}`),
     api(`/api/agents?id=${encodeURIComponent(id)}`),
     api('/api/campaigns'),
+    api(`/api/campaign/${encodeURIComponent(id)}/blocks`),
+    api('/api/keys').catch(() => ({ keys: [] })),
   ]);
   const title = (list ?? []).find((c) => c.id === id)?.title || id;
   const data = {
@@ -351,6 +353,8 @@ async function viewContainer(view, id) {
     arcs: campaign.arcs ?? [],
     conspect: campaign.conspect ?? '',
     illustrations: campaign.state?.illustrations ?? [],
+    blocks: blocks ?? { tone: '', world: '', hero: '' },
+    keys: keys.keys ?? [],
   };
   const page = el('div', 'page container-page');
   page.append(
@@ -375,6 +379,31 @@ async function viewContainer(view, id) {
   actions.append(back, cont);
   page.append(actions);
 
+  const saveTasks = [];
+  let containerDirty = false;
+  const saveAll = el('button', 'btn small', 'Сохранить всё');
+  saveAll.type = 'button';
+  saveAll.disabled = true;
+  const markDirty = () => {
+    containerDirty = true;
+    saveAll.disabled = false;
+  };
+  saveAll.addEventListener('click', async () => {
+    saveAll.disabled = true;
+    saveAll.textContent = 'Сохраняю…';
+    try {
+      for (const task of saveTasks) await task();
+      containerDirty = false;
+      toast('контейнер сохранён');
+    } catch (err) {
+      toast(err.message);
+      saveAll.disabled = false;
+    } finally {
+      saveAll.textContent = 'Сохранить всё';
+    }
+  });
+  page.append(saveAll);
+
   const section = (title, subtitle) => {
     const card = el('div', 'agent-card container-section');
     const head = el('div', 'agent-head');
@@ -384,9 +413,50 @@ async function viewContainer(view, id) {
     return card;
   };
 
+  // Тон, мир и герой этой истории: правим только её контейнер.
+  const blocksCard = section('Тон, мир, герой', 'Эти блоки принадлежат только этой истории.');
+  const blockAreas = {};
+  for (const [key, label, value] of [
+    ['tone', 'Тон', data.blocks.tone],
+    ['world', 'Мир', data.blocks.world],
+    ['hero', 'Герой', data.blocks.hero],
+  ]) {
+    const area = el('textarea', 'prompt-area');
+    area.value = value ?? '';
+    area.addEventListener('input', markDirty);
+    blockAreas[key] = area;
+    blocksCard.append(agentField(label, area));
+  }
+  const saveBlocks = async () => {
+    await api(`/api/campaign/${encodeURIComponent(id)}/blocks`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        tone: blockAreas.tone.value,
+        world: blockAreas.world.value,
+        hero: blockAreas.hero.value,
+      }),
+    });
+  };
+  saveTasks.push(saveBlocks);
+  const blocksBtn = el('button', 'btn primary small', 'Сохранить блоки');
+  blocksBtn.type = 'button';
+  blocksBtn.addEventListener('click', async () => {
+    blocksBtn.disabled = true;
+    try {
+      await saveBlocks();
+      toast('тон, мир и герой сохранены');
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      blocksBtn.disabled = false;
+    }
+  });
+  blocksCard.append(blocksBtn);
+  page.append(blocksCard);
+
   // Агенты этой игры: промт каждого.
   const agents = data.agents ?? {};
-  const order = ['gm', 'prompter', 'state', 'summarizer', 'artistHero', 'artistNpc', 'artistItem', 'artistScene'];
+  const order = ['gm', 'prompter', 'state', 'summarizer', 'filler', 'artistHero', 'artistNpc', 'artistItem', 'artistScene'];
   const agentIds = [...order.filter((a) => agents[a]), ...Object.keys(agents).filter((a) => !order.includes(a))];
   const agentCard = section('Агенты игры', 'Промты сохранены в кампании и не меняются от других игр.');
   for (const agentId of agentIds) {
@@ -398,9 +468,58 @@ async function viewContainer(view, id) {
       el('span', 'container-agent-meta', `${agent.model || '—'} · t=${agent.temperature} · ${agent.enabled ? 'вкл' : 'выкл'} · ${agent.prompt.length} знаков`),
     );
     block.append(summary);
-    const pre = el('pre', 'prompt-dump');
-    pre.textContent = agent.prompt || '(пусто)';
-    block.append(pre);
+    const body = el('div', 'container-agent-body');
+    const model = el('input');
+    model.value = agent.model ?? '';
+    const temp = el('input');
+    temp.type = 'range';
+    temp.min = '0';
+    temp.max = '2';
+    temp.step = '0.05';
+    temp.value = String(agent.temperature ?? 0);
+    const enabled = el('input');
+    enabled.type = 'checkbox';
+    enabled.checked = Boolean(agent.enabled);
+    const prompt = el('textarea', 'prompt-area');
+    prompt.value = agent.prompt || '';
+    for (const node of [model, temp, prompt]) node.addEventListener('input', markDirty);
+    enabled.addEventListener('change', markDirty);
+    body.append(
+      agentField('Модель', model),
+      agentField('Температура', temp),
+      agentField('Включён', enabled),
+      agentField('Промт', prompt),
+    );
+    const save = el('button', 'btn primary small', 'Сохранить агента');
+    save.type = 'button';
+    const status = el('span', 'status');
+    const doSave = async () => {
+      await api(`/api/agents/${encodeURIComponent(agentId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          campaign: id,
+          model: model.value.trim(),
+          temperature: Number(temp.value),
+          enabled: enabled.checked,
+          prompt: prompt.value,
+        }),
+      });
+      status.textContent = 'сохранено';
+    };
+    saveTasks.push(doSave);
+    save.addEventListener('click', async () => {
+      save.disabled = true;
+      try {
+        await doSave();
+        toast(`${agent.title || agentId}: сохранено`);
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        save.disabled = false;
+      }
+    });
+    body.append(save, status);
+    block.append(body);
     agentCard.append(block);
   }
   page.append(agentCard);
@@ -411,14 +530,37 @@ async function viewContainer(view, id) {
   heroSection.append(heroCard(hero, data.money ?? {}, id));
   page.append(heroSection);
 
-  // Спутники и NPC.
-  const people = [...(data.party ?? []), ...(data.npcs ?? [])];
-  const peopleSection = section('Спутники и NPC', `${(data.party ?? []).length} в пати · ${(data.npcs ?? []).length} знакомых`);
+  // Спутники и NPC. Забытые живут в корзине контейнера.
+  const activeNpcs = (data.npcs ?? []).filter((actor) => !actor.archived);
+  const archivedNpcs = (data.npcs ?? []).filter((actor) => actor.archived);
+  const people = [...(data.party ?? []), ...activeNpcs];
+  const peopleSection = section('Спутники и NPC', `${(data.party ?? []).length} в пати · ${activeNpcs.length} знакомых · ${archivedNpcs.length} в корзине`);
   const peopleGrid = el('div', 'person-cards');
-  for (const actor of people) peopleGrid.append(personCard(actor, id));
+  for (const actor of data.party ?? []) peopleGrid.append(personCard(actor, id, false));
+  for (const actor of activeNpcs) peopleGrid.append(personCard(actor, id, true));
   if (people.length === 0) peopleGrid.append(el('p', 'page-sub', 'никого пока нет'));
   peopleSection.append(peopleGrid);
   page.append(peopleSection);
+
+  if (archivedNpcs.length) {
+    const archiveSection = section('Корзина NPC', 'Забытые не удалены: их можно вернуть или удалить окончательно.');
+    const archiveList = el('div', 'person-cards');
+    for (const actor of archivedNpcs) {
+      const box = el('article', 'person-card archived-card');
+      box.append(el('h3', 'person-name', actor.name));
+      if (actor.role) box.append(el('div', 'person-role', actor.role));
+      box.append(el('div', 'person-label', `забыт ${dateLabel(actor.archivedAt)}`));
+      const actions = el('div', 'person-actions');
+      actions.append(
+        miniBtn('Вернуть в игру', 'снять флаг archived', () => forgetNpc(id, actor.name, 'restore')),
+        miniBtn('Удалить окончательно', 'удалить NPC из контейнера', () => forgetNpc(id, actor.name, 'purge')),
+      );
+      box.append(actions);
+      archiveList.append(box);
+    }
+    archiveSection.append(archiveList);
+    page.append(archiveSection);
+  }
 
   // Задания.
   const questSection = section('Задания', `${(data.quests ?? []).length} в журнале`);
@@ -545,7 +687,7 @@ async function viewContainer(view, id) {
 
 /* ================= агенты ================= */
 
-const AGENT_ORDER = ['gm', 'prompter', 'state', 'summarizer', 'artistHero', 'artistNpc', 'artistItem', 'artistScene'];
+const AGENT_ORDER = ['gm', 'prompter', 'state', 'summarizer', 'filler', 'artistHero', 'artistNpc', 'artistItem', 'artistScene'];
 
 async function viewAgents(view) {
   const page = el('div', 'page');
@@ -3243,7 +3385,34 @@ function actorCard(actor, campaignId) {
   return details;
 }
 
-function personCard(actor, campaignId) {
+function rankBar(actor) {
+  const points = Math.max(0, Math.min(100, Number(actor.rankPoints ?? 0)));
+  const wrap = el('div', 'rank-progress');
+  const top = el('div', 'rank-progress-top');
+  top.append(el('span', 'chip gold', `ранг ${actor.rank ?? 'F'}`), el('span', '', `опыт ${points}/100`));
+  const bar = el('div', 'rank-bar');
+  const fill = el('i');
+  fill.style.width = `${points}%`;
+  bar.append(fill);
+  wrap.append(top, bar);
+  return wrap;
+}
+
+async function forgetNpc(campaignId, name, action) {  const labels = { archive: 'убран в корзину', restore: 'возвращён в игру', purge: 'удалён окончательно' };
+  if (action === 'purge' && !window.confirm(`Удалить «${name}» из контейнера окончательно?`)) return;
+  try {
+    await api(`/api/campaign/${encodeURIComponent(campaignId)}/forget`, {
+      method: 'POST',
+      body: JSON.stringify({ name, ...(action === 'archive' ? {} : { [action]: true }) }),
+    });
+    toast(`${name}: ${labels[action] ?? 'готово'}`);
+    router();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function personCard(actor, campaignId, isNpc = false) {
   const card = el('article', 'person-card');
   const head = el('div', 'person-head');
   const image = actor.card || actor.portrait;
@@ -3269,6 +3438,7 @@ function personCard(actor, campaignId) {
   }
   if (actor.present === true) chips.append(el('span', 'chip chip-live', 'в сцене'));
   if (chips.children.length) titles.append(chips);
+  titles.append(rankBar(actor));
   head.append(titles);
   card.append(head);
 
@@ -3277,6 +3447,8 @@ function personCard(actor, campaignId) {
     ['Характер', actor.character],
     ['Одет', actor.clothes],
     ['Прошлое', actor.bio],
+    ['Привычки', actor.habits],
+    ['Желания', actor.wants],
     ['Способности', actor.abilities],
     ['Описание', actor.description],
     ['Заметка', actor.note],
@@ -3333,6 +3505,19 @@ function personCard(actor, campaignId) {
       toast(`лист персонажа · $${(res.cost ?? 0).toFixed(3)}`);
     }));
     actions.append(miniBtn('＋ в карточки', 'сохранить карточку в библиотеку', () => saveToLibrary(campaignId, 'npc', actor.name)));
+    actions.append(
+      miniBtn('Дополнить карточку', 'агент-наполнитель допишет пустые поля', async () => {
+        const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/fill-card`, {
+          method: 'POST',
+          body: JSON.stringify({ name: actor.name }),
+        });
+        toast(res.changed?.length ? `дополнено: ${res.changed.join(', ')}` : 'все поля уже заполнены');
+        router();
+      }),
+    );
+    if (isNpc) {
+      actions.append(miniBtn('Забыть', 'убрать NPC в корзину контейнера', () => forgetNpc(campaignId, actor.name, 'archive')));
+    }
     card.append(actions);
   }
   return card;
@@ -3471,6 +3656,7 @@ function heroCard(hero, money, campaignId) {
   }
   if (money) chips.append(el('span', 'chip', `${money.gold ?? 0} з · ${money.silver ?? 0} с · ${money.copper ?? 0} м`));
   titles.append(chips);
+  titles.append(rankBar(hero));
   head.append(titles);
   card.append(head);
   if (hero.essence) card.append(el('div', 'hero-card-summary', hero.essence));
@@ -3546,7 +3732,7 @@ function heroCard(hero, money, campaignId) {
   return card;
 }
 
-function actorTile(actor, campaignId) {
+function actorTile(actor, campaignId, isNpc = false) {
   const tile = el('button', 'actor-tile');
   tile.type = 'button';
   const image = actor.card || actor.portrait;
@@ -3561,17 +3747,17 @@ function actorTile(actor, campaignId) {
   }
   tile.append(el('span', 'actor-tile-name', actor.name));
   tile.append(el('span', 'actor-tile-role', actor.role || 'знакомый'));
-  tile.addEventListener('click', () => openActorModal(actor, campaignId));
+  tile.addEventListener('click', () => openActorModal(actor, campaignId, isNpc));
   return tile;
 }
 
-function actorGrid(actors, campaignId) {
+function actorGrid(actors, campaignId, isNpc = false) {
   const grid = el('div', 'actor-grid');
-  for (const actor of actors) grid.append(actorTile(actor, campaignId));
+  for (const actor of actors) grid.append(actorTile(actor, campaignId, isNpc));
   return grid;
 }
 
-function openActorModal(actor, campaignId) {
+function openActorModal(actor, campaignId, isNpc = false) {
   const overlay = el('div', 'actor-modal');
   const sheet = el('article', 'actor-sheet');
   const head = el('div', 'actor-sheet-head');
@@ -3606,6 +3792,8 @@ function openActorModal(actor, campaignId) {
     ['Характер', actor.character],
     ['Одет', actor.clothes],
     ['Прошлое', actor.bio],
+    ['Привычки', actor.habits],
+    ['Желания', actor.wants],
     ['Способности', actor.abilities],
     ['Описание', actor.description],
     ['Заметка', actor.note],
@@ -3681,6 +3869,19 @@ function openActorModal(actor, campaignId) {
     }
   });
   actions.append(saveCardBtn);
+  if (isNpc) {
+    actions.append(
+      (() => {
+        const forget = el('button', 'btn small danger', 'Забыть');
+        forget.type = 'button';
+        forget.addEventListener('click', () => {
+          overlay.remove();
+          forgetNpc(campaignId, actor.name, 'archive');
+        });
+        return forget;
+      })(),
+    );
+  }
 
   sheet.append(head, media, chips, info, actions);
   overlay.append(sheet);
@@ -3842,8 +4043,22 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     }))]));
   }
 
-  if (state.party.length) frag.append(section('Пати', [actorGrid(state.party, campaignId)]));
-  if (state.npcs.length) frag.append(section('Знакомые', [actorGrid(state.npcs, campaignId)]));
+  if (state.party.length) frag.append(section('Пати', [actorGrid(state.party, campaignId, false)]));
+  const activeNpcs = (state.npcs ?? []).filter((actor) => !actor.archived);
+  const archivedNpcs = (state.npcs ?? []).filter((actor) => actor.archived);
+  if (activeNpcs.length) frag.append(section('Знакомые', [actorGrid(activeNpcs, campaignId, true)]));
+  if (archivedNpcs.length) {
+    const archive = el('div');
+    for (const actor of archivedNpcs) {
+      const line = el('div', 'row');
+      line.append(el('span', '', actor.name), el('span', 'tag', 'забыт'));
+      line.lastChild.style.cursor = 'pointer';
+      line.lastChild.title = 'вернуть в игру';
+      line.lastChild.addEventListener('click', () => forgetNpc(campaignId, actor.name, 'restore'));
+      archive.append(line);
+    }
+    frag.append(section('Корзина NPC', [archive]));
+  }
 
   if (state.factions?.length) {
     frag.append(section('Фракции', state.factions.map((f) => {
@@ -4292,6 +4507,9 @@ async function viewPlay(view, id) {
         return;
       }
       applyResult(result);
+      for (const change of result.agentChanges ?? []) {
+        if (/ранг/i.test(change)) toast(change);
+      }
     } catch (err) {
       typing.classList.add('hidden');
       if (started) wrap.remove();
