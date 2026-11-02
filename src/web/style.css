@@ -4135,3 +4135,31 @@ select {
 .composer {
   background: #0a0a0c;
 }
+
+/* мобильная шапка: меню, логотип и вкладки уезжают одним блоком */
+
+@media (max-width: 900px) {
+  body {
+    transition: grid-template-rows 0.18s ease;
+  }
+
+  .sidebar {
+    max-height: 52px;
+    transition: max-height 0.18s ease, padding 0.18s ease, opacity 0.18s ease;
+  }
+
+  body.chrome-hidden {
+    grid-template-rows: 0 minmax(0, 1fr);
+  }
+
+  body.chrome-hidden .sidebar {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-bottom-color: transparent;
+    border-bottom-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+}

@@ -187,6 +187,9 @@ async function router() {
   const { name, arg } = currentRoute();
   markActive(name === 'play' || name === 'view' ? 'stories' : name);
 
+  document.body.classList.remove('chrome-hidden');
+  document.querySelector('.play-head')?.classList.remove('head-hidden');
+
   const view = $('view');
   if (!view) return;
   view.replaceChildren();
@@ -4160,9 +4163,13 @@ async function viewPlay(view, id) {
     const now = log.scrollTop;
     if (now > lastLogScroll + 8 && now > 48) {
       head.classList.add('head-hidden');
+      if (window.matchMedia('(max-width: 900px)').matches) {
+        document.body.classList.add('chrome-hidden');
+      }
       closeMenu();
     } else if (now < lastLogScroll - 8) {
       head.classList.remove('head-hidden');
+      document.body.classList.remove('chrome-hidden');
     }
     lastLogScroll = now;
   });
