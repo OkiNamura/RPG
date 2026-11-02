@@ -260,6 +260,8 @@ async function viewProfile(view) {
     page.append(install);
   }
   if (await isAuthEnabled()) page.append(logoutButton());
+  const route = currentRoute();
+  if (route.name !== 'profile' || route.arg) return;
   view.append(page);
 }
 
@@ -3963,6 +3965,8 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
 
 async function viewPlay(view, id) {
   const data = await api(`/api/campaign/${encodeURIComponent(id)}`);
+  const route = currentRoute();
+  if (route.name !== 'play' || route.arg !== id) return;
 
   const play = el('div', 'play');
   const head = el('div', 'play-head');
@@ -4051,12 +4055,16 @@ async function viewPlay(view, id) {
   typing.append(el('span'), el('span'), el('span'));
 
   const composer = el('form', 'composer');
+  const field = el('div', 'composer-field');
   const input = el('textarea');
   input.placeholder = 'Твой ход…';
 
-  const send = el('button', 'send-btn', 'Отправить');
+  const send = el('button', 'send-icon', '↑');
   send.type = 'submit';
-  composer.append(input, send);
+  send.title = 'Отправить';
+  send.setAttribute('aria-label', 'Отправить');
+  field.append(input, send);
+  composer.append(field);
 
   const outbox = el('div', 'outbox hidden');
   const outboxText = el('div', 'outbox-text');
@@ -4134,13 +4142,6 @@ async function viewPlay(view, id) {
   input.addEventListener('input', () => {
     input.style.height = 'auto';
     input.style.height = `${Math.min(160, input.scrollHeight)}px`;
-  });
-
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      composer.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
-    }
   });
 
   const hideOutbox = () => outbox.classList.add('hidden');
