@@ -4369,12 +4369,20 @@ async function viewPlay(view, id) {
   // Шапка прячется при чтении вниз и возвращается при прокрутке вверх.
   let lastLogScroll = log.scrollTop;
   let scrollArmed = false;
+  let suppressAutoHide = false;
   window.setTimeout(() => {
     scrollArmed = true;
     lastLogScroll = log.scrollTop;
   }, 600);
   log.addEventListener('scroll', () => {
-    if (!scrollArmed || document.body.classList.contains('panel-open')) return;
+    if (
+      !scrollArmed ||
+      suppressAutoHide ||
+      app.game?.busy ||
+      document.body.classList.contains('panel-open')
+    ) {
+      return;
+    }
     const now = log.scrollTop;
     if (now > lastLogScroll + 8 && now > 48) {
       head.classList.add('head-hidden');
@@ -4542,7 +4550,12 @@ async function viewPlay(view, id) {
       input.focus();
       if (keepTop) {
         window.requestAnimationFrame(() => {
+          suppressAutoHide = true;
           if (log.contains(wrap)) scrollToNode(log, wrap);
+          window.setTimeout(() => {
+            suppressAutoHide = false;
+            lastLogScroll = log.scrollTop;
+          }, 140);
         });
       }
     }
