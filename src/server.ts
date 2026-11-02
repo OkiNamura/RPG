@@ -606,13 +606,14 @@ async function imageDataUrl(url: string): Promise<string | null> {
 async function sceneReferences(session: Session): Promise<string[]> {
   const refs: string[] = [];
 
-  if (session.state.hero.card) {
-    const heroRef = await imageDataUrl(session.state.hero.card);
+  const heroRefUrl = session.state.hero.refs?.main || session.state.hero.card;
+  if (heroRefUrl) {
+    const heroRef = await imageDataUrl(heroRefUrl);
     if (heroRef) refs.push(heroRef);
   }
 
   for (const actor of [...session.state.party, ...session.state.npcs.filter((n) => n.present !== false)]) {
-    const url = actor.card || actor.portrait;
+    const url = actor.refs?.main || actor.card || actor.portrait;
     if (!url) continue;
     const data = await imageDataUrl(url);
     if (data) refs.push(data);
@@ -3173,14 +3174,19 @@ const server = createServer(async (req, res) => {
 
         if (mode === 'hero') {
           session.state.hero.card = url;
+          session.state.hero.refs = { ...(session.state.hero.refs ?? {}), main: url };
         } else if (mode === 'portrait' || mode === 'card' || mode === 'sheet') {
           if (mode === 'sheet' && actorName === session.state.hero.name) {
             session.state.hero.card = url;
+            session.state.hero.refs = { ...(session.state.hero.refs ?? {}), main: url };
           } else {
             const actor = [...session.state.party, ...session.state.npcs].find((a) => a.name === actorName);
             if (actor) {
               if (mode === 'portrait') actor.portrait = url;
               else actor.card = url;
+              if (mode === 'sheet' || mode === 'card') {
+                actor.refs = { ...(actor.refs ?? {}), main: url };
+              }
             }
           }
         } else if (mode === 'item') {

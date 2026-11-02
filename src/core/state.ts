@@ -50,6 +50,8 @@ export interface Actor {
   portrait?: string;
   /** мастер-лист: референс для всех дальнейших кадров */
   card?: string;
+  /** привязанные референсы: основной + ракурсы/приметы */
+  refs?: { main?: string; front?: string; back?: string; marks?: string; gallery?: string[] };
   /** ранг: FFF…SSR */
   rank?: Rank;
   rankPoints?: number;
@@ -165,6 +167,7 @@ export interface GameState {
     intuition?: string;
     /** мастер-лист героя: по нему рисуются сцены */
     card?: string;
+    refs?: { main?: string; front?: string; back?: string; marks?: string; gallery?: string[] };
     /** пол героя */
     gender?: 'male' | 'female';
     /** поля карточки из формы создания */
