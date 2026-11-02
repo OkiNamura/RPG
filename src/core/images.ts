@@ -214,17 +214,24 @@ export function scenePrompt(params: {
   characters: string[];
   action: string;
   location?: string;
+  hero?: { name: string; gender?: string; description?: string };
 }): string {
   const parts = [
     params.style,
-    'Иллюстрация конкретной сцены из текста, а не обложка и не портрет.',
+    'Одна иллюстрация конкретной сцены из текста, не обложка, не комикс и не раскадровка.',
+    params.hero
+      ? `Главный герой обязательно в кадре: ${params.hero.name}${
+          params.hero.gender ? `, ${params.hero.gender}` : ''
+        }${params.hero.description ? `, ${params.hero.description}` : ''}. Покажи его/её лицо и фигуру, не оставляй комнату без героя.`
+      : '',
     `Место: ${params.place}.`,
     params.location ? `Детали места: ${params.location}.` : '',
     `Время: ${params.time}. Погода: ${params.weather}.`,
-    params.characters.length ? `Кто в кадре: ${params.characters.join(' | ')}.` : '',
+    params.characters.length ? `Кто ещё в кадре: ${params.characters.join(' | ')}.` : '',
     params.action ? `Что происходит (главное): ${params.action}.` : '',
     'Позы и выражения лиц соответствуют действию; одежда и вещи — из описания.',
-    'Композиция: широкий кинематографичный кадр, глубина, свет по времени суток, без текста, без водяных знаков.',
+    'Композиция: широкий кинематографичный кадр, глубина, свет по времени суток.',
+    'Без панелей, реплик, подписей, заголовков и водяных знаков поверх изображения. Вывески — только мелкая деталь окружения, без крупного читаемого текста.',
   ];
   return parts.filter(Boolean).join(' ');
 }

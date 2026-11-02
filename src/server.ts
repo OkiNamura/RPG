@@ -2980,6 +2980,22 @@ const server = createServer(async (req, res) => {
           const present = [...session.state.party, ...session.state.npcs].filter(
             (actor) => actor.present !== false && actor.status === 'alive',
           );
+          const hero = session.state.hero;
+          const heroDescription = [
+            hero.appearance,
+            hero.essence,
+            hero.bodyAttitude,
+            hero.origin,
+            hero.quirks,
+          ]
+            .filter(Boolean)
+            .join('; ')
+            .slice(0, 320);
+          const heroFallback = String(session.text.hero ?? '')
+            .replace(/#[^\n]*/g, '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 260);
           prompt = scenePrompt({
             style,
             place: session.state.place,
@@ -2987,13 +3003,15 @@ const server = createServer(async (req, res) => {
               session.state.locations.find((location) => location.name === session.state.place)?.note ?? '',
             time: `день ${session.state.time.day}, ${String(session.state.time.hour).padStart(2, '0')}:00`,
             weather: session.state.weather,
-            characters: [
-              `${session.state.hero.name} — главный герой; ${(session.text.hero || '').replace(/\s+/g, ' ').slice(0, 300)}`,
-              ...present.map(
-                (actor) =>
-                  `${actor.name} — ${actor.role}; ${actor.appearance ?? 'без описания внешности'}; одет: ${actor.clothes ?? 'не описано'}`,
-              ),
-            ],
+            hero: {
+              name: hero.name,
+              gender: metas.get(id)?.gender === 'female' ? 'девушка' : 'мужчина',
+              description: heroDescription || heroFallback,
+            },
+            characters: present.map(
+              (actor) =>
+                `${actor.name} — ${actor.role}; ${actor.appearance ?? 'без описания внешности'}; одет: ${actor.clothes ?? 'не описано'}`,
+            ),
             action: (lastGm?.text ?? '').replace(/\s+/g, ' ').slice(0, 900),
           });
           references = await sceneReferences(session);
