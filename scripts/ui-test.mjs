@@ -399,10 +399,10 @@ async function main() {
     pass(`игра: открыта «${target.id}»`);
 
     const before = $$('.msg').length;
-    const diceBox = window.document.querySelector('.dice-toggle input');
-    if (!diceBox) throw new Error('нет галочки кубика');
-    diceBox.checked = true;
-    diceBox.dispatchEvent(new window.Event('change', { bubbles: true }));
+    const diceBtn = window.document.querySelector('.dice-btn');
+    if (!diceBtn) throw new Error('нет кнопки кубика');
+    click(diceBtn);
+    if (!diceBtn.classList.contains('active')) throw new Error('кубик не подсветился');
     const input = window.document.querySelector('.composer textarea');
     input.value = 'осматриваюсь';
     input.dispatchEvent(new window.Event('input', { bubbles: true }));
@@ -424,9 +424,9 @@ async function main() {
     if (actionBtns.some((b) => b.textContent.includes('Promise'))) throw new Error('кнопки не отрисованы');
     pass(`игра: под ответом ${actionBtns.length} кнопки, есть 🖼`);
 
-    const dice = window.document.querySelector('.dice-toggle input');
-    if (!dice || dice.type !== 'checkbox') throw new Error('нет галочки кубика');
-    pass('игра: кубик d36 на месте');
+    const dice = window.document.querySelector('.dice-btn');
+    if (!dice || !dice.classList.contains('active')) throw new Error('нет активного кубика');
+    pass('игра: кубик d36 на месте и подсвечен');
 
     const quick = $$('.quick-actions .chip');
     if (quick.length) throw new Error(`быстрые кнопки остались: ${quick.length}`);
@@ -463,7 +463,8 @@ async function main() {
 
     const placeCards = window.document.querySelector('.place-cards');
     const cardsCount = placeCards ? placeCards.querySelectorAll('.place-card').length : 0;
-    pass(`игра: карточек локации ${cardsCount}`);
+    if (cardsCount) throw new Error(`быстрые карточки локации остались: ${cardsCount}`);
+    pass('игра: быстрых карточек локации нет');
 
     // Кириллический id не должен ломать открытие игры.
     const cyrillic = list.find((c) => /[^\x20-\x7e]/.test(c.id));

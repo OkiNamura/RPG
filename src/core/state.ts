@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Состояние кампании — единственный источник правды о цифрах.
  *
  * Проза живёт отдельно: она для игрока. Если проза и стейт расходятся,
@@ -138,6 +138,7 @@ export interface LogEntry {
   turn: number;
   role: Role;
   text: string;
+  clientTurnId?: string;
 }
 
 export interface GameState {

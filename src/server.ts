@@ -676,6 +676,7 @@ function reviveIfAllowed(id: string, session: Session): void {
   stats: TurnStats,
   started: number,
   variantFrom?: TurnSnapshot,
+  clientTurnId?: string,
 ): Promise<Record<string, unknown>> {
   const [stateResult, summaryResult] = await Promise.allSettled([
     runStateAgent(session, prose),
@@ -706,11 +707,18 @@ function reviveIfAllowed(id: string, session: Session): void {
   }
 
   // Снимок хода: без него не будет ни перегенерации, ни вариантов, ни откатов.
+  if (clientTurnId) {
+    const playerEntry = [...session.state.log]
+      .reverse()
+      .find((entry) => entry.role === 'player' && entry.turn === stats.turn);
+    if (playerEntry) playerEntry.clientTurnId = clientTurnId;
+  }
   saveSnapshot(
     id,
     {
       turn: stats.turn,
       input,
+      clientTurnId,
       prose,
       state: snapshotState(session.state),
       summary: session.summary ?? '',
@@ -750,6 +758,26 @@ function reviveIfAllowed(id: string, session: Session): void {
   };
 }
 
+/** Ответ на повторную отправку того же clientTurnId: ход уже сохранён. */
+function replayTurn(session: Session, snap: TurnSnapshot): Record<string, unknown> {
+  return {
+    prose: snap.prose,
+    changes: [],
+    agentChanges: [],
+    summarized: false,
+    problems: [],
+    state: snap.turn === session.state.turn ? session.state : snap.state,
+    summary: snap.summary ?? '',
+    memory: session.memory ?? '',
+    totals: session.totals,
+    usage: session.usage,
+    lore: { entries: 0 },
+    roll: null,
+    duplicate: true,
+    stats: { turn: snap.turn, tokensIn: 0, cachedTokens: 0, outputTokens: 0, cost: 0, ms: 0 },
+  };
+}
+
 interface Catalog {
   tone: { groups: { group: string; subgroups: { subgroup: string; fields: { id: number; name: string; description: string; type: string }[] }[] }[] };
   worlds: { presets: WorldPreset[] };
@@ -765,6 +793,7 @@ const MIME: Record<string, string> = {
   '.png': 'image/png',
   '.ico': 'image/x-icon',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
 };
 
 function sendJson(res: ServerResponse, data: unknown, status = 200): void {
@@ -1198,6 +1227,15 @@ const server = createServer(async (req, res) => {
   try {
     if (path === '/api/auth' && req.method === 'GET') {
       return sendJson(res, { enabled: authEnabled() });
+    }
+
+    // PWA-оболочка публична: манифест, service worker и иконки.
+    // Доступ к игре всё равно закрыт сессионной cookie.
+    if (
+      req.method === 'GET' &&
+      (path === '/manifest.webmanifest' || path === '/sw.js' || path.startsWith('/icons/'))
+    ) {
+      return serveStatic(path, res);
     }
 
     if (authEnabled()) {
@@ -2233,6 +2271,7 @@ const server = createServer(async (req, res) => {
           turns: (snapshots.get(id) ?? []).map((s) => ({
             turn: s.turn,
             input: s.input,
+            clientTurnId: s.clientTurnId,
             variant: s.variant ?? 1,
             variants: 1 + (s.variants?.length ?? 0),
           })),
@@ -3017,6 +3056,26 @@ const server = createServer(async (req, res) => {
         const input = String(body.input ?? '').trim();
         if (!input) return sendJson(res, { error: 'пустой ход' }, 400);
         if (input.length > 1200) return sendJson(res, { error: 'ход слишком длинный' }, 400);
+        const clientTurnId = String(body.clientTurnId ?? '').trim().slice(0, 80);
+        const dedupe =
+          /^[A-Za-z0-9_-]{8,80}$/.test(clientTurnId) &&
+          (snapshots.get(id) ?? []).find((snap) => snap.clientTurnId === clientTurnId);
+        if (dedupe) {
+          const payload = replayTurn(session, dedupe);
+          if (action === 'stream') {
+            res.writeHead(200, {
+              'Content-Type': 'text/event-stream; charset=utf-8',
+              'Cache-Control': 'no-cache',
+              Connection: 'keep-alive',
+              'X-Accel-Buffering': 'no',
+            });
+            res.write(`event: delta\ndata: ${JSON.stringify({ type: 'delta', text: '' })}\n\n`);
+            res.write(`event: done\ndata: ${JSON.stringify({ type: 'done', payload })}\n\n`);
+            res.end();
+            return;
+          }
+          return sendJson(res, payload);
+        }
         // Один ход на кампанию: две вкладки не должны писать в одно состояние.
         if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
         session.busy = true;
@@ -3050,7 +3109,7 @@ const server = createServer(async (req, res) => {
                 send('delta', { type: 'delta', text: delta }),
               );
               const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
-              const payload = await afterTurn(session, id, input, prose, stats, started);
+              const payload = await afterTurn(session, id, input, prose, stats, started, undefined, clientTurnId);
               send('done', { type: 'done', payload });
             } catch (err) {
               send('error', {
@@ -3069,7 +3128,7 @@ const server = createServer(async (req, res) => {
           session.lastRoll = notes.roll;
           const stats = await runTurn(session, input);
           const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
-          const payload = await afterTurn(session, id, input, prose, stats, started);
+          const payload = await afterTurn(session, id, input, prose, stats, started, undefined, clientTurnId);
           return sendJson(res, payload);
         } finally {
           session.busy = false;

@@ -23,6 +23,53 @@ async function api(path, options) {
   return data;
 }
 
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', (event) => {
+  event.preventDefault();
+  installPrompt = event;
+});
+window.addEventListener('appinstalled', () => {
+  installPrompt = null;
+  toast('Omika установлена на телефон');
+});
+
+const PENDING_PREFIX = 'omika_pending_';
+
+function newClientTurnId() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function readPending(id) {
+  try {
+    const raw = localStorage.getItem(PENDING_PREFIX + id);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || !data.clientTurnId || !data.input) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function writePending(id, data) {
+  try {
+    localStorage.setItem(PENDING_PREFIX + id, JSON.stringify(data));
+  } catch {
+    /* приватный режим */
+  }
+}
+
+function clearPending(id, clientTurnId) {
+  try {
+    const current = readPending(id);
+    if (current && clientTurnId && current.clientTurnId !== clientTurnId) return;
+    localStorage.removeItem(PENDING_PREFIX + id);
+  } catch {
+    /* приватный режим */
+  }
+}
+
 let toastTimer = null;
 function toast(message) {
   const box = $('toast');
@@ -196,6 +243,22 @@ async function viewProfile(view) {
   }
 
   page.append(cardBox);
+  if (
+    'serviceWorker' in navigator &&
+    !window.matchMedia('(display-mode: standalone)').matches
+  ) {
+    const install = el('button', 'btn', 'Установить на телефон');
+    install.addEventListener('click', async () => {
+      if (!installPrompt) {
+        toast('Открой меню Chrome → «Установить приложение»');
+        return;
+      }
+      installPrompt.prompt();
+      await installPrompt.userChoice.catch(() => undefined);
+      installPrompt = null;
+    });
+    page.append(install);
+  }
   if (await isAuthEnabled()) page.append(logoutButton());
   view.append(page);
 }
@@ -3637,40 +3700,6 @@ function healthBar(value) {
   return wrap;
 }
 
-function renderPlaceCards(state, container, campaignId, panel) {
-  container.replaceChildren();
-  const present = (list) => (list ?? []).filter((a) => a.present === true && a.status === 'alive');
-  const actors = [
-    ...present(state.party).map((a) => ({ icon: '☗', name: a.name, role: a.role })),
-    ...present(state.npcs).map((a) => ({ icon: '◍', name: a.name, role: a.role })),
-  ];
-
-  if (actors.length === 0) {
-    container.classList.add('hidden');
-    return;
-  }
-  container.classList.remove('hidden');
-
-  for (const actor of actors) {
-    const btn = el('button', 'place-card');
-    btn.type = 'button';
-    btn.append(el('span', 'pc-icon', actor.icon));
-    const text = el('span', 'pc-text');
-    text.append(el('b', '', actor.name));
-    if (actor.role) text.append(el('span', 'pc-role', actor.role));
-    btn.append(text);
-    btn.addEventListener('click', () => {
-      document.body.classList.add('panel-open');
-      const card = [...panel.querySelectorAll('details.card')].find((node) => node.dataset.name === actor.name);
-      if (card) {
-        card.open = true;
-        card.scrollIntoView({ block: 'nearest' });
-      }
-    });
-    container.append(btn);
-  }
-}
-
 function showNewCards(state, g) {
   const actors = [...(state.party ?? []), ...(state.npcs ?? [])];
   if (!g.known) {
@@ -3937,19 +3966,25 @@ async function viewPlay(view, id) {
 
   const play = el('div', 'play');
   const head = el('div', 'play-head');
-  const back = el('button', 'btn small', '←');
-  back.title = 'К историям';
-  back.addEventListener('click', () => {
-    location.hash = '#/stories';
-  });
-
   const title = el('div', 'title');
   title.append(document.createTextNode(id));
-  const sub = el('small', '', `ход ${data.state.turn} · ${data.state.place}`);
-  title.append(sub);
 
   const cost = el('span', 'tag', `$${(data.totals?.cost ?? 0).toFixed(6)}`);
   cost.style.marginLeft = 'auto';
+
+  let diceOn = false;
+  const diceBtn = el('button', 'btn small dice-btn', '🎲');
+  diceBtn.type = 'button';
+  diceBtn.title = 'бросить d36: 36 граней, 3 джокера';
+  const renderDice = () => {
+    diceBtn.classList.toggle('active', diceOn);
+    diceBtn.setAttribute('aria-pressed', String(diceOn));
+  };
+  diceBtn.addEventListener('click', () => {
+    diceOn = !diceOn;
+    renderDice();
+  });
+  renderDice();
 
   const panelBtn = el('button', 'btn small', 'состояние');
   panelBtn.addEventListener('click', () => document.body.classList.toggle('panel-open'));
@@ -3961,11 +3996,52 @@ async function viewPlay(view, id) {
   artBtn.title = 'настройки иллюстратора: стиль, камера, формат';
   artBtn.addEventListener('click', () => openArtDialog(id));
 
+  const fontWrap = el('details', 'font-wrap');
+  const fontSum = el('summary', 'btn small', 'А');
+  fontSum.title = 'размер текста';
+  const fontMenu = el('div', 'font-menu');
+  const fontSizes = [
+    ['16px', 'Мелкий'],
+    ['18px', 'Обычный'],
+    ['20px', 'Крупный'],
+    ['22px', 'Очень крупный'],
+  ];
+  const applyFont = (size) => {
+    document.documentElement.style.setProperty('--prose-size', size);
+    try {
+      localStorage.setItem('omika_font_size', size);
+    } catch {
+      /* приватный режим */
+    }
+    for (const btn of fontMenu.querySelectorAll('button')) {
+      btn.classList.toggle('active', btn.dataset.size === size);
+    }
+  };
+  const savedFont = (() => {
+    try {
+      return localStorage.getItem('omika_font_size') ?? '18px';
+    } catch {
+      return '18px';
+    }
+  })();
+  for (const [size, label] of fontSizes) {
+    const btn = el('button', '', label);
+    btn.type = 'button';
+    btn.dataset.size = size;
+    btn.addEventListener('click', () => {
+      applyFont(size);
+      fontWrap.open = false;
+    });
+    fontMenu.append(btn);
+  }
+  applyFont(savedFont);
+  fontWrap.append(fontSum, fontMenu);
+
   const historyBtn = el('button', 'btn small', '📜');
   historyBtn.title = 'вся история: можно перечитать любой ход';
   historyBtn.addEventListener('click', () => openHistoryDialog(id));
 
-  head.append(back, title, cost, shotBtn, artBtn, historyBtn, panelBtn);
+  head.append(title, cost, diceBtn, shotBtn, fontWrap, artBtn, historyBtn, panelBtn);
 
   const body = el('div', 'play-body');
   const log = el('div', 'log');
@@ -3976,31 +4052,31 @@ async function viewPlay(view, id) {
 
   const composer = el('form', 'composer');
   const input = el('textarea');
-  input.placeholder = 'Что делает герой?';
+  input.placeholder = 'Твой ход…';
 
-  const diceLabel = el('label', 'dice-toggle');
-  const diceBox = el('input');
-  diceBox.type = 'checkbox';
-  diceLabel.append(diceBox, el('span', '', '🎲'));
-  diceLabel.title = 'бросить d36: 36 граней, 3 джокера';
-
-  const send = el('button', '', '→');
+  const send = el('button', 'send-btn', 'Отправить');
   send.type = 'submit';
-  composer.append(input, diceLabel, send);
+  composer.append(input, send);
 
-  const thoughts = el('div', 'thoughts hidden');
+  const outbox = el('div', 'outbox hidden');
+  const outboxText = el('div', 'outbox-text');
+  const outboxActions = el('div', 'outbox-actions');
+  const outboxRetry = el('button', 'btn small', 'Отправить снова');
+  outboxRetry.type = 'button';
+  const outboxDiscard = el('button', 'btn small danger', 'Удалить');
+  outboxDiscard.type = 'button';
+  outboxActions.append(outboxRetry, outboxDiscard);
+  outbox.append(outboxText, outboxActions);
+
   const renderThoughts = (state) => {
     const text = state?.hero?.intuition;
-    thoughts.textContent = text ? `«${text}»` : '';
-    thoughts.classList.toggle('hidden', !text);
+    input.placeholder = text ? `«${text}»` : 'Твой ход…';
+    input.title = text ? `Мысль: ${text}` : '';
   };
   renderThoughts(data.state);
 
-  const hint = el('div', 'play-hint', 'Enter — отправить · Shift+Enter — новая строка');
-  const placeCards = el('div', 'place-cards hidden');
-
   body.append(log, panel);
-  play.append(head, body, typing, placeCards, thoughts, composer, hint);
+  play.append(head, body, typing, outbox, composer);
   view.append(play);
 
   const sideMap = $('side-map');
@@ -4023,7 +4099,6 @@ async function viewPlay(view, id) {
   }
 
   renderPanel(data.state, panel, id, data.worldMap ?? '', data.map ?? '', data.summary);
-  renderPlaceCards(data.state, placeCards, id, panel);
   scrollDown(log);
 
   app.game = {
@@ -4035,10 +4110,7 @@ async function viewPlay(view, id) {
     send,
     typing,
     costEl: cost,
-    placeCards,
-    thoughts,
     renderThoughts,
-    dice: diceBox,
     known: new Set([...(data.state.party ?? []), ...(data.state.npcs ?? [])].map((a) => a.name)),
   };
 
@@ -4071,13 +4143,35 @@ async function viewPlay(view, id) {
     }
   });
 
-  composer.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const text = input.value.trim();
+  const hideOutbox = () => outbox.classList.add('hidden');
+  const showOutbox = (record) => {
+    outboxText.textContent = `Не отправлено: «${record.input.slice(0, 180)}»`;
+    outbox.classList.remove('hidden');
+    outboxRetry.onclick = () => {
+      const current = readPending(id);
+      if (current) runTurn(current.input, Boolean(current.dice), current.clientTurnId, true);
+    };
+    outboxDiscard.onclick = () => {
+      const current = readPending(id);
+      clearPending(id, current?.clientTurnId);
+      hideOutbox();
+    };
+  };
+
+  async function runTurn(text, dice, clientTurnId, fromPending = false) {
     if (!text || app.game.busy) return;
     app.game.busy = true;
-    input.value = '';
-    input.style.height = 'auto';
+    if (!fromPending) {
+      writePending(id, {
+        clientTurnId,
+        input: text,
+        dice: Boolean(dice),
+        createdAt: new Date().toISOString(),
+      });
+      input.value = '';
+      input.style.height = 'auto';
+    }
+    hideOutbox();
     addPlayer(log, text);
     scrollDown(log);
     typing.classList.remove('hidden');
@@ -4086,6 +4180,26 @@ async function viewPlay(view, id) {
     const prose = el('div', 'prose');
     wrap.append(prose);
     let started = false;
+    let keepTop = false;
+
+    const applyResult = (result) => {
+      keepTop = true;
+      typing.classList.add('hidden');
+      if (!started) {
+        log.append(wrap);
+        scrollToNode(log, wrap);
+      }
+      prose.textContent = result.prose || prose.textContent;
+      wrap.append(metaLine(result));
+      wrap.append(
+        actionsBar({ turn: result.stats?.turn ?? result.state.turn, variants: 1, input: text }, id),
+      );
+      renderPanel(result.state, panel, id, result.worldMap ?? '', result.map ?? '', result.summary);
+      renderThoughts(result.state);
+      if (result.roll) addRoll(log, result.roll);
+      showNewCards(result.state, app.game);
+      cost.textContent = `$${(result.totals?.cost ?? 0).toFixed(6)}`;
+    };
 
     try {
       const result = await streamTurn(
@@ -4101,59 +4215,77 @@ async function viewPlay(view, id) {
           prose.textContent += piece;
           // Дальше не тянем прокрутку: остаёмся на первом сообщении ответа.
         },
-        Boolean(diceBox.checked),
+        Boolean(dice),
+        clientTurnId,
       );
-
-      typing.classList.add('hidden');
-      if (!started) {
-        log.append(wrap);
-        scrollToNode(log, wrap);
+      clearPending(id, clientTurnId);
+      hideOutbox();
+      if (result.duplicate) {
+        toast('Этот ход уже сохранён — обновляю ленту');
+        router();
+        return;
       }
-      prose.textContent = result.prose || prose.textContent;
-      wrap.append(metaLine(result));
-      wrap.append(actionsBar({ turn: result.stats?.turn ?? result.state.turn, variants: 1, input: text }, id));
-
-      renderPanel(result.state, panel, id, result.worldMap ?? '', result.map ?? '', result.summary);
-      renderThoughts(result.state);
-      renderPlaceCards(result.state, placeCards, id, panel);
-      if (result.roll) addRoll(log, result.roll);
-      showNewCards(result.state, app.game);
-      cost.textContent = `$${(result.totals?.cost ?? 0).toFixed(6)}`;
-      sub.textContent = `ход ${result.state.turn} · ${result.state.place}`;
+      applyResult(result);
     } catch (err) {
       typing.classList.add('hidden');
       if (started) wrap.remove();
       toast(err.message);
-      // Если поток уже начал отдавать текст, сервер, скорее всего, сохранил ход.
-      // Повторный POST дал бы второй ход за те же деньги.
-      if (started) return;
-      try {
-        const res = await api(`/api/campaign/${encodeURIComponent(id)}/turn`, {
-          method: 'POST',
-          body: JSON.stringify({ input: text, dice: Boolean(diceBox.checked) }),
-        });
-        addGm(log, res, { turn: res.stats?.turn ?? res.state.turn, variants: 1, input: text });
-        renderPanel(res.state, panel, id, res.worldMap ?? '', res.map ?? '', res.summary);
-        renderThoughts(res.state);
-        renderPlaceCards(res.state, placeCards, id, panel);
-        if (res.roll) addRoll(log, res.roll);
-        showNewCards(res.state, app.game);
-        cost.textContent = `$${(res.totals?.cost ?? 0).toFixed(6)}`;
-      } catch (err2) {
-        toast(err2.message);
+      // Если поток уже начал отдавать текст, повторный POST мог бы стоить
+      // второй ход. Но у нас есть clientTurnId — сервер вернёт сохранённый.
+      if (!started) {
+        try {
+          const res = await api(`/api/campaign/${encodeURIComponent(id)}/turn`, {
+            method: 'POST',
+            body: JSON.stringify({ input: text, dice: Boolean(dice), clientTurnId }),
+          });
+          clearPending(id, clientTurnId);
+          hideOutbox();
+          if (res.duplicate) {
+            toast('Этот ход уже сохранён — обновляю ленту');
+            router();
+            return;
+          }
+          applyResult(res);
+          return;
+        } catch (err2) {
+          toast(err2.message);
+        }
       }
+      const current = readPending(id);
+      if (current) showOutbox(current);
     } finally {
       app.game.busy = false;
       input.focus();
+      if (keepTop) {
+        window.requestAnimationFrame(() => {
+          if (log.contains(wrap)) scrollToNode(log, wrap);
+        });
+      }
     }
+  }
+
+  composer.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text || app.game.busy) return;
+    runTurn(text, diceOn, newClientTurnId());
   });
+
+  const pending = readPending(id);
+  if (pending) {
+    const completed =
+      (data.turns ?? []).some((turn) => turn.clientTurnId === pending.clientTurnId) ||
+      (data.history ?? []).some((entry) => entry.clientTurnId === pending.clientTurnId);
+    if (completed) clearPending(id, pending.clientTurnId);
+    else showOutbox(pending);
+  }
 }
 
-async function streamTurn(id, input, onText, dice) {
+async function streamTurn(id, input, onText, dice, clientTurnId) {
   const res = await fetch(`/api/campaign/${encodeURIComponent(id)}/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ input, dice }),
+    body: JSON.stringify({ input, dice, clientTurnId }),
   });
   if (!res.ok || !res.body) throw new Error(`поток недоступен: ${res.status}`);
 
@@ -4778,3 +4910,7 @@ async function setupAuthBar() {
 window.addEventListener('hashchange', router);
 setupAuthBar();
 router();
+
+if ('serviceWorker' in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+}

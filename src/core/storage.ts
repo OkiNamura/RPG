@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Сохранение и загрузка кампании.
  *
  * Формат: один JSON на кампанию — стейт, конспект, тексты, счётчики.
@@ -63,6 +63,8 @@ export interface TurnVariant {
 export interface TurnSnapshot {
   turn: number;
   input: string;
+  /** id отправки с клиента: защита от повторного хода после обрыва связи */
+  clientTurnId?: string;
   prose: string;
   state: GameState;
   summary: string;

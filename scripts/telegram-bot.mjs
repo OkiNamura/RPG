@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Telegram-приёмник фидбека для Omika.
  *
  * Запуск: node scripts/telegram-bot.mjs
@@ -99,6 +99,22 @@ async function accept(message) {
   }
 
   if (!allowed(user)) {
+    return;
+  }
+  if (chat.type !== 'private' || String(chat.id) !== String(user.id)) {
+    return;
+  }
+
+  const now = Date.now();
+  const window = rate.get(user.id) ?? { count: 0, resetAt: now + 60 * 60 * 1000 };
+  if (window.resetAt < now) {
+    window.count = 0;
+    window.resetAt = now + 60 * 60 * 1000;
+  }
+  window.count += 1;
+  rate.set(user.id, window);
+  if (window.count > 20) {
+    await api('sendMessage', { chat_id: chat.id, text: 'Слишком часто. Попробуй позже.' });
     return;
   }
 
