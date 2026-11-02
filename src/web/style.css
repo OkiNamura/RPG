@@ -3945,3 +3945,145 @@ select {
   opacity: 0.4;
   cursor: default;
 }
+
+/* компактная шапка игры: меню и состояние */
+
+.play-head {
+  position: relative;
+  gap: 8px;
+}
+
+.play-head .tag {
+  margin-right: auto;
+}
+
+.icon-btn {
+  width: 38px;
+  height: 32px;
+  padding: 0;
+  justify-content: center;
+  font-size: 15px;
+}
+
+.menu-btn {
+  position: relative;
+}
+
+.menu-btn.has-dice::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+
+.play-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  right: 12px;
+  width: min(235px, calc(100vw - 24px));
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #151318;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+.play-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.play-menu-item:hover,
+.play-menu-item.active {
+  background: #241f17;
+  color: var(--gold);
+}
+
+.play-menu-item.active .pm-icon {
+  color: var(--gold);
+}
+
+.pm-icon {
+  width: 20px;
+  text-align: center;
+  font-size: 15px;
+}
+
+.play-menu-section {
+  margin: 4px 6px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.play-menu-label {
+  color: var(--dim);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.play-menu-fonts {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.play-menu-fonts button {
+  flex: 1 1 0;
+  padding: 6px 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.play-menu-fonts button:hover,
+.play-menu-fonts button.active {
+  border-color: var(--gold-dim);
+  color: var(--gold);
+}
+
+/* поле ввода: выше и с тёмным системным фоном */
+
+.composer {
+  padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+}
+
+.composer textarea {
+  min-height: 66px;
+  padding: 14px 54px 14px 14px;
+}
+
+.composer .send-icon {
+  right: 10px;
+  bottom: 10px;
+}
+
+.composer textarea {
+  min-height: 112px;
+  padding: 18px 56px 18px 16px;
+}
+
+.composer .send-icon {
+  right: 12px;
+  bottom: 14px;
+}

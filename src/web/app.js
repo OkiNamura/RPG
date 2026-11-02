@@ -3970,19 +3970,36 @@ async function viewPlay(view, id) {
 
   const play = el('div', 'play');
   const head = el('div', 'play-head');
-  const title = el('div', 'title');
-  title.append(document.createTextNode(id));
-
   const cost = el('span', 'tag', `$${(data.totals?.cost ?? 0).toFixed(6)}`);
-  cost.style.marginLeft = 'auto';
+  cost.style.marginRight = 'auto';
+
+  const menu = el('div', 'play-menu hidden');
+  const menuBtn = el('button', 'btn small icon-btn menu-btn', '☰');
+  menuBtn.type = 'button';
+  menuBtn.title = 'меню игры';
+  menuBtn.setAttribute('aria-label', 'Меню игры');
+  menuBtn.setAttribute('aria-expanded', 'false');
+
+  const panelBtn = el('button', 'btn small icon-btn panel-btn', '▣');
+  panelBtn.type = 'button';
+  panelBtn.title = 'состояние';
+  panelBtn.setAttribute('aria-label', 'Состояние');
+  panelBtn.addEventListener('click', () => document.body.classList.toggle('panel-open'));
+
+  const menuItem = (icon, label, cls = '') => {
+    const btn = el('button', `play-menu-item ${cls}`.trim());
+    btn.type = 'button';
+    btn.append(el('span', 'pm-icon', icon), el('span', '', label));
+    return btn;
+  };
 
   let diceOn = false;
-  const diceBtn = el('button', 'btn small dice-btn', '🎲');
-  diceBtn.type = 'button';
+  const diceBtn = menuItem('🎲', 'Бросок', 'dice-btn');
   diceBtn.title = 'бросить d36: 36 граней, 3 джокера';
   const renderDice = () => {
     diceBtn.classList.toggle('active', diceOn);
     diceBtn.setAttribute('aria-pressed', String(diceOn));
+    menuBtn.classList.toggle('has-dice', diceOn);
   };
   diceBtn.addEventListener('click', () => {
     diceOn = !diceOn;
@@ -3990,20 +4007,16 @@ async function viewPlay(view, id) {
   });
   renderDice();
 
-  const panelBtn = el('button', 'btn small', 'состояние');
-  panelBtn.addEventListener('click', () => document.body.classList.toggle('panel-open'));
-
-  const shotBtn = el('button', 'btn small', '🖼');
+  const shotBtn = menuItem('🖼', 'Кадр');
   shotBtn.title = 'нарисовать кадр сцены';
 
-  const artBtn = el('button', 'btn small', '🎨');
+  const artBtn = menuItem('🎨', 'Иллюстратор');
   artBtn.title = 'настройки иллюстратора: стиль, камера, формат';
   artBtn.addEventListener('click', () => openArtDialog(id));
 
-  const fontWrap = el('details', 'font-wrap');
-  const fontSum = el('summary', 'btn small', 'А');
-  fontSum.title = 'размер текста';
-  const fontMenu = el('div', 'font-menu');
+  const fontBlock = el('div', 'play-menu-section');
+  fontBlock.append(el('div', 'play-menu-label', 'А · размер текста'));
+  const fontMenu = el('div', 'play-menu-fonts');
   const fontSizes = [
     ['16px', 'Мелкий'],
     ['18px', 'Обычный'],
@@ -4034,18 +4047,40 @@ async function viewPlay(view, id) {
     btn.dataset.size = size;
     btn.addEventListener('click', () => {
       applyFont(size);
-      fontWrap.open = false;
+      menu.classList.add('hidden');
+      menuBtn.setAttribute('aria-expanded', 'false');
     });
     fontMenu.append(btn);
   }
   applyFont(savedFont);
-  fontWrap.append(fontSum, fontMenu);
+  fontBlock.append(fontMenu);
 
-  const historyBtn = el('button', 'btn small', '📜');
+  const historyBtn = menuItem('📜', 'История');
   historyBtn.title = 'вся история: можно перечитать любой ход';
   historyBtn.addEventListener('click', () => openHistoryDialog(id));
 
-  head.append(title, cost, diceBtn, shotBtn, fontWrap, artBtn, historyBtn, panelBtn);
+  const closeMenu = () => {
+    menu.classList.add('hidden');
+    menuBtn.setAttribute('aria-expanded', 'false');
+  };
+  const toggleMenu = () => {
+    const open = menu.classList.toggle('hidden');
+    menuBtn.setAttribute('aria-expanded', String(!open));
+  };
+  menuBtn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleMenu();
+  });
+  menu.addEventListener('click', (event) => {
+    if (event.target.closest('.play-menu-item')) closeMenu();
+  });
+  document.addEventListener('click', (event) => {
+    if (!document.body.contains(menu)) return;
+    if (!menu.contains(event.target) && event.target !== menuBtn) closeMenu();
+  });
+
+  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn);
+  head.append(cost, panelBtn, menuBtn, menu);
 
   const body = el('div', 'play-body');
   const log = el('div', 'log');

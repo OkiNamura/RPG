@@ -1,4 +1,4 @@
-{
+﻿{
   "id": "/",
   "name": "Omika — текстовая RPG",
   "short_name": "Omika",
@@ -10,7 +10,7 @@
   "display_override": ["standalone", "minimal-ui"],
   "orientation": "any",
   "background_color": "#0a0a0c",
-  "theme_color": "#c9a45c",
+  "theme_color": "#0a0a0c",
   "categories": ["games", "entertainment"],
   "prefer_related_applications": false,
   "icons": [
