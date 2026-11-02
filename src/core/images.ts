@@ -24,25 +24,83 @@ interface ImageOptions {
    * с мастер-карточки и не «переизобретает» персонажа на каждом кадре.
    */
   references?: string[];
+  /** размер кадра для локального провайдера, например 512x768 */
+  size?: string;
   timeoutMs?: number;
+}
+
+/**
+ * Unsloth Studio может быть запущен, но модель после ребута не загружена.
+ * Лениво поднимаем Qwen-Image Turbo в low_vram и ждём готовности.
+ */
+async function ensureLocalImage(
+  base: string,
+  apiKey: string,
+  model: string,
+  timeoutMs: number,
+): Promise<void> {
+  const root = base.replace(/\/v1$/, '');
+  const headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
+  const status = async (): Promise<boolean> => {
+    const res = await fetch(`${root}/api/inference/images/status`, { headers });
+    if (!res.ok) throw new Error(`Unsloth Studio: статус ${res.status}`);
+    return Boolean((await res.json()).loaded);
+  };
+  if (await status()) return;
+
+  const load = await fetch(`${root}/api/inference/images/load`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model_path: model,
+      gguf_filename: process.env.UNSLOTH_GGUF ?? 'qwen-image-2.1-turbo-Q6_K.gguf',
+      model_kind: 'gguf',
+      memory_mode: 'low_vram',
+      cpu_offload: true,
+      speed_mode: 'eager',
+    }),
+  });
+  if (!load.ok) {
+    const detail = await load.text().catch(() => '');
+    throw new Error(`Unsloth Studio: загрузка модели ${load.status} ${detail.slice(0, 160)}`);
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    if (await status()) return;
+  }
+  throw new Error('Unsloth Studio: модель не загрузилась за отведённое время');
 }
 
 async function generateQwenImage(options: ImageOptions): Promise<ImageResult> {
   const started = Date.now();
   const base = String(options.baseUrl ?? '').replace(/\/+$/, '') || 'https://openrouter.ai/api/v1';
-  const body: Record<string, unknown> = {
-    model: options.model,
-    prompt: options.prompt,
-    aspect_ratio: '9:16',
-    resolution: '1K',
-    n: 1,
-  };
-  if (options.references?.length) {
+  const local = /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/)/i.test(base);
+  if (local) {
+    await ensureLocalImage(base, options.apiKey, options.model, options.timeoutMs ?? 300_000);
+  }
+  const body: Record<string, unknown> = local
+    ? {
+        model: options.model,
+        prompt: options.prompt,
+        n: 1,
+        size: options.size ?? '512x768',
+        response_format: 'b64_json',
+      }
+    : {
+        model: options.model,
+        prompt: options.prompt,
+        aspect_ratio: '9:16',
+        resolution: '1K',
+        n: 1,
+      };
+  if (!local && options.references?.length) {
     body.input_references = options.references
       .slice(0, 3)
       .map((url) => ({ type: 'image_url', image_url: { url } }));
   }
-  const res = await fetch(`${base}/images`, {
+  const res = await fetch(local ? `${base}/images/generations` : `${base}/images`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${options.apiKey}`,
@@ -51,7 +109,7 @@ async function generateQwenImage(options: ImageOptions): Promise<ImageResult> {
       'X-Title': 'Omika',
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(options.timeoutMs ?? 120_000),
+    signal: AbortSignal.timeout(options.timeoutMs ?? (local ? 300_000 : 120_000)),
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
@@ -80,7 +138,7 @@ async function generateQwenImage(options: ImageOptions): Promise<ImageResult> {
         : buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
           ? 'image/png'
           : 'image/png',
-    cost: data.usage?.cost ?? 0.03 + (options.references?.length ?? 0) * 0.003,
+    cost: local ? 0 : data.usage?.cost ?? 0.03 + (options.references?.length ?? 0) * 0.003,
     ms: Date.now() - started,
     model: options.model,
   };
@@ -88,7 +146,7 @@ async function generateQwenImage(options: ImageOptions): Promise<ImageResult> {
 
 export async function generateImage(options: ImageOptions): Promise<ImageResult> {
   // Qwen Image 3 живёт на отдельном /images endpoint, а не в chat/completions.
-  if (/^qwen\/qwen-image/i.test(options.model)) {
+  if (/qwen.*image/i.test(options.model)) {
     return generateQwenImage(options);
   }
   const started = Date.now();

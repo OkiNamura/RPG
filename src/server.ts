@@ -113,6 +113,11 @@ try {
 } catch {
   /* ключа может не быть */
 }
+try {
+  process.loadEnvFile(join(import.meta.dirname, '..', '.unsloth.env'));
+} catch {
+  /* локальная генерация картинок не настроена */
+}
 
 const PORT = Number(process.env.PORT ?? 7801);
 /** 127.0.0.1 для локальной игры, 0.0.0.0 в контейнере/на хостинге. */
@@ -128,6 +133,10 @@ const IMAGES_DIR = join(import.meta.dirname, '..', 'data', 'images');
 const AGENTS_DIR = join(import.meta.dirname, '..', 'data');
 const MODEL = process.env.OMIKA_MODEL ?? process.env.PRG_MODEL ?? 'deepseek/deepseek-v4-flash-0731';
 const API_KEY = process.env.OPENROUTER_API_KEY ?? '';
+/** Локальный Qwen-Image через Unsloth Studio (OpenAI-совместимый /v1). */
+const LOCAL_IMAGE_KEY = String(process.env.UNSLOTH_API_KEY ?? '').trim();
+const LOCAL_IMAGE_BASE = String(process.env.UNSLOTH_BASE_URL ?? '').trim();
+const LOCAL_IMAGE_MODEL = String(process.env.UNSLOTH_IMAGE_MODEL ?? '').trim();
 const keyStore = new KeyStore(join(import.meta.dirname, '..', 'data'));
 await keyStore.load();
 
@@ -2866,8 +2875,12 @@ const server = createServer(async (req, res) => {
         const artistMeta = (await loadCampaign(DATA_DIR, id))?.meta;
         const artistKeyName = mode === 'scene' ? 'scene' : mode === 'item' ? 'item' : mode === 'hero' ? 'hero' : 'npc';
         const style = artistMeta?.prompts?.artists?.[artistKeyName] || artist.prompt;
+        // Локальный Qwen-Image через Unsloth Studio, если он настроен.
+        const localImage = Boolean(LOCAL_IMAGE_KEY && LOCAL_IMAGE_BASE && LOCAL_IMAGE_MODEL);
         // Иллюстратор переведён на Seedream 5.0 Flash; env может переопределить.
-        const model = process.env.OMIKA_IMAGE_MODEL || IMAGE_MODEL;
+        const model = localImage
+          ? LOCAL_IMAGE_MODEL
+          : process.env.OMIKA_IMAGE_MODEL || IMAGE_MODEL;
 
         let prompt = '';
         let actorName = '';
@@ -2988,8 +3001,8 @@ const server = createServer(async (req, res) => {
 
         // Ключ и база — у агента-художника; без своего ключа берём глобальный.
         const artistKey = keyStore.getSync(artist.keyRef);
-        const apiKey = artistKey?.apiKey || API_KEY;
-        const baseUrl = artistKey?.baseUrl;
+        const apiKey = localImage ? LOCAL_IMAGE_KEY : artistKey?.apiKey || API_KEY;
+        const baseUrl = localImage ? LOCAL_IMAGE_BASE : artistKey?.baseUrl;
         if (!apiKey) return sendJson(res, { error: 'нет ключа у иллюстратора и нет OPENROUTER_API_KEY' }, 500);
 
         // Сначала выбор этой игры, потом глобальный из настроек иллюстратора.
@@ -3005,21 +3018,28 @@ const server = createServer(async (req, res) => {
         if (avoid) prompt += ` Не изображать: ${avoid}.`;
 
         // Seedream может быть недоступен у провайдера — тогда честно откатываемся.
+        // Локальный Qwen не откатываем в облако: ошибка должна быть видна.
         let usedModel = model;
-        let result = await generateImage({ apiKey, baseUrl, model, prompt, references }).catch(
-          async (err: Error) => {
-            if (model === IMAGE_FALLBACK_MODEL) throw err;
-            console.error('[artist]', err.message, '→ откат на', IMAGE_FALLBACK_MODEL);
-            usedModel = IMAGE_FALLBACK_MODEL;
-            return generateImage({
-              apiKey,
-              baseUrl,
-              model: IMAGE_FALLBACK_MODEL,
-              prompt,
-              references,
-            });
-          },
-        );
+        const imageSize = localImage ? '512x768' : undefined;
+        let result = await generateImage({
+          apiKey,
+          baseUrl,
+          model,
+          prompt,
+          references,
+          size: imageSize,
+        }).catch(async (err: Error) => {
+          if (localImage || model === IMAGE_FALLBACK_MODEL) throw err;
+          console.error('[artist]', err.message, '→ откат на', IMAGE_FALLBACK_MODEL);
+          usedModel = IMAGE_FALLBACK_MODEL;
+          return generateImage({
+            apiKey,
+            baseUrl,
+            model: IMAGE_FALLBACK_MODEL,
+            prompt,
+            references,
+          });
+        });
 
         addUsage(session, 'artist', 0, 0, result.cost);
         const file = await saveImage(id, mode, result.buffer, result.mime);

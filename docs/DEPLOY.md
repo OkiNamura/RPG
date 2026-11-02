@@ -208,3 +208,15 @@ curl -I https://game.okinamura.com/   # 302 на /login
 - Домен — ~200–1000 ₽/год.
 - OpenRouter — по факту: ход ~$0.003–0.005, картинка ~$0.01–0.04.
 - 20 игроков по 50 ходов без картинок — примерно $3–5 суммарно.
+
+## Локальные картинки Qwen-Image
+
+Если на сервере запущен Unsloth Studio с API на `127.0.0.1:8888` и загружен Qwen-Image-2.1 Turbo GGUF, положи ключ в `.unsloth.env`:
+
+`env
+UNSLOTH_API_KEY=...
+UNSLOTH_BASE_URL=http://127.0.0.1:8888/v1
+UNSLOTH_IMAGE_MODEL=unsloth/Qwen-Image-2.1-Turbo-GGUF
+` 
+
+Omika сама переключит иллюстратора на локальный endpoint. Модель грузится один раз в Studio (low_vram, CPU offload), после перезагрузки её нужно загрузить снова.

@@ -44,3 +44,4 @@ data/trash/
 .telegram.env
 data/feedback/
 data/telegram-offset.json
+.unsloth.env
