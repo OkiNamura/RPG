@@ -4015,13 +4015,17 @@ async function viewPlay(view, id) {
   artBtn.addEventListener('click', () => openArtDialog(id));
 
   const fontBlock = el('div', 'play-menu-section');
-  fontBlock.append(el('div', 'play-menu-label', 'А · размер текста'));
+  fontBlock.append(el('div', 'play-menu-label', 'Размер текста'));
   const fontMenu = el('div', 'play-menu-fonts');
   const fontSizes = [
-    ['16px', 'Мелкий'],
-    ['18px', 'Обычный'],
-    ['20px', 'Крупный'],
-    ['22px', 'Очень крупный'],
+    ['12px', '12'],
+    ['13px', '13'],
+    ['14px', '14'],
+    ['15px', '15'],
+    ['16px', '16'],
+    ['18px', '18'],
+    ['20px', '20'],
+    ['22px', '22'],
   ];
   const applyFont = (size) => {
     document.documentElement.style.setProperty('--prose-size', size);
@@ -4143,6 +4147,25 @@ async function viewPlay(view, id) {
 
   renderPanel(data.state, panel, id, data.worldMap ?? '', data.map ?? '', data.summary);
   scrollDown(log);
+
+  // Шапка прячется при чтении вниз и возвращается при прокрутке вверх.
+  let lastLogScroll = log.scrollTop;
+  let scrollArmed = false;
+  window.setTimeout(() => {
+    scrollArmed = true;
+    lastLogScroll = log.scrollTop;
+  }, 600);
+  log.addEventListener('scroll', () => {
+    if (!scrollArmed || document.body.classList.contains('panel-open')) return;
+    const now = log.scrollTop;
+    if (now > lastLogScroll + 8 && now > 48) {
+      head.classList.add('head-hidden');
+      closeMenu();
+    } else if (now < lastLogScroll - 8) {
+      head.classList.remove('head-hidden');
+    }
+    lastLogScroll = now;
+  });
 
   app.game = {
     id,

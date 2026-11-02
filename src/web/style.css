@@ -4087,3 +4087,51 @@ select {
   right: 12px;
   bottom: 14px;
 }
+
+/* шапка прячется при чтении, панель состояния — почти на весь экран */
+
+.play-head {
+  max-height: 64px;
+  transition: max-height 0.18s ease, padding 0.18s ease, opacity 0.18s ease;
+  overflow: visible;
+}
+
+.play-head.head-hidden {
+  max-height: 0;
+  min-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-bottom-color: transparent;
+  opacity: 0;
+  overflow: hidden;
+}
+
+.play-menu-fonts {
+  flex-wrap: wrap;
+}
+
+.play-menu-fonts button {
+  flex: 1 1 20%;
+}
+
+@media (max-width: 900px) {
+  body.panel-open .panel {
+    position: fixed;
+    top: 96px;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 35;
+    display: block;
+    max-height: none;
+    border-top: 1px solid var(--line-soft);
+    background: var(--panel);
+    box-shadow: 0 -12px 30px rgba(0, 0, 0, 0.35);
+  }
+}
+
+/* нижний системный отступ — в цвет фона, без тёплого градиента */
+
+.composer {
+  background: #0a0a0c;
+}
