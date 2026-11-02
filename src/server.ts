@@ -53,7 +53,7 @@ import {
   type ToneSelection,
   type WorldPreset,
 } from './core/prompts.ts';
-import { HERO_NAME, START_PLACE, TONE, WORLD } from './start/texts.ts';
+import { HERO_NAME, TONE, WORLD } from './start/texts.ts';
 import { isLoreEntry, matchLore, renderLore, type LoreEntry } from './core/lore.ts';
 import { resolveRoll, rollD36, skillForAction } from './core/dice.ts';
 import { defaultSkills, hiddenCheck } from './core/skills.ts';
@@ -124,42 +124,6 @@ const PRESETS_DIR = join(import.meta.dirname, '..', 'data', 'presets');
 const TRASH_DIR = join(import.meta.dirname, '..', 'data', 'trash');
 const TRACES_DIR = join(import.meta.dirname, '..', 'data', 'traces');
 
-/**
- * Стартовая локация живёт в сгенерированном мире (М.1.0.1 / М.1.13).
- * Берём название из «Стартовых локаций», иначе — первую фразу стартовой
- * позиции; жёсткий дефолт остаётся только для мира без разметки.
- */
-function startPlaceFromWorld(worldText: string, level: number): string {
-  const section = (heading: string): string => {
-    const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const re = new RegExp(`#{2,}\\s*${escaped}\\s*\\n([\\s\\S]*?)(?=\\n#{2,}\\s|$)`, 'i');
-    return (worldText.match(re) ?? [])[1]?.trim() ?? '';
-  };
-
-  const locations = section('М.1.13. Стартовые локации');
-  const firstLine =
-    locations
-      .split('\n')
-      .map((line) => line.trim())
-      .find((line) => line && !/^\[(ответ|пропуск)\]/i.test(line)) ?? '';
-  const bold = firstLine.match(/\*\*([^*]{2,90})\*\*/)?.[1]?.trim();
-  if (bold) return bold;
-  const cleaned = firstLine
-    .replace(/^[-*#\s]+/, '')
-    .split(/\s+[—–:]\s+/)[0]
-    ?.trim();
-  if (cleaned && cleaned.length <= 90) return cleaned;
-
-  const position = section('М.1.0.1. Стартовая позиция');
-  const sentence = position
-    .replace(/^[-*#\s]+/gm, '')
-    .replace(/\s+/g, ' ')
-    .split(/(?<=[.!?])\s/)[0]
-    ?.trim();
-  if (sentence && sentence.length <= 140) return sentence;
-
-  return level <= 4 ? 'Тихая деревня на опушке' : START_PLACE;
-}
 const IMAGES_DIR = join(import.meta.dirname, '..', 'data', 'images');
 const AGENTS_DIR = join(import.meta.dirname, '..', 'data');
 const MODEL = process.env.OMIKA_MODEL ?? process.env.PRG_MODEL ?? 'deepseek/deepseek-v4-flash-0731';
@@ -2103,9 +2067,9 @@ const server = createServer(async (req, res) => {
 
       const heroName =
         typeof body.heroName === 'string' && body.heroName.trim() ? body.heroName.trim() : HERO_NAME;
-      const place = meta.presetTitle
-        ? `Начало: ${meta.presetTitle}`
-        : startPlaceFromWorld(worldText, level?.value ?? 5);
+      // Стартовую локацию не подставляем: её определяет ведущий по ядру
+      // (генератор стартовой сцены) в первом ходе. До этого — нейтрально.
+      const place = 'неизвестно';
 
       const state = createState(heroName, place);
       // Стартовый ранг — случайно FFF/FF/F, развитие идёт через rankPoints.
