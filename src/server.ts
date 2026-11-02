@@ -887,15 +887,23 @@ async function getSession(id: string): Promise<Session | null> {
     settingsList.length ? `\n\n# НАСТРОЙКИ ИИ\n${settingsList.map((s) => `- ${s}`).join('\n')}` : ''
   }`;
 
-  // Новая сборка: GM+ТОН, затем ПРАВИЛА, сразу МИР, затем ГЕРОЙ.
+  // Новая сборка: ПРАВИЛА, затем GM+ТОН, сразу МИР, затем ГЕРОЙ.
   const assembly2 = saved.meta?.prompts?.assembly === 2;
+  const toneMatch = /(?:^|\n)# ТОН\s*\n([\s\S]*?)(?=\n# |$)/.exec(gmPrompt);
+  const toneAnchor = toneMatch ? `# ТОН\n${toneMatch[1].trim()}` : '';
   let staticText: { core: string; world: string; tone: string; hero: string };
   if (assembly2) {
     const heroText = saved.text.hero ?? '';
+    const heroWithSettings = heroText.includes('# НАСТРОЙКИ ИГРЫ')
+      ? heroText
+      : `${heroText}${settingsLine}`;
     staticText = {
-      core: saved.text.core || `${gmPrompt}\n\n# ПРАВИЛА\n${await loadCore()}`,
+      core: saved.text.core || `# ПРАВИЛА\n${coreFile}\n\n${gmPrompt}`,
       world: saved.text.world ?? '',
-      hero: heroText.includes('# НАСТРОЙКИ ИГРЫ') ? heroText : `${heroText}${settingsLine}`,
+      // Тон дублируем в конце статики: он ближе к ходу и не тонет в 112k ядра.
+      hero: heroWithSettings.includes('# ТОН')
+        ? heroWithSettings
+        : `${heroWithSettings}${toneAnchor ? `\n\n${toneAnchor}` : ''}`,
       tone: '',
     };
   } else {
@@ -2156,9 +2164,11 @@ const server = createServer(async (req, res) => {
       const sessionModel = makeAgentModel(gameAgents.gm, !gameAgents.state.enabled) ?? model;
       const session: Session = createSession({
         text: {
-          core: `${gmForSession}\n\n# ПРАВИЛА\n${rules}`,
+          core: `# ПРАВИЛА\n${rules}\n\n${gmForSession}`,
           world: worldBlock,
-          hero: `${heroBlock}${createSettings}`,
+          // Повторяем тон в конце статики: ведущий видит его перед ходом,
+          // а не только в начале 112k-ядра.
+          hero: `${heroBlock}${createSettings}\n\n# ТОН\n${toneSection}${levelBlock}`,
           tone: '',
         },
         state,

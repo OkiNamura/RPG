@@ -218,7 +218,12 @@ export async function runTurn(
   const changes = parsed.delta ? applyDelta(state, parsed.delta) : [];
 
   // Время не стоит: если ведущий не сдвинул часы, сцена всё равно идёт.
-  if (!parsed.delta || parsed.delta.advanceHours == null || Number(parsed.delta.advanceHours) <= 0) {
+  // Но когда состоянием владеет отдельный агент, +1 час — это его решение,
+  // а не принудительный тик на каждом ходу.
+  if (
+    session.expectDelta !== false &&
+    (!parsed.delta || parsed.delta.advanceHours == null || Number(parsed.delta.advanceHours) <= 0)
+  ) {
     state.time.hour += 1;
     if (state.time.hour >= 24) {
       state.time.hour = 0;
