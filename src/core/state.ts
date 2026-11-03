@@ -173,6 +173,8 @@ export interface Currency {
   name: string;
   amount: number;
   symbol?: string;
+  /** формы для числа: один, два, много */
+  forms?: [string, string, string];
   primary?: boolean;
   note?: string;
 }
@@ -189,6 +191,8 @@ export interface WorldCalendar {
   era: string;
   /** с какого года начинается отсчёт кампании */
   startYear?: number;
+  /** с какого месяца начинается кампания; 0 — январь */
+  startMonth?: number;
   months: { name: string; days: number }[];
   seasons: string[];
   moons: { name: string; period: number; phases: string[] }[];

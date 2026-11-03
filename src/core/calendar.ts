@@ -1,4 +1,4 @@
-/** Календарь мира: считаем дату из абсолютного дня кампании. */
+﻿/** Календарь мира: считаем дату из абсолютного дня кампании. */
 import type { WorldCalendar } from './state.ts';
 
 export interface CalendarDate {
@@ -23,23 +23,29 @@ export function calendarDate(calendar: WorldCalendar | undefined, day: number): 
       moons: [],
     };
   }
-  const daysPerYear = calendar.months.reduce((sum, month) => sum + Math.max(1, month.days), 0);
   const absolute = Math.max(1, Math.floor(day));
-  const offset = absolute - 1;
-  const year = (calendar.startYear ?? 1) + Math.floor(offset / daysPerYear);
-  let rest = offset % daysPerYear;
-  let monthIndex = 0;
-  while (monthIndex < calendar.months.length - 1 && rest >= calendar.months[monthIndex].days) {
-    rest -= calendar.months[monthIndex].days;
+  let remaining = absolute - 1;
+  let year = calendar.startYear ?? 1;
+  let monthIndex = Math.max(0, Math.min(calendar.months.length - 1, calendar.startMonth ?? 0));
+  const startMonth = monthIndex;
+  while (remaining >= Math.max(1, calendar.months[monthIndex].days)) {
+    remaining -= Math.max(1, calendar.months[monthIndex].days);
     monthIndex += 1;
+    if (monthIndex >= calendar.months.length) {
+      monthIndex = 0;
+      year += 1;
+    }
   }
-  const dayOfYear = (offset % daysPerYear) + 1;
+  const dayOfMonth = remaining + 1;
+  let dayOfYear = dayOfMonth;
+  for (let index = 0; index < monthIndex; index += 1) dayOfYear += Math.max(1, calendar.months[index].days);
+  const monthOffset = (monthIndex - startMonth + calendar.months.length) % calendar.months.length;
   const season = calendar.seasons?.length
-    ? calendar.seasons[Math.min(calendar.seasons.length - 1, Math.floor(((dayOfYear - 1) / daysPerYear) * calendar.seasons.length))]
+    ? calendar.seasons[Math.min(calendar.seasons.length - 1, Math.floor((monthOffset / calendar.months.length) * calendar.seasons.length))]
     : '';
   const moons = (calendar.moons ?? []).map((moon) => {
     const phase = moon.phases?.length
-      ? moon.phases[Math.floor(offset / Math.max(1, moon.period)) % moon.phases.length]
+      ? moon.phases[Math.floor((absolute - 1) / Math.max(1, moon.period)) % moon.phases.length]
       : '';
     return { name: moon.name, phase };
   });
@@ -48,7 +54,7 @@ export function calendarDate(calendar: WorldCalendar | undefined, day: number): 
     dayOfYear,
     monthIndex,
     monthName: calendar.months[monthIndex]?.name ?? '',
-    dayOfMonth: rest + 1,
+    dayOfMonth,
     season,
     moons,
   };

@@ -45,3 +45,6 @@ data/trash/
 data/feedback/
 data/telegram-offset.json
 .unsloth.env
+
+# резервные копии кампаний
+data/backups/

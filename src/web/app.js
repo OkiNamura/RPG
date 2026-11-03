@@ -1,4 +1,4 @@
-/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
+﻿/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -4010,12 +4010,22 @@ function coinsText(money) {
   return parts.join(' ') || '0';
 }
 
+function currencyAmount(currency) {
+  const amount = Number(currency.amount ?? 0);
+  const forms = currency.forms;
+  if (!forms) return `${amount} ${currency.name}`;
+  const mod100 = amount % 100;
+  const mod10 = amount % 10;
+  const form = mod100 >= 11 && mod100 <= 14 ? forms[2] : mod10 === 1 ? forms[0] : mod10 >= 2 && mod10 <= 4 ? forms[1] : forms[2];
+  return `${amount} ${form}`;
+}
+
 function currenciesText(currencies, money) {
   if (Array.isArray(currencies) && currencies.length) {
     return currencies
       .filter((currency) => Number(currency.amount ?? 0) !== 0 || currency.primary)
-      .map((currency) => `${currency.amount ?? 0} ${currency.name}`)
-      .join(' · ') || currencies.map((currency) => `${currency.amount ?? 0} ${currency.name}`).join(' · ');
+      .map(currencyAmount)
+      .join(' · ') || currencies.map(currencyAmount).join(' · ');
   }
   return coinsText(money);
 }
@@ -4032,22 +4042,29 @@ function calendarDate(calendar, day) {
     return { year: 1, dayOfYear: day, monthIndex: 0, monthName: '', dayOfMonth: day, season: '', moons: [] };
   }
   const daysPerYear = calendar.months.reduce((sum, month) => sum + Math.max(1, month.days), 0);
-  const offset = Math.max(0, Math.floor(day) - 1);
-  const year = (calendar.startYear ?? 1) + Math.floor(offset / daysPerYear);
-  let rest = offset % daysPerYear;
-  let monthIndex = 0;
-  while (monthIndex < calendar.months.length - 1 && rest >= calendar.months[monthIndex].days) {
-    rest -= calendar.months[monthIndex].days;
+  let remaining = Math.max(0, Math.floor(day) - 1);
+  let year = calendar.startYear ?? 1;
+  let monthIndex = Math.max(0, Math.min(calendar.months.length - 1, calendar.startMonth ?? 0));
+  const startMonth = monthIndex;
+  while (remaining >= Math.max(1, calendar.months[monthIndex].days)) {
+    remaining -= Math.max(1, calendar.months[monthIndex].days);
     monthIndex += 1;
+    if (monthIndex >= calendar.months.length) {
+      monthIndex = 0;
+      year += 1;
+    }
   }
-  const dayOfYear = (offset % daysPerYear) + 1;
+  const dayOfMonth = remaining + 1;
+  let dayOfYear = dayOfMonth;
+  for (let index = 0; index < monthIndex; index += 1) dayOfYear += Math.max(1, calendar.months[index].days);
+  const monthOffset = (monthIndex - startMonth + calendar.months.length) % calendar.months.length;
   const season = calendar.seasons?.length
-    ? calendar.seasons[Math.min(calendar.seasons.length - 1, Math.floor(((dayOfYear - 1) / daysPerYear) * calendar.seasons.length))]
+    ? calendar.seasons[Math.min(calendar.seasons.length - 1, Math.floor((monthOffset / calendar.months.length) * calendar.seasons.length))]
     : '';
   const moons = (calendar.moons ?? []).map((moon) => ({
     name: moon.name,
     phase: moon.phases?.length
-      ? moon.phases[Math.floor(offset / Math.max(1, moon.period)) % moon.phases.length]
+      ? moon.phases[Math.floor((Math.max(0, Math.floor(day) - 1)) / Math.max(1, moon.period)) % moon.phases.length]
       : '',
   }));
   return {
@@ -4055,7 +4072,7 @@ function calendarDate(calendar, day) {
     dayOfYear,
     monthIndex,
     monthName: calendar.months[monthIndex]?.name ?? '',
-    dayOfMonth: rest + 1,
+    dayOfMonth,
     season,
     moons,
   };
