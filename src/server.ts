@@ -2808,7 +2808,7 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|context|container|npc|forget|blocks|fill-card|inspector|price|market|branches|branch|reset|restart|save-card))?$/.exec(path);
+    const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|context|container|npc|forget|blocks|fill-card|inspector|price|market|undo|branches|branch|reset|restart|save-card))?$/.exec(path);
     if (campaignMatch) {
       const id = decodeURIComponent(campaignMatch[1]);
       // Id — это имя файла кампании: никаких слэшей и переходов вверх.
@@ -2842,6 +2842,19 @@ const server = createServer(async (req, res) => {
           quote: estimatePrice(item, session.state.place, session.state.currencies, session.state.turn),
           place: session.state.place,
         });
+      }
+
+      // Отмена хода: полный откат состояния, а не только текста.
+      if (action === 'undo' && req.method === 'POST') {
+        if (!features.branches) return sendJson(res, { error: 'ветки выключены в админке' }, 409);
+        if (session.busy) return sendJson(res, { error: 'ход уже идёт' }, 409);
+        const body = await readBody(req);
+        const turn = Number.isFinite(Number(body.turn)) ? Math.max(1, Math.round(Number(body.turn))) : session.state.turn;
+        if (!restoreTo(session, id, turn - 1)) {
+          return sendJson(res, { error: 'нет снимка предыдущего хода' }, 400);
+        }
+        await persist(id, session);
+        return sendJson(res, { ok: true, turn: session.state.turn, state: session.state });
       }
 
       // Простой рынок: купить/продать без отдельного торговца.
@@ -3823,6 +3836,31 @@ const server = createServer(async (req, res) => {
           }
           if (imageProfile.negative) prompt += ` Не изображать: ${imageProfile.negative}.`;
           if (imageProfile.references === 'off') references = [];
+          // Первый кадр без мастер-листа героя даёт «другого человека».
+          // Делаем мастер-лист один раз и дальше держим его как референс.
+          if (mode === 'scene' && imageProfile.references === 'auto' && !session.state.hero.card) {
+            try {
+              const heroPrompt = masterCardPrompt({
+                style,
+                name: session.state.hero.name,
+                role: 'главный герой',
+                appearance: [session.state.hero.appearance, session.state.hero.essence].filter(Boolean).join('; '),
+                clothes: 'одежда по сцене',
+                character: session.state.hero.essence,
+              });
+              const heroResult = await withImageQueue(() => generateImage({
+                apiKey, baseUrl, model, prompt: heroPrompt, references: [], size: imageSize,
+              }));
+              const heroFile = await saveImage(id, 'sheet', heroResult.buffer, heroResult.mime);
+              const heroUrl = `/api/images/${heroFile}`;
+              session.state.hero.card = heroUrl;
+              session.state.hero.refs = { ...(session.state.hero.refs ?? {}), main: heroUrl };
+              const heroRef = await imageDataUrl(heroUrl);
+              if (heroRef) references = [heroRef, ...references];
+            } catch (err) {
+              console.error('[hero-reference]', (err as Error).message);
+            }
+          }
         }
 
         // Seedream может быть недоступен у провайдера — тогда честно откатываемся.

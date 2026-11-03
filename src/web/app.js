@@ -4898,8 +4898,19 @@ async function viewPlay(view, id) {
   const branchesBtn = menuItem('🌿', 'Ветки');
   branchesBtn.title = 'чекпоинты и возврат к другому ходу';
   branchesBtn.addEventListener('click', () => openBranchesDialog(id));
+  const undoBtn = menuItem('↶', 'Отменить ход');
+  undoBtn.title = 'откатить последний ход вместе с состоянием';
+  undoBtn.addEventListener('click', async () => {
+    if (!window.confirm('Отменить последний ход и вернуть состояние до него?')) return;
+    try {
+      await api(`/api/campaign/${encodeURIComponent(id)}/undo`, { method: 'POST', body: JSON.stringify({}) });
+      router();
+    } catch (err) {
+      toast(err.message);
+    }
+  });
 
-  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn, contextBtn, branchesBtn);
+  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn, contextBtn, branchesBtn, undoBtn);
   const clockBtn = el('button', 'btn small clock-btn');
   clockBtn.type = 'button';
   clockBtn.title = 'подробнее о времени мира';
