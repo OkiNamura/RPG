@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Агенты игры.
  *
  *   gm         — ведущий: пишет сцену
@@ -101,10 +101,15 @@ export const DEFAULT_AGENTS: AgentSet = {
   "place": "новое место, если герой переместился",
   "weather": "если сменилась",
   "advanceHours": 1,
+  "advanceMinutes": 0,
+  "advanceSeconds": 0,
   "health": 100,
   "healthReason": "рана от удара",
   "heroResources": [
     {"name": "мана", "value": 7, "max": 12, "unit": "ед.", "reason": "потратил заклинание"}
+  ],
+  "currencies": [
+    {"name": "кредиты", "amount": 120, "reason": "оплатил проезд"}
   ],
   "addItems":    [{"name": "...", "qty": 1, "where": "inventory", "reason": "нашёл"}],
   "removeItems": [{"name": "...", "qty": 1, "reason": "потерял"}],
@@ -122,12 +127,15 @@ export const DEFAULT_AGENTS: AgentSet = {
                    "present": true, "attitude": 20, "appearance": "...",
                    "character": "...", "clothes": "...", "bio": "...", "description": "короткое описание для карточки", "abilities": "что умеет", "note": "...",
                    "resources": [{"name": "мана", "value": 4, "max": 10, "reason": "потратила"}],
+                   "skillMods": [{"skill": "Ловкость", "delta": -2, "reason": "устала"}],
+                   "currencies": [{"name": "серебро", "amount": 3, "reason": "заплатила"}],
                    "money": {"gold": 0, "silver": 3, "copper": 0},
                    "skills": {"Красноречие": 12, "Восприятие": 9}}],
   "party":       [{"name": "...", "role": "...", "bond": 40, "attitude": 60,
                    "present": true, "appearance": "...", "character": "...",
                    "clothes": "...",
                    "resources": [{"name": "мана", "value": 6, "max": 12, "reason": "восстановила"}],
+                   "currencies": [{"name": "золото", "amount": 1, "reason": "получила"}],
                    "money": {"gold": 1, "silver": 0, "copper": 0},
                    "skills": {"Скрытность": 14, "Ловкость": 11},
                    "relations": [{"with": "Морайла", "feeling": "ревнует"}]}],
@@ -140,6 +148,7 @@ export const DEFAULT_AGENTS: AgentSet = {
   "bestiary":    [{"name": "тварь из разлома", "danger": 2, "note": "боится огня"}],
   "intuition":   "одна короткая строка: что герой чувствует, подозревает, боится",
   "heroSkills":  {"Восприятие": 11},
+  "heroSkillMods": [{"skill": "Ловкость", "delta": -6, "reason": "кандалы на ногах"}],
   "lore":        [{"keys": ["колодец", "тварь"], "content": "что мир знает об этом"}],
   "resolveHooks":    ["крючок, который закрылся"],
   "resolvePromises": ["обещание, которое выполнено или снято"],
@@ -150,6 +159,8 @@ export const DEFAULT_AGENTS: AgentSet = {
 - время двигай по сцене: разговор — 0-1 час, дорога — 1-3, сон — скип 6-8;
   драка, погоня, заговор — минуты, но не больше часа;
   если игрок сказал «жду», «сплю», «до утра» — перескакивай сразу;
+  если действие занимает секунды (шаг, удар, взгляд, осмотр двери) — используй
+  advanceSeconds; минуты — advanceMinutes; не округляй до часа;
 - место меняй, только если герой действительно перешёл в другое место;
 - здоровье меняй только при ранах, лечении, болезни, голоде; 0 — смерть;
 - если рану перевязали, лечили или она заживает — перенеси её место в healWounds;
@@ -170,6 +181,15 @@ export const DEFAULT_AGENTS: AgentSet = {
 - NPC добавляй, если персонаж назван или у него есть устойчивое прозвище;
 - добавляй только то, что реально появилось в сцене; предметы, которых герой не брал, не добавляй;
 - деньги указывай только если они изменились; никогда не обнуляй кошель без покупки;
+- валюта мира задана в состоянии (currencies): кредиты, доллары, ракушки, фантики.
+  Меняй amount/delta у нужной валюты; не подменяй её золотом. Причина — «оплатил»,
+  «получил», «украли», «вернули»;
+- время: используй advanceSeconds для секунд (драка, шаг, осмотр), advanceMinutes
+  для минут (разговор, обыск), advanceHours для часов/дороги. Не округляй секунды
+  до часа;
+- простые навыки — число; временные модификаторы (кандалы, яд) не меняй в skills,
+  а пиши в heroSkillMods / skillMods: {"skill":"Ловкость","delta":-6,"reason":"кандалы"};
+  карточка покажет базу и штраф отдельно;
 - ресурсы (heroResources у героя, resources у NPC/пати) — это мана, топливо, рассудок,
   патроны, еда и любые шкалы мира. Создавай ресурс, когда он впервые появляется
   в сцене; value — новое значение, delta — прирост/расход. max ставь, если он известен.
@@ -373,6 +393,11 @@ export async function loadAgents(dir: string): Promise<AgentSet> {
       result.state.prompt = DEFAULT_AGENTS.state.prompt;
     }
 
+    // v16 → v17: валюты мира, календарь и секунды.
+    if (version < 17) {
+      result.state.prompt = DEFAULT_AGENTS.state.prompt;
+    }
+
     return result;
   } catch {
     return structuredClone(DEFAULT_AGENTS);
@@ -386,7 +411,7 @@ export async function saveAgents(dir: string, incoming: Partial<AgentSet>): Prom
     result[id] = merge(current[id], incoming[id] ?? {});
   }
   await mkdir(dir, { recursive: true });
-  await writeFile(agentsPath(dir), `${JSON.stringify({ version: 16, agents: result }, null, 2)}\n`, 'utf8');
+  await writeFile(agentsPath(dir), `${JSON.stringify({ version: 17, agents: result }, null, 2)}\n`, 'utf8');
   return result;
 }
 

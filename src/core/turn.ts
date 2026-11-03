@@ -222,13 +222,17 @@ export async function runTurn(
   // а не принудительный тик на каждом ходу.
   if (
     session.expectDelta !== false &&
-    (!parsed.delta || parsed.delta.advanceHours == null || Number(parsed.delta.advanceHours) <= 0)
+    (!parsed.delta ||
+      (parsed.delta.advanceHours == null &&
+        parsed.delta.advanceMinutes == null &&
+        parsed.delta.advanceSeconds == null) ||
+      Number(parsed.delta.advanceHours ?? 0) + Number(parsed.delta.advanceMinutes ?? 0) + Number(parsed.delta.advanceSeconds ?? 0) <= 0)
   ) {
-    state.time.hour += 1;
-    if (state.time.hour >= 24) {
-      state.time.hour = 0;
-      state.time.day += 1;
-    }
+    const total = (Number(state.time.hour ?? 0) + 1) * 3600;
+    state.time.day += Math.floor(total / 86400);
+    state.time.hour = Math.floor((total % 86400) / 3600);
+    state.time.minute = 0;
+    state.time.second = 0;
     changes.push('время: +1 час');
   }
   const verdict = critique(state, parsed.prose, parsed.delta, changes, session.expectDelta !== false);

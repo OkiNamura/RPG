@@ -4302,3 +4302,55 @@ select {
   font-style: italic;
   opacity: .8;
 }
+
+.clock-btn {
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.time-sheet {
+  max-width: 560px;
+}
+
+.skill-values {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.skill-mod {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.skill-mod.plus {
+  color: #8fc59a;
+}
+
+.skill-mod.minus {
+  color: #d58b83;
+}
+
+.skill-reason {
+  width: 100%;
+  padding-left: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.numeric .skill-row {
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 480px) {
+  .clock-btn {
+    max-width: 42vw;
+    font-size: 11px;
+  }
+}

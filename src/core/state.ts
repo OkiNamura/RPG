@@ -37,10 +37,14 @@ export interface Actor {
   present?: boolean;
   /** скиллы персонажа: 0..20, используются в скрытых проверках */
   skills?: Record<string, number>;
+  /** временные штрафы/бонусы к навыкам */
+  skillMods?: SkillMod[];
   /** произвольные ресурсы: мана, топливо, рассудок, патроны */
   resources?: Resource[];
   /** кошелёк персонажа, если он есть в сцене */
   money?: { gold: number; silver: number; copper: number };
+  /** валюты персонажа для миров без золота/серебра */
+  currencies?: Currency[];
   wounds: Wound[];
   note?: string;
   /** карточка: внешность, характер, одежда, прошлое */
@@ -164,6 +168,35 @@ export interface Resource {
   note?: string;
 }
 
+/** Валюта мира: кредиты, доллары, ракушки, фантики — что угодно. */
+export interface Currency {
+  name: string;
+  amount: number;
+  symbol?: string;
+  primary?: boolean;
+  note?: string;
+}
+
+/** Временный модификатор навыка: кандалы, яд, благословение. */
+export interface SkillMod {
+  skill: string;
+  delta: number;
+  reason: string;
+}
+
+/** Календарь мира: месяцы, сезоны, луны и эпоха задаются один раз. */
+export interface WorldCalendar {
+  era: string;
+  /** с какого года начинается отсчёт кампании */
+  startYear?: number;
+  months: { name: string; days: number }[];
+  seasons: string[];
+  moons: { name: string; period: number; phases: string[] }[];
+  hasNight: boolean;
+  hoursPerDay: number;
+  note?: string;
+}
+
 /** Строка системной сверки: было → стало. */
 export interface NumberChange {
   label: string;
@@ -175,7 +208,7 @@ export interface NumberChange {
 
 export interface GameState {
   turn: number;
-  time: { day: number; hour: number };
+  time: { day: number; hour: number; minute?: number; second?: number };
   place: string;
   weather: string;
   hero: {
@@ -189,6 +222,8 @@ export interface GameState {
     statuses: Status[];
     /** скиллы героя: 0..20 */
     skills?: Record<string, number>;
+    /** временные штрафы/бонусы к навыкам */
+    skillMods?: SkillMod[];
     /** мысли, интуиция и предчувствия — то, что герой чувствует, но не говорит */
     intuition?: string;
     /** мастер-лист героя: по нему рисуются сцены */
@@ -212,6 +247,10 @@ export interface GameState {
     abilities?: string;
   };
   money: { gold: number; silver: number; copper: number };
+  /** валюты мира: если заданы — используются вместо money */
+  currencies?: Currency[];
+  /** календарь и эпоха этого мира */
+  calendar?: WorldCalendar;
   items: Item[];
   party: Actor[];
   npcs: Actor[];
@@ -253,7 +292,7 @@ export function addHiddenFact(state: GameState, content: string): HiddenFact {
 export function createState(heroName: string, place: string): GameState {
   return {
     turn: 0,
-    time: { day: 1, hour: 8 },
+    time: { day: 1, hour: 8, minute: 0, second: 0 },
     place,
     weather: 'холодный туман',
     hero: {
@@ -315,9 +354,13 @@ export function normalizeState(state: GameState): GameState {
   state.hero.conditions ??= [];
   state.hero.statuses ??= [];
   if (!Array.isArray(state.hero.resources)) state.hero.resources = [];
+  if (!Array.isArray(state.currencies)) state.currencies = [];
+  state.time.minute = Number.isFinite(Number(state.time.minute)) ? Math.max(0, Math.min(59, Math.round(Number(state.time.minute)))) : 0;
+  state.time.second = Number.isFinite(Number(state.time.second)) ? Math.max(0, Math.min(59, Math.round(Number(state.time.second)))) : 0;
   for (const list of [state.party, state.npcs]) {
     for (const actor of list) {
       if (!Array.isArray(actor.resources)) actor.resources = [];
+      if (!Array.isArray(actor.currencies)) actor.currencies = [];
     }
   }
   if (typeof state.hero.health !== 'number') state.hero.health = 100;

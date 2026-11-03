@@ -343,6 +343,8 @@ async function viewContainer(view, id) {
     items: campaign.state?.items ?? [],
     hero: campaign.state?.hero ?? {},
     money: campaign.state?.money ?? {},
+    currencies: campaign.state?.currencies ?? [],
+    calendar: campaign.state?.calendar,
     npcs: campaign.state?.npcs ?? [],
     party: campaign.state?.party ?? [],
     factions: campaign.state?.factions ?? [],
@@ -361,7 +363,7 @@ async function viewContainer(view, id) {
     pageHead(
       'Контейнер игры',
       data.title || id,
-      `ход ${data.turn} · ${data.place || '—'} · ${data.time?.day ?? '?'} день, ${data.time?.hour ?? '?'}:00`,
+      `ход ${data.turn} · ${data.place || '—'} · ${worldDate(data.calendar, data.time)}`,
     ),
   );
 
@@ -458,6 +460,21 @@ async function viewContainer(view, id) {
   const agents = data.agents ?? {};
   const order = ['gm', 'prompter', 'state', 'summarizer', 'filler', 'artistHero', 'artistNpc', 'artistItem', 'artistScene'];
   const agentIds = [...order.filter((a) => agents[a]), ...Object.keys(agents).filter((a) => !order.includes(a))];
+  const worldInfo = section('Валюты и календарь', 'Созданы один раз вместе с этим миром.');
+  const wallet = currenciesText(data.currencies, data.money);
+  if (wallet) worldInfo.append(el('div', 'person-field', `Деньги мира: ${wallet}`));
+  if (data.calendar) {
+    const date = calendarDate(data.calendar, data.time?.day ?? 1);
+    worldInfo.append(el('div', 'person-field', `Время: ${worldDate(data.calendar, data.time)}`));
+    const timeBtn = el('button', 'btn small', 'Подробнее о времени');
+    timeBtn.type = 'button';
+    timeBtn.addEventListener('click', () => openTimeDetails({ calendar: data.calendar, time: data.time }));
+    worldInfo.append(timeBtn);
+    worldInfo.append(el('div', 'person-field', `Сезон: ${date.season || 'нет'} · ночь: ${data.calendar.hasNight ? 'есть' : 'нет'}`));
+    worldInfo.append(el('div', 'person-field', `Месяцев: ${data.calendar.months.length} · дней в году: ${data.calendar.months.reduce((sum, m) => sum + m.days, 0)}`));
+  }
+  page.append(worldInfo);
+
   const agentCard = section('Агенты игры', 'Промты сохранены в кампании и не меняются от других игр.');
   for (const agentId of agentIds) {
     const agent = agents[agentId];
@@ -527,7 +544,7 @@ async function viewContainer(view, id) {
   // Герой.
   const hero = data.hero ?? {};
   const heroSection = section('Герой', `${hero.name || 'без имени'} · здоровье ${hero.health ?? 100}/100`);
-  heroSection.append(heroCard(hero, data.money ?? {}, id));
+  heroSection.append(heroCard(hero, data.money ?? {}, id, data.currencies ?? []));
   page.append(heroSection);
 
   // Спутники и NPC. Забытые живут в корзине контейнера.
@@ -1409,15 +1426,10 @@ async function getCatalog() {
 }
 
 function templateSkills(skills) {
-  const wrap = el('div', 'person-skills');
+  const wrap = el('div', 'person-skills numeric');
   for (const [name, value] of Object.entries(skills ?? {})) {
     const line = el('div', 'skill-row');
-    line.append(el('span', 'skill-name', name));
-    const bar = el('div', 'skill-bar');
-    const fill = el('i');
-    fill.style.width = `${Math.max(0, Math.min(20, Number(value) || 0)) * 5}%`;
-    bar.append(fill);
-    line.append(bar, el('span', 'skill-value', String(value)));
+    line.append(el('span', 'skill-name', name), el('span', 'skill-value', String(value)));
     wrap.append(line);
   }
   return wrap;
@@ -3450,11 +3462,7 @@ function rankBar(actor) {
   const wrap = el('div', 'rank-progress');
   const top = el('div', 'rank-progress-top');
   top.append(el('span', 'chip gold', `ранг ${actor.rank ?? 'F'}`), el('span', '', `опыт ${points}/100`));
-  const bar = el('div', 'rank-bar');
-  const fill = el('i');
-  fill.style.width = `${points}%`;
-  bar.append(fill);
-  wrap.append(top, bar);
+  wrap.append(top);
   return wrap;
 }
 
@@ -3524,22 +3532,14 @@ function personCard(actor, campaignId, isNpc = false) {
   }
 
   if (actor.skills && Object.keys(actor.skills).length) {
-    const skills = el('div', 'person-skills');
-    for (const [name, value] of Object.entries(actor.skills)) {
-      const line = el('div', 'skill-row');
-      line.append(el('span', 'skill-name', name));
-      const bar = el('div', 'skill-bar');
-      bar.append(el('i', '', ));
-      bar.firstChild.style.width = `${Math.max(0, Math.min(20, value)) * 5}%`;
-      line.append(bar, el('span', 'skill-value', String(value)));
-      skills.append(line);
-    }
-    card.append(skills);
+    const skills = skillRows(actor.skills, actor.skillMods);
+    if (skills) card.append(skills);
   }
 
   const resources = resourceList(actor.resources);
   if (resources) card.append(resources);
-  if (actor.money) card.append(el('div', 'person-field', `Деньги: ${coinsText(actor.money)}`));
+  const actorWallet = currenciesText(actor.currencies, actor.money);
+  if (actorWallet) card.append(el('div', 'person-field', `Деньги: ${actorWallet}`));
 
   if (actor.relations?.length) {
     const rel = el('div', 'person-field');
@@ -3587,7 +3587,7 @@ function personCard(actor, campaignId, isNpc = false) {
   return card;
 }
 
-function openHeroSheet(hero, money, campaignId) {
+function openHeroSheet(hero, money, campaignId, currencies = []) {
   const overlay = el('div', 'library-modal');
   const sheet = el('article', 'library-sheet hero-sheet');
   const head = el('div', 'library-sheet-head');
@@ -3611,7 +3611,7 @@ function openHeroSheet(hero, money, campaignId) {
   for (const [label, value] of [
     ['Пол', hero.gender === 'female' ? 'женский' : hero.gender === 'male' ? 'мужской' : ''],
     ['Здоровье', `${hero.health ?? 100}/100`],
-    ['Деньги', money ? `${money.gold ?? 0} з · ${money.silver ?? 0} с · ${money.copper ?? 0} м` : ''],
+    ['Деньги', currenciesText(currencies, money)],
     ['Состояния', hero.conditions?.join(', ')],
     ['Раны', hero.wounds?.map((w) => `${w.where} (${w.severity})`).join('; ')],
   ]) {
@@ -3641,7 +3641,8 @@ function openHeroSheet(hero, money, campaignId) {
   if (hero.skills && Object.keys(hero.skills).length) {
     const wrap = el('div', 'person-field');
     wrap.append(el('span', 'person-label', 'Навыки'));
-    wrap.append(templateSkills(hero.skills));
+    const skills = skillRows(hero.skills, hero.skillMods);
+    if (skills) wrap.append(skills);
     body.append(wrap);
   }
 
@@ -3700,7 +3701,7 @@ function openHeroSheet(hero, money, campaignId) {
   document.body.append(overlay);
 }
 
-function heroCard(hero, money, campaignId) {
+function heroCard(hero, money, campaignId, currencies = []) {
   const card = el('article', 'person-card hero-card');
   const head = el('div', 'person-head');
   if (hero.card) {
@@ -3720,7 +3721,8 @@ function heroCard(hero, money, campaignId) {
   if (hero.gender) {
     chips.append(el('span', 'chip', hero.gender === 'female' ? 'женщина' : 'мужчина'));
   }
-  if (money) chips.append(el('span', 'chip', `${money.gold ?? 0} з · ${money.silver ?? 0} с · ${money.copper ?? 0} м`));
+  const walletText = currenciesText(currencies, money);
+  if (walletText) chips.append(el('span', 'chip', walletText));
   titles.append(chips);
   titles.append(rankBar(hero));
   head.append(titles);
@@ -3759,17 +3761,8 @@ function heroCard(hero, money, campaignId) {
   if (heroResources) card.append(heroResources);
 
   if (hero.skills && Object.keys(hero.skills).length) {
-    const skills = el('div', 'person-skills');
-    for (const [name, value] of Object.entries(hero.skills)) {
-      const line = el('div', 'skill-row');
-      line.append(el('span', 'skill-name', name));
-      const bar = el('div', 'skill-bar');
-      bar.append(el('i'));
-      bar.firstChild.style.width = `${Math.max(0, Math.min(20, value)) * 5}%`;
-      line.append(bar, el('span', 'skill-value', String(value)));
-      skills.append(line);
-    }
-    card.append(skills);
+    const skills = skillRows(hero.skills, hero.skillMods);
+    if (skills) card.append(skills);
   }
   if (campaignId) {
     const actions = el('div', 'person-actions');
@@ -3796,7 +3789,7 @@ function heroCard(hero, money, campaignId) {
   card.classList.add('hero-card-clickable');
   card.addEventListener('click', (event) => {
     if (event.target.closest('button,a')) return;
-    openHeroSheet(hero, money, campaignId);
+    openHeroSheet(hero, money, campaignId, currencies);
   });
   return card;
 }
@@ -3878,10 +3871,14 @@ function openActorModal(actor, campaignId, isNpc = false) {
     field.append(el('span', 'person-label', label), el('div', 'person-value', value));
     info.append(field);
   }
-  if (actor.skills && Object.keys(actor.skills).length) info.append(templateSkills(actor.skills));
+  if (actor.skills && Object.keys(actor.skills).length) {
+    const skills = skillRows(actor.skills, actor.skillMods);
+    if (skills) info.append(skills);
+  }
   const actorResources = resourceList(actor.resources);
   if (actorResources) info.append(actorResources);
-  if (actor.money) info.append(el('div', 'person-field', `Деньги: ${coinsText(actor.money)}`));
+  const actorWallet = currenciesText(actor.currencies, actor.money);
+  if (actorWallet) info.append(el('div', 'person-field', `Деньги: ${actorWallet}`));
 
   const actions = el('div', 'actor-sheet-actions');
   const sheetBtn = el('button', 'btn small', '▣ в полный рост');
@@ -3976,11 +3973,32 @@ function openActorModal(actor, campaignId, isNpc = false) {
 }
 
 function healthBar(value) {
-  const wrap = el('div', 'health');
-  const bar = el('div', 'health-bar');
-  bar.style.width = `${Math.max(0, Math.min(100, value))}%`;
-  wrap.append(bar, el('span', 'health-label', `${value}/100`));
+  const wrap = el('div', 'health health-numeric');
+  wrap.append(el('span', 'health-label', `${value}/100`));
   return wrap;
+}
+
+function skillRows(skills, mods = []) {
+  const wrap = el('div', 'person-skills numeric');
+  for (const [name, raw] of Object.entries(skills ?? {})) {
+    const value = Number(raw) || 0;
+    const matching = (mods ?? []).filter((mod) => String(mod.skill).toLowerCase() === name.toLowerCase());
+    const totalMod = matching.reduce((sum, mod) => sum + Number(mod.delta || 0), 0);
+    const row = el('div', 'skill-row');
+    row.append(el('span', 'skill-name', name));
+    const values = el('span', 'skill-values');
+    values.append(el('span', 'skill-value', String(value)));
+    if (totalMod) {
+      values.append(el('span', `skill-mod ${totalMod > 0 ? 'plus' : 'minus'}`, `${totalMod > 0 ? '+' : ''}${totalMod}`));
+    }
+    row.append(values);
+    if (matching.length) {
+      const reasons = matching.map((mod) => `${mod.delta > 0 ? '+' : ''}${mod.delta} ${mod.reason}`).join(', ');
+      row.append(el('span', 'skill-reason', reasons));
+    }
+    wrap.append(row);
+  }
+  return wrap.children.length ? wrap : null;
 }
 
 function coinsText(money) {
@@ -3992,6 +4010,65 @@ function coinsText(money) {
   return parts.join(' ') || '0';
 }
 
+function currenciesText(currencies, money) {
+  if (Array.isArray(currencies) && currencies.length) {
+    return currencies
+      .filter((currency) => Number(currency.amount ?? 0) !== 0 || currency.primary)
+      .map((currency) => `${currency.amount ?? 0} ${currency.name}`)
+      .join(' · ') || currencies.map((currency) => `${currency.amount ?? 0} ${currency.name}`).join(' · ');
+  }
+  return coinsText(money);
+}
+
+function clockText(time) {
+  const hh = String(Math.max(0, Number(time?.hour ?? 0))).padStart(2, '0');
+  const mm = String(Math.max(0, Number(time?.minute ?? 0))).padStart(2, '0');
+  const ss = String(Math.max(0, Number(time?.second ?? 0))).padStart(2, '0');
+  return `${hh}:${mm}:${ss}`;
+}
+
+function calendarDate(calendar, day) {
+  if (!calendar?.months?.length) {
+    return { year: 1, dayOfYear: day, monthIndex: 0, monthName: '', dayOfMonth: day, season: '', moons: [] };
+  }
+  const daysPerYear = calendar.months.reduce((sum, month) => sum + Math.max(1, month.days), 0);
+  const offset = Math.max(0, Math.floor(day) - 1);
+  const year = (calendar.startYear ?? 1) + Math.floor(offset / daysPerYear);
+  let rest = offset % daysPerYear;
+  let monthIndex = 0;
+  while (monthIndex < calendar.months.length - 1 && rest >= calendar.months[monthIndex].days) {
+    rest -= calendar.months[monthIndex].days;
+    monthIndex += 1;
+  }
+  const dayOfYear = (offset % daysPerYear) + 1;
+  const season = calendar.seasons?.length
+    ? calendar.seasons[Math.min(calendar.seasons.length - 1, Math.floor(((dayOfYear - 1) / daysPerYear) * calendar.seasons.length))]
+    : '';
+  const moons = (calendar.moons ?? []).map((moon) => ({
+    name: moon.name,
+    phase: moon.phases?.length
+      ? moon.phases[Math.floor(offset / Math.max(1, moon.period)) % moon.phases.length]
+      : '',
+  }));
+  return {
+    year,
+    dayOfYear,
+    monthIndex,
+    monthName: calendar.months[monthIndex]?.name ?? '',
+    dayOfMonth: rest + 1,
+    season,
+    moons,
+  };
+}
+
+function worldDate(calendar, time, includeTime = true) {
+  const date = calendarDate(calendar, time?.day ?? 1);
+  const datePart = calendar
+    ? `${calendar.era}, ${date.year} год, ${date.monthName} ${date.dayOfMonth}`
+    : `день ${time?.day ?? 1}`;
+  return includeTime ? `${datePart} · ${clockText(time)}` : datePart;
+}
+
 function resourceList(resources, compact = false) {
   if (!Array.isArray(resources) || !resources.length) return null;
   const wrap = el('div', `resource-list${compact ? ' compact' : ''}`);
@@ -4001,12 +4078,7 @@ function resourceList(resources, compact = false) {
     head.append(el('span', 'resource-name', resource.name));
     const unit = resource.unit ? ` ${resource.unit}` : '';
     head.append(el('span', 'resource-value', `${resource.value}${resource.max != null ? `/${resource.max}` : ''}${unit}`));
-    const bar = el('div', 'resource-bar');
-    const fill = el('i');
-    const max = resource.max != null && resource.max > 0 ? resource.max : Math.max(resource.value, 1);
-    fill.style.width = `${Math.max(0, Math.min(100, (resource.value / max) * 100))}%`;
-    bar.append(fill);
-    row.append(head, bar);
+    row.append(head);
     wrap.append(row);
   }
   return wrap;
@@ -4017,7 +4089,8 @@ function resourceLine(actor) {
   for (const resource of actor.resources ?? []) {
     parts.push(`${resource.name}: ${resource.value}${resource.max != null ? `/${resource.max}` : ''}`);
   }
-  if (actor.money) parts.push(`деньги: ${coinsText(actor.money)}`);
+  if (actor.currencies?.length) parts.push(`деньги: ${currenciesText(actor.currencies, actor.money)}`);
+  else if (actor.money) parts.push(`деньги: ${coinsText(actor.money)}`);
   return parts.length ? el('div', 'resource-summary', parts.join(' · ')) : null;
 }
 
@@ -4058,7 +4131,6 @@ function showNewCards(state, g) {
 }
 
 function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
-  const hh = String(state.time.hour).padStart(2, '0');
   const frag = document.createDocumentFragment();
 
   const refresh = async () => {
@@ -4072,7 +4144,7 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
   };
 
   frag.append(section('Место и время', [
-    row('День', `${state.time.day}, ${hh}:00`),
+    row('Время', worldDate(state.calendar, state.time)),
     row('Локация', state.place),
     row('Погода', state.weather),
   ]));
@@ -4136,8 +4208,9 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
   if (state.hero.skills && Object.keys(state.hero.skills).length) body.push(el('div', 'skills-line', formatSkills(state.hero.skills)));
   frag.append(section('Тело', body));
 
-  frag.append(section('Деньги', [row('Кошель', `${state.money.gold} з · ${state.money.silver} с · ${state.money.copper} м`)]));
-  frag.append(section('Карточка героя', [heroCard(state.hero, state.money, campaignId)]));
+  const walletText = currenciesText(state.currencies, state.money);
+  if (walletText) frag.append(section('Деньги', [row('Кошель', walletText)]));
+  frag.append(section('Карточка героя', [heroCard(state.hero, state.money, campaignId, state.currencies ?? [])]));
 
   const inventory = state.items.length
     ? itemList(state.items.map((i) => {
@@ -4311,6 +4384,59 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
   panel.replaceChildren(frag);
 }
 
+function openTimeDetails(state) {
+  const overlay = el('div', 'library-modal');
+  const sheet = el('article', 'library-sheet time-sheet');
+  const head = el('div', 'library-sheet-head');
+  const titles = el('div');
+  titles.append(el('h2', 'person-name', 'Время мира'));
+  titles.append(el('div', 'person-role', state?.calendar?.era || 'календарь истории'));
+  const close = el('button', 'btn small', '✕');
+  close.type = 'button';
+  head.append(titles, close);
+
+  const date = calendarDate(state?.calendar, state?.time?.day ?? 1);
+  const rows = [
+    ['Сейчас', worldDate(state?.calendar, state?.time ?? {})],
+    ['День месяца', `${date.dayOfMonth}`],
+    ['Месяц', date.monthName || '—'],
+    ['Год', `${date.year}`],
+    ['День года', `${date.dayOfYear}`],
+    ['Сезон', date.season || 'нет'],
+    ['Ночь', state?.calendar?.hasNight ? 'есть' : 'нет'],
+    ['Дней в году', state?.calendar?.months?.length ? `${state.calendar.months.reduce((sum, m) => sum + m.days, 0)}` : '—'],
+    ...(date.moons ?? []).map((moon) => [`Луна · ${moon.name}`, moon.phase || '—']),
+    ['Эпоха', state?.calendar?.era || '—'],
+    ['Заметка', state?.calendar?.note || '—'],
+  ];
+  const body = el('div', 'library-sheet-body');
+  for (const [label, value] of rows) {
+    body.append(el('div', 'person-field', `${label}: ${value}`));
+  }
+  if (state?.calendar?.months?.length) {
+    const months = el('div', 'person-field');
+    months.append(
+      el('span', 'person-label', 'Месяцы'),
+      el('div', 'person-value', state.calendar.months.map((month) => `${month.name} (${month.days} дн.)`).join(' · ')),
+    );
+    body.append(months);
+  }
+
+  sheet.append(head, body);
+  overlay.append(sheet);
+  close.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  document.addEventListener('keydown', function onKey(event) {
+    if (event.key === 'Escape') {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+  });
+  document.body.append(overlay);
+}
+
 async function viewPlay(view, id) {
   const data = await api(`/api/campaign/${encodeURIComponent(id)}`);
   const route = currentRoute();
@@ -4432,7 +4558,18 @@ async function viewPlay(view, id) {
   });
 
   menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn);
-  head.append(cost, panelBtn, menuBtn, menu);
+  const clockBtn = el('button', 'btn small clock-btn');
+  clockBtn.type = 'button';
+  clockBtn.title = 'подробнее о времени мира';
+  const updateClock = (state) => {
+    const time = state?.time ?? {};
+    clockBtn.textContent = `${clockText(time)} · ${worldDate(state?.calendar, time, false)}`;
+    clockBtn.setAttribute('aria-label', `Время мира: ${worldDate(state?.calendar, time)}`);
+  };
+  clockBtn.addEventListener('click', () => openTimeDetails(data.state));
+  updateClock(data.state);
+
+  head.append(cost, clockBtn, panelBtn, menuBtn, menu);
 
   const body = el('div', 'play-body');
   const log = el('div', 'log');
@@ -4616,6 +4753,8 @@ async function viewPlay(view, id) {
         actionsBar({ turn: result.stats?.turn ?? result.state.turn, variants: 1, input: text }, id),
       );
       renderPanel(result.state, panel, id, result.worldMap ?? '', result.map ?? '', result.summary);
+      data.state = result.state;
+      updateClock(result.state);
       renderThoughts(result.state);
       if (result.roll) addRoll(log, result.roll);
       showNewCards(result.state, app.game);

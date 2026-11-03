@@ -5,7 +5,17 @@
  * отбрасывается, ход продолжается — стейт нельзя испортить одним ответом.
  */
 
-import { addHiddenFact, type Actor, type GameState, type Item, type Quest, type Resource, type Status } from './state.ts';
+import { addHiddenFact, type Actor, type Currency, type GameState, type Item, type Quest, type Resource, type SkillMod, type Status } from './state.ts';
+
+/** Изменение валюты мира или карточки. */
+export interface CurrencyPatch {
+  name: string;
+  amount?: number;
+  delta?: number;
+  symbol?: string;
+  note?: string;
+  reason?: string;
+}
 
 /** Изменение ресурса: можно задать новое значение или прирост. */
 export interface ResourcePatch {
@@ -37,23 +47,30 @@ export interface ActorPatch {
   /** способности/умения */
   abilities?: string;
   skills?: Record<string, number>;
+  skillMods?: SkillMod[];
   rank?: Actor['rank'];
   rankPoints?: number;
   relations?: { with: string; feeling: string }[];
   resources?: ResourcePatch[];
   money?: { gold?: number; silver?: number; copper?: number };
+  /** валюты персонажа: кредиты, ракушки, фантики */
+  currencies?: CurrencyPatch[];
 }
 
 export interface Delta {
   place?: string;
   weather?: string;
   advanceHours?: number;
+  advanceMinutes?: number;
+  advanceSeconds?: number;
   health?: number;
   healthReason?: string;
   money?: { gold?: number; silver?: number; copper?: number };
   moneyReason?: string;
   /** ресурсы героя: мана, топливо, рассудок и т.п. */
   heroResources?: ResourcePatch[];
+  /** валюты мира: если заданы, заменяют money */
+  currencies?: CurrencyPatch[];
   addItems?: { name: string; qty: number; where?: Item['where']; reason?: string }[];
   removeItems?: { name: string; qty: number; reason?: string }[];
   conditions?: string[];
@@ -87,6 +104,7 @@ export interface Delta {
   lore?: { keys: string[]; content: string }[];
   intuition?: string;
   heroSkills?: Record<string, number>;
+  heroSkillMods?: SkillMod[];
   /** очки ранга за значимое событие (0..10); обычный ход — 0 или 1 */
   rankGain?: number;
   rankReason?: string;
@@ -257,10 +275,12 @@ function upsertActor(
     if (patch.description) existing.description = patch.description;
     if (patch.abilities) existing.abilities = patch.abilities;
     if (patch.skills) existing.skills = { ...(existing.skills ?? {}), ...patch.skills };
+    if (patch.skillMods) existing.skillMods = patch.skillMods;
     if (patch.rank) existing.rank = patch.rank;
     if (typeof patch.rankPoints === 'number') existing.rankPoints = patch.rankPoints;
     if (patch.relations) existing.relations = patch.relations;
     if (patch.resources) applyResourcePatches(existing, patch.resources, existing.name, changes);
+    if (patch.currencies) applyCurrencyPatches(existing, patch.currencies, existing.name, changes);
     if (patch.money) {
       existing.money ??= { gold: 0, silver: 0, copper: 0 };
       if (applyCoins(existing.money, patch.money)) changes.push(`кошелёк ${existing.name}: изменён`);
@@ -283,6 +303,7 @@ function upsertActor(
     attitude: clampScore(patch.attitude),
     present: patch.present ?? true,
     resources: [],
+    currencies: [],
     money: patch.money ? { gold: 0, silver: 0, copper: 0 } : undefined,
     wounds: [],
     note: patch.note,
@@ -293,12 +314,14 @@ function upsertActor(
     description: patch.description,
     abilities: patch.abilities,
     skills: patch.skills,
+    skillMods: patch.skillMods,
     rank: patch.rank ?? 'F',
     rankPoints: patch.rankPoints ?? 0,
     rankHistory: [],
     relations: patch.relations,
   };
   if (patch.resources) applyResourcePatches(created, patch.resources, created.name, changes);
+  if (patch.currencies) applyCurrencyPatches(created, patch.currencies, created.name, changes);
   if (patch.money) applyCoins(created.money!, patch.money);
   list.push(created);
   return `${prefix}: ${patch.name}`;
@@ -374,6 +397,35 @@ function applyCoins(
   return changed;
 }
 
+function applyCurrencyPatches(
+  target: { currencies?: Currency[] },
+  patches: CurrencyPatch[] | undefined,
+  label: string,
+  changes: string[],
+): void {
+  if (!Array.isArray(patches) || !patches.length) return;
+  target.currencies ??= [];
+  for (const patch of patches) {
+    const name = String(patch?.name ?? '').trim().slice(0, 40);
+    if (!name) continue;
+    let currency = target.currencies.find((item) => item.name.toLowerCase() === name.toLowerCase());
+    if (!currency) {
+      currency = { name, amount: 0 };
+      target.currencies.push(currency);
+    }
+    const before = currency.amount;
+    if (typeof patch.symbol === 'string' && patch.symbol.trim()) currency.symbol = patch.symbol.trim().slice(0, 8);
+    if (typeof patch.note === 'string' && patch.note.trim()) currency.note = patch.note.trim().slice(0, 120);
+    if (typeof patch.amount === 'number' && Number.isFinite(patch.amount)) {
+      currency.amount = patch.amount;
+    } else if (typeof patch.delta === 'number' && Number.isFinite(patch.delta)) {
+      currency.amount += patch.delta;
+    }
+    currency.amount = Math.max(0, Math.round(currency.amount));
+    if (currency.amount !== before) changes.push(`${label} · ${currency.name}: ${before} → ${currency.amount}`);
+  }
+}
+
 /**
  * Применяет изменения. Возвращает человекочитаемый журнал:
  * по нему видно, что реально поменялось, а что отброшено.
@@ -383,12 +435,28 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
   // Старые кампании могли не иметь лор-книги.
   state.lore ??= [];
 
-  if (typeof delta.advanceHours === 'number' && delta.advanceHours > 0) {
-    const total = state.time.hour + delta.advanceHours;
-    const addDays = Math.floor(total / 24);
-    state.time.hour = total % 24;
-    state.time.day += addDays;
-    changes.push(`время +${delta.advanceHours} ч`);
+  if (
+    typeof delta.advanceHours === 'number' ||
+    typeof delta.advanceMinutes === 'number' ||
+    typeof delta.advanceSeconds === 'number'
+  ) {
+    const seconds =
+      Math.round((Number(delta.advanceHours ?? 0) * 3600) +
+        (Number(delta.advanceMinutes ?? 0) * 60) +
+        Number(delta.advanceSeconds ?? 0));
+    if (seconds > 0) {
+      const current =
+        (Number(state.time.hour ?? 0) * 3600) +
+        (Number(state.time.minute ?? 0) * 60) +
+        Number(state.time.second ?? 0);
+      const total = current + seconds;
+      state.time.day += Math.floor(total / 86400);
+      const rest = total % 86400;
+      state.time.hour = Math.floor(rest / 3600);
+      state.time.minute = Math.floor((rest % 3600) / 60);
+      state.time.second = rest % 60;
+      changes.push(`время +${Math.floor(seconds / 60)} мин ${seconds % 60} с`);
+    }
   }
 
   if (typeof delta.place === 'string' && delta.place.trim()) {
@@ -495,6 +563,7 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
   }
 
   applyResourcePatches(state.hero, delta.heroResources, 'герой', changes);
+  applyCurrencyPatches(state, delta.currencies, 'герой', changes);
 
   for (const where of delta.healWounds ?? []) {
     const wound = state.hero.wounds.find(
@@ -674,6 +743,11 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
     if (!Number.isFinite(score)) continue;
     state.hero.skills = { ...(state.hero.skills ?? {}), [skill]: score };
     changes.push(`скилл: ${skill} ${score}`);
+  }
+  if (Array.isArray(delta.heroSkillMods)) {
+    state.hero.skillMods = delta.heroSkillMods
+      .filter((mod) => mod && String(mod.skill ?? '').trim() && Number.isFinite(Number(mod.delta)))
+      .map((mod) => ({ skill: String(mod.skill).trim().slice(0, 40), delta: Number(mod.delta), reason: String(mod.reason ?? '').slice(0, 80) }));
   }
 
   for (const place of delta.places ?? []) {

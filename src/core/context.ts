@@ -17,6 +17,7 @@
 
 import { createHash } from 'node:crypto';
 import type { GameState } from './state.ts';
+import { formatWorldDate } from './calendar.ts';
 
 export interface Segment {
   name: string;
@@ -71,12 +72,15 @@ function formatCoins(money?: { gold: number; silver: number; copper: number }): 
   return money ? `${money.gold}з ${money.silver}с ${money.copper}м` : '';
 }
 
+function formatCurrencies(currencies?: { name: string; amount: number }[]): string {
+  return (currencies ?? []).map((currency) => `${currency.amount} ${currency.name}`).join(', ');
+}
+
 export function renderState(s: GameState): string {
-  const hh = String(s.time.hour).padStart(2, '0');
   const lines: string[] = [];
 
   lines.push(`ТЕКУЩЕЕ СОСТОЯНИЕ (ход ${s.turn})`);
-  lines.push(`Время: день ${s.time.day}, ${hh}:00`);
+  lines.push(`Время: ${formatWorldDate(s.calendar, s.time)}`);
   lines.push(`Место: ${s.place}`);
   lines.push(`Погода: ${s.weather}`);
 
@@ -95,7 +99,8 @@ export function renderState(s: GameState): string {
         .join('; ')}`,
     );
   }
-  lines.push(`Деньги: ${s.money.gold} золота, ${s.money.silver} серебра, ${s.money.copper} меди`);
+  lines.push(`Деньги: ${s.currencies?.length ? formatCurrencies(s.currencies) : `${s.money.gold} золота, ${s.money.silver} серебра, ${s.money.copper} меди`}`);
+  if (s.currencies?.length) lines.push(`Валюты мира: ${s.currencies.map((c) => c.name).join(', ')}`);
   if (s.hero.resources?.length) lines.push(`Ресурсы героя: ${formatResources(s.hero.resources)}`);
 
   if (s.hero.skills && Object.keys(s.hero.skills).length) {

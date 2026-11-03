@@ -60,6 +60,7 @@ import { defaultSkills, hiddenCheck } from './core/skills.ts';
 import { TONE_LEVELS, toneDirective, toneLevel } from './core/tone-levels.ts';
 import { embedPngText, isPng } from './core/png.ts';
 import { KeyStore, fetchKeyModels, normalizeBaseUrl, type KeyModel } from './core/keys.ts';
+import { makeWorldProfile } from './core/world-profile.ts';
 
 interface ArtTagField {
   name: string;
@@ -227,11 +228,25 @@ function parseJsonObject(raw: string): Record<string, unknown> | null {
 interface NumericSnapshot {
   health: number;
   money: { gold: number; silver: number; copper: number };
+  currencies: Record<string, { name: string; amount: number }>;
   resources: Record<string, { value: number; max?: number; unit?: string }>;
   items: Record<string, number>;
   rank: string;
   rankPoints: number;
-  actors: Record<string, { name: string; resources: Record<string, { value: number; max?: number; unit?: string }>; money?: { gold: number; silver: number; copper: number } }>;
+  actors: Record<string, {
+    name: string;
+    currencies: Record<string, { name: string; amount: number }>;
+    resources: Record<string, { value: number; max?: number; unit?: string }>;
+    money?: { gold: number; silver: number; copper: number };
+  }>;
+}
+
+function currencyMap(currencies?: { name: string; amount: number }[]): Record<string, { name: string; amount: number }> {
+  const map: Record<string, { name: string; amount: number }> = {};
+  for (const currency of currencies ?? []) {
+    map[currency.name.toLowerCase()] = { name: currency.name, amount: currency.amount };
+  }
+  return map;
 }
 
 function resourceMap(resources?: Resource[]): Record<string, { value: number; max?: number; unit?: string }> {
@@ -247,6 +262,7 @@ function numericSnapshot(state: GameState): NumericSnapshot {
   for (const actor of [...state.party, ...state.npcs.filter((item) => !item.archived)]) {
     actors[actor.name.toLowerCase()] = {
       name: actor.name,
+      currencies: currencyMap(actor.currencies),
       resources: resourceMap(actor.resources),
       money: actor.money,
     };
@@ -254,6 +270,7 @@ function numericSnapshot(state: GameState): NumericSnapshot {
   return {
     health: state.hero.health,
     money: { ...state.money },
+    currencies: currencyMap(state.currencies),
     resources: resourceMap(state.hero.resources),
     items: Object.fromEntries(state.items.map((item) => [item.name.toLowerCase(), item.qty])),
     rank: state.hero.rank ?? 'F',
@@ -298,7 +315,21 @@ function diffNumbers(
     rows.push(numberChange('Здоровье', String(before.health), String(after.health), `${diff > 0 ? '+' : ''}${diff}`, reasons.health));
   }
   const coins = ['gold', 'silver', 'copper'] as const;
-  if (coins.some((key) => before.money[key] !== after.money[key])) {
+  const hasCurrencies = Object.keys(before.currencies).length > 0 || Object.keys(after.currencies).length > 0;
+  if (hasCurrencies) {
+    for (const key of new Set([...Object.keys(before.currencies), ...Object.keys(after.currencies)])) {
+      const oldValue = before.currencies[key] ?? { name: key, amount: 0 };
+      const newValue = after.currencies[key] ?? { name: oldValue.name, amount: 0 };
+      if (oldValue.amount === newValue.amount) continue;
+      rows.push(numberChange(
+        newValue.name,
+        String(oldValue.amount),
+        String(newValue.amount),
+        `${newValue.amount > oldValue.amount ? '+' : ''}${newValue.amount - oldValue.amount}`,
+        reasons[`currency:${key}`],
+      ));
+    }
+  } else if (coins.some((key) => before.money[key] !== after.money[key])) {
     rows.push(numberChange('Деньги', coinText(before.money), coinText(after.money), coinDelta(before.money, after.money), reasons.money));
   }
   const resourceKeys = new Set([...Object.keys(before.resources), ...Object.keys(after.resources)]);
@@ -337,6 +368,18 @@ function diffNumbers(
         reasons[`actor:${key}:${resKey}`],
       ));
     }
+    for (const currencyKey of new Set([...Object.keys(oldActor.currencies), ...Object.keys(newActor.currencies)])) {
+      const oldCurrency = oldActor.currencies[currencyKey] ?? { name: currencyKey, amount: 0 };
+      const newCurrency = newActor.currencies[currencyKey] ?? { name: oldCurrency.name, amount: 0 };
+      if (oldCurrency.amount === newCurrency.amount) continue;
+      rows.push(numberChange(
+        `${newActor.name} · ${newCurrency.name}`,
+        String(oldCurrency.amount),
+        String(newCurrency.amount),
+        `${newCurrency.amount > oldCurrency.amount ? '+' : ''}${newCurrency.amount - oldCurrency.amount}`,
+        reasons[`actor-currency:${key}:${currencyKey}`],
+      ));
+    }
     if (oldActor.money && newActor.money && coins.some((coin) => oldActor.money![coin] !== newActor.money![coin])) {
       rows.push(numberChange(
         `${newActor.name} · деньги`,
@@ -373,7 +416,7 @@ async function runStateAgent(
     { role: 'system', content: agent.prompt },
     {
       role: 'user',
-      content: `СОСТОЯНИЕ:\n${renderState(session.state)}\n\nПОСЛЕДНИЙ ХОД:\n${prose.slice(0, 4000)}\n\nРесурсы: если в сцене появилась мана, топливо, рассудок, патроны или другая шкала — добавь heroResources (герой) или resources (NPC/пати) с name, value или delta, max и коротким reason. Деньги NPC — money. Не выдумывай ресурс без сцены.`,
+      content: `СОСТОЯНИЕ:\n${renderState(session.state)}\n\nПОСЛЕДНИЙ ХОД:\n${prose.slice(0, 4000)}\n\nВалюты: если в сцене есть деньги, меняй currencies (name, amount или delta, reason), а не старый money. Ресурсы: если в сцене появилась мана, топливо, рассудок, патроны или другая шкала — добавь heroResources (герой) или resources (NPC/пати) с name, value или delta, max и коротким reason. Деньги NPC — currencies. Не выдумывай ресурс или валюту без сцены.`,
     },
   ]);
 
@@ -393,11 +436,19 @@ async function runStateAgent(
       const name = short(patch.name).toLowerCase();
       if (name && short(patch.reason)) reasons[`hero:${name}`] = short(patch.reason);
     }
+    for (const patch of (delta.currencies as Delta['currencies']) ?? []) {
+      const name = short(patch.name).toLowerCase();
+      if (name && short(patch.reason)) reasons[`currency:${name}`] = short(patch.reason);
+    }
     for (const patch of (delta.party as Delta['party']) ?? []) {
       const actor = short(patch.name).toLowerCase();
       for (const resource of patch.resources ?? []) {
         const name = short(resource.name).toLowerCase();
         if (actor && name && short(resource.reason)) reasons[`actor:${actor}:${name}`] = short(resource.reason);
+      }
+      for (const currency of patch.currencies ?? []) {
+        const name = short(currency.name).toLowerCase();
+        if (actor && name && short(currency.reason)) reasons[`actor-currency:${actor}:${name}`] = short(currency.reason);
       }
       if (patch.money && short((patch as { moneyReason?: unknown }).moneyReason)) {
         reasons[`actor-money:${actor}`] = short((patch as { moneyReason?: unknown }).moneyReason);
@@ -408,6 +459,10 @@ async function runStateAgent(
       for (const resource of patch.resources ?? []) {
         const name = short(resource.name).toLowerCase();
         if (actor && name && short(resource.reason)) reasons[`actor:${actor}:${name}`] = short(resource.reason);
+      }
+      for (const currency of patch.currencies ?? []) {
+        const name = short(currency.name).toLowerCase();
+        if (actor && name && short(currency.reason)) reasons[`actor-currency:${actor}:${name}`] = short(currency.reason);
       }
     }
     for (const add of (delta.addItems as Delta['addItems']) ?? []) {
@@ -1061,6 +1116,25 @@ async function getSession(id: string): Promise<Session | null> {
 
   const saved = await loadCampaign(DATA_DIR, id);
   if (!saved) return null;
+  saved.state = normalizeState(saved.state);
+  const legacyProfileSeed = `${saved.meta?.title ?? ''}\n${saved.meta?.eraLabel ?? ''}`;
+  if (!saved.state.calendar) {
+    saved.state.calendar = makeWorldProfile(
+      legacyProfileSeed,
+      { epochYear: saved.meta?.epochYear, altTime: saved.meta?.altTime, eraLabel: saved.meta?.eraLabel, title: saved.meta?.title },
+    ).calendar;
+  }
+  if (!saved.state.currencies?.length) {
+    const profile = makeWorldProfile(
+      legacyProfileSeed,
+      { epochYear: saved.meta?.epochYear, altTime: saved.meta?.altTime, eraLabel: saved.meta?.eraLabel, title: saved.meta?.title },
+    );
+    const legacy = [saved.state.money?.gold ?? 0, saved.state.money?.silver ?? 0, saved.state.money?.copper ?? 0];
+    saved.state.currencies = profile.currencies.map((currency, index) => ({
+      ...currency,
+      amount: legacy[index] ?? 0,
+    }));
+  }
 
   // У каждой игры свои агенты; старые кампании берут глобальные.
   const gameAgents = (saved.agents as unknown as AgentSet) ?? structuredClone(agents);
@@ -2412,6 +2486,20 @@ const server = createServer(async (req, res) => {
       const heroBlock = heroText.trimStart().startsWith('#')
         ? heroText
         : `# ГЕРОЙ\n${heroText}`;
+      // Валюты и календарь рождаются один раз вместе с миром.
+      const worldProfile = makeWorldProfile(
+        `${String(body.world ?? '')}\n${String(body.tone ?? '')}\n${toneSection}\n${worldBlock}\n${heroBlock}\n${String(body.description ?? body.title ?? '')}`,
+        {
+          eraLabel: meta.eraLabel,
+          epochYear: meta.epochYear,
+          altTime: meta.altTime,
+          title: meta.title,
+        },
+      );
+      state.currencies = worldProfile.currencies;
+      state.calendar = worldProfile.calendar;
+      // Новые миры живут на своих валютах; старый money остаётся пустым.
+      state.money = { gold: 0, silver: 0, copper: 0 };
       // Модель пересобираем после мастера: температура уже могла измениться.
       const sessionModel = makeAgentModel(gameAgents.gm, !gameAgents.state.enabled) ?? model;
       const session: Session = createSession({
@@ -2505,6 +2593,8 @@ const server = createServer(async (req, res) => {
           items: session.state.items ?? [],
           hero: session.state.hero,
           money: session.state.money,
+          currencies: session.state.currencies ?? [],
+          calendar: session.state.calendar,
           npcs: session.state.npcs ?? [],
           party: session.state.party ?? [],
           factions: session.state.factions ?? [],
@@ -3036,6 +3126,7 @@ const server = createServer(async (req, res) => {
               start: hero.start,
               quote: hero.intuition,
               resources: hero.resources ?? [],
+              currencies: session.state.currencies ?? [],
               money: session.state.money,
             },
           };
@@ -3065,6 +3156,7 @@ const server = createServer(async (req, res) => {
               clothes: actor.clothes,
               note: actor.note,
               resources: actor.resources ?? [],
+              currencies: actor.currencies ?? [],
               money: actor.money,
               present: actor.present,
             },

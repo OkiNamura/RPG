@@ -9,6 +9,7 @@ import { applyDelta } from '../src/core/delta.ts';
 import { matchLore, renderLore } from '../src/core/lore.ts';
 import { resolveRoll, skillForAction } from '../src/core/dice.ts';
 import { addRankPoints, randomStartRank, RANKS } from '../src/core/rank.ts';
+import { calendarDate, formatWorldDate } from '../src/core/calendar.ts';
 
 let failed = 0;
 
@@ -350,6 +351,27 @@ function testResources() {
   check('ресурсы: расход спутницы', s.party[0]?.resources?.[0]?.value === 3);
   applyDelta(s, { heroResources: [{ name: 'мана', value: 99, max: 10 }] });
   check('ресурсы: значение не выше максимума', s.hero.resources?.[0]?.value === 10);
+  applyDelta(s, { advanceSeconds: 7 });
+  check('время: секунды учитываются', s.time.second === 7);
+  applyDelta(s, { currencies: [{ name: 'кредиты', amount: 12 }, { name: 'чипы', delta: 2 }] });
+  check('валюты: количество и прирост', s.currencies?.find((c) => c.name === 'кредиты')?.amount === 12 && s.currencies?.find((c) => c.name === 'чипы')?.amount === 2);
+}
+
+function testCalendar() {
+  const calendar = {
+    era: 'Эра',
+    startYear: 5,
+    months: [{ name: 'первый', days: 16 }, { name: 'второй', days: 16 }],
+    seasons: ['сезон А', 'сезон Б'],
+    moons: [{ name: 'Луна', period: 8, phases: ['новая', 'полная'] }],
+    hasNight: true,
+    hoursPerDay: 24,
+  };
+  const date = calendarDate(calendar, 17);
+  check('календарь: 16-дневный месяц переходит', date.monthName === 'второй' && date.dayOfMonth === 1);
+  check('календарь: сезон считается', date.season === 'сезон Б');
+  check('календарь: фаза луны считается', date.moons[0]?.phase === 'новая');
+  check('календарь: формат даты', formatWorldDate(calendar, { day: 17, hour: 8, minute: 3, second: 9 }).includes('второй 1') && formatWorldDate(calendar, { day: 17, hour: 8, minute: 3, second: 9 }).includes('08:03:09'));
 }
 
 testMechanics();
@@ -357,6 +379,7 @@ testFixes();
 testActors();
 testRanks();
 testResources();
+testCalendar();
 testDice();
 
 console.log('');
