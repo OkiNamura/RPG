@@ -416,7 +416,7 @@ async function runStateAgent(
     { role: 'system', content: agent.prompt },
     {
       role: 'user',
-      content: `СОСТОЯНИЕ:\n${renderState(session.state)}\n\nПОСЛЕДНИЙ ХОД:\n${prose.slice(0, 4000)}\n\nВалюты: если в сцене есть деньги, меняй currencies (name, amount или delta, reason), а не старый money. Ресурсы: если в сцене появилась мана, топливо, рассудок, патроны или другая шкала — добавь heroResources (герой) или resources (NPC/пати) с name, value или delta, max и коротким reason. Деньги NPC — currencies. Не выдумывай ресурс или валюту без сцены.`,
+      content: `СОСТОЯНИЕ:\n${renderState(session.state)}\n\nПОСЛЕДНИЙ ХОД:\n${prose.slice(0, 4000)}\n\nВремя: секунды — advanceSeconds, минуты — advanceMinutes, часы — advanceHours; не округляй секунды до часа. Валюты: меняй currencies (name, amount или delta, reason), а не старый money. Ресурсы: heroResources (герой) или resources (NPC/пати) с name, value или delta, max и reason. Навыки: временные штрафы — heroSkillMods / skillMods с skill, delta, reason. Не выдумывай без сцены.`,
     },
   ]);
 
