@@ -56,3 +56,6 @@ data/branches/
 
 # отчёт ночного прогона
 data/night-playtest-report.md
+
+# снимки контекста
+data/inspectors/

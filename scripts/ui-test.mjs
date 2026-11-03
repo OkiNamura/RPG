@@ -230,9 +230,9 @@ async function main() {
   // ---------- агенты ----------
   try {
     window.location.hash = '#/agents';
-    // девять агентов + лор-книга
-    await until(() => $$('.agent-card').length === 10);
-    pass('агенты: 10 блоков (9 агентов + лор)');
+    // десять агентов + лор-книга
+    await until(() => $$('.agent-card').length === 11);
+    pass('агенты: 11 блоков (10 агентов + лор)');
 
     const cards = $$('.agent-card');
     const prompter = cards.find((c) => c.textContent.includes('Мастер промтов'));

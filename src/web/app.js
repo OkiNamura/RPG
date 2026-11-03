@@ -1,4 +1,4 @@
-/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
+﻿/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -458,7 +458,7 @@ async function viewContainer(view, id) {
 
   // Агенты этой игры: промт каждого.
   const agents = data.agents ?? {};
-  const order = ['gm', 'prompter', 'state', 'summarizer', 'filler', 'artistHero', 'artistNpc', 'artistItem', 'artistScene'];
+  const order = ['gm', 'prompter', 'state', 'summarizer', 'filler', 'director', 'artistHero', 'artistNpc', 'artistItem', 'artistScene'];
   const agentIds = [...order.filter((a) => agents[a]), ...Object.keys(agents).filter((a) => !order.includes(a))];
   const worldInfo = section('Валюты и календарь', 'Созданы один раз вместе с этим миром.');
   const wallet = currenciesText(data.currencies, data.money);
@@ -704,7 +704,7 @@ async function viewContainer(view, id) {
 
 /* ================= агенты ================= */
 
-const AGENT_ORDER = ['gm', 'prompter', 'state', 'summarizer', 'filler', 'artistHero', 'artistNpc', 'artistItem', 'artistScene'];
+const AGENT_ORDER = ['gm', 'prompter', 'state', 'summarizer', 'filler', 'director', 'artistHero', 'artistNpc', 'artistItem', 'artistScene'];
 
 async function viewAgents(view) {
   const page = el('div', 'page');

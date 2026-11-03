@@ -178,7 +178,7 @@ export async function runTurn(
   session.lastContext = {
     messages: ctx.messages.map((m) => ({ role: m.role, content: m.content })),
     totalTokens: ctx.totalTokens,
-    segments: ctx.segments.map((s) => ({ name: s.name, chars: s.chars })),
+    segments: ctx.segments.map((s) => ({ name: s.name, chars: s.chars, tokens: s.tokens })),
   };
 
   // Стрим возможен, когда ведущий пишет чистую прозу (состоянием владеет агент).

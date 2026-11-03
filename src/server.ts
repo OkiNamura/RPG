@@ -148,6 +148,7 @@ const CARDS_DIR = join(import.meta.dirname, '..', 'data', 'cards');
 const PRESETS_DIR = join(import.meta.dirname, '..', 'data', 'presets');
 const TRASH_DIR = join(import.meta.dirname, '..', 'data', 'trash');
 const FEEDBACK_DIR = join(import.meta.dirname, '..', 'data', 'feedback');
+const INSPECTOR_DIR = join(import.meta.dirname, '..', 'data', 'inspectors');
 const BRANCH_DIR = join(import.meta.dirname, '..', 'data', 'branches');
 const TRACES_DIR = join(import.meta.dirname, '..', 'data', 'traces');
 
@@ -969,7 +970,7 @@ function pickNotes(
 }
 
 /** Дополнительные блоки новых фич: память, режиссёр, групповой фокус. */
-function augmentFeatureNotes(session: Session, input: string): void {
+async function augmentFeatureNotes(session: Session, input: string): Promise<void> {
   const parts = [session.extraNotes ?? ''];
   if (features.vectorMemory) {
     const recall = recallLog(session.state.log, input);
@@ -978,8 +979,29 @@ function augmentFeatureNotes(session: Session, input: string): void {
   if (features.storyDirector) {
     const present = [...session.state.party, ...session.state.npcs].filter(
       (actor) => actor.present !== false && actor.status === 'alive',
-    ).length;
-    parts.push(directorNote(present));
+    );
+    const director = session.agents?.director ?? agents.director;
+    if (director?.enabled) {
+      try {
+        const model = makeAgentModel(director);
+        if (model) {
+          const reply = await model.complete([
+            { role: 'system', content: director.prompt },
+            {
+              role: 'user',
+              content: `СЦЕНА: ${session.state.place}. Игрок: ${input}\nВ сцене: ${present.map((actor) => actor.name).join(', ') || 'только герой'}\nСОСТОЯНИЕ:\n${renderState(session.state).slice(0, 5000)}`,
+            },
+          ]);
+          if (reply.text.trim()) parts.push(`[Режиссёр]\n${reply.text.trim().slice(0, 1200)}`);
+          const tokensIn = reply.inputTokens ?? 0;
+          const tokensOut = reply.outputTokens ?? 0;
+          addUsage(session, 'director', tokensIn, tokensOut, costOf(tokensIn, tokensOut));
+        }
+      } catch (err) {
+        console.error('[director]', (err as Error).message);
+      }
+    }
+    if (!parts.some((part) => part.startsWith('[Режиссёр]'))) parts.push(directorNote(present.length));
   }
   if (features.groupScenes) {
     const present = [...session.state.party, ...session.state.npcs].filter(
@@ -1442,6 +1464,24 @@ async function getSession(id: string): Promise<Session | null> {
 }
 
 async function persist(id: string, session: Session): Promise<void> {
+  if (session.lastContext) {
+    try {
+      await mkdir(INSPECTOR_DIR, { recursive: true });
+      await writeFile(
+        join(INSPECTOR_DIR, `${id}.json`),
+        `${JSON.stringify({
+          turn: session.state.turn,
+          totalTokens: session.lastContext.totalTokens,
+          segments: session.lastContext.segments,
+          messages: session.lastContext.messages,
+          lore: session.lastLoreReport ?? [],
+        }, null, 2)}\n`,
+        'utf8',
+      );
+    } catch {
+      /* инспектор не критичен для хода */
+    }
+  }
   // Большое ядро в файл кампании не кладём — оно подставляется при загрузке.
   const core = session.text.core.length > 50000 ? '' : session.text.core;
   await saveCampaign(DATA_DIR, id, {
@@ -2895,12 +2935,20 @@ const server = createServer(async (req, res) => {
 
       // Контекстный инспектор: что реально ушло в модель.
       if (action === 'inspector' && req.method === 'GET') {
+        let savedInspector: { totalTokens?: number; segments?: unknown[]; messages?: unknown[]; lore?: unknown[] } | null = null;
+        if (!session.lastContext) {
+          try {
+            savedInspector = JSON.parse(await readFile(join(INSPECTOR_DIR, `${id}.json`), 'utf8')) as typeof savedInspector;
+          } catch {
+            savedInspector = null;
+          }
+        }
         return sendJson(res, {
           enabled: features.contextInspector,
-          totalTokens: session.lastContext?.totalTokens ?? 0,
-          segments: session.lastContext?.segments ?? [],
-          messages: session.lastContext?.messages ?? [],
-          lore: session.lastLoreReport ?? [],
+          totalTokens: session.lastContext?.totalTokens ?? savedInspector?.totalTokens ?? 0,
+          segments: session.lastContext?.segments ?? savedInspector?.segments ?? [],
+          messages: session.lastContext?.messages ?? savedInspector?.messages ?? [],
+          lore: session.lastLoreReport ?? savedInspector?.lore ?? [],
           features,
         });
       }
@@ -3009,7 +3057,7 @@ const server = createServer(async (req, res) => {
           session.extraLore = pickLore(session, target.input);
           const notes = pickNotes(id, session, false, target.input);
           session.extraNotes = notes.text;
-          augmentFeatureNotes(session, target.input);
+          await augmentFeatureNotes(session, target.input);
           session.lastRoll = notes.roll;
           const beforeNumbers = numericSnapshot(session.state);
           const stats = await runTurn(session, target.input);
@@ -3046,7 +3094,7 @@ const server = createServer(async (req, res) => {
           session.extraLore = pickLore(session, input);
           const notes = pickNotes(id, session, Boolean(body.dice), input);
           session.extraNotes = notes.text;
-          augmentFeatureNotes(session, input);
+          await augmentFeatureNotes(session, input);
           session.lastRoll = notes.roll;
           const beforeNumbers = numericSnapshot(session.state);
           const stats = await runTurn(session, input);
@@ -3992,7 +4040,7 @@ const server = createServer(async (req, res) => {
               session.extraLore = pickLore(session, input);
               const notes = pickNotes(id, session, Boolean(body.dice), input);
               session.extraNotes = notes.text;
-              augmentFeatureNotes(session, input);
+              await augmentFeatureNotes(session, input);
               session.lastRoll = notes.roll;
               const beforeNumbers = numericSnapshot(session.state);
               const stats = await runTurn(session, input, (delta) =>
@@ -4015,7 +4063,7 @@ const server = createServer(async (req, res) => {
           session.extraLore = pickLore(session, input);
           const notes = pickNotes(id, session, Boolean(body.dice), input);
           session.extraNotes = notes.text;
-          augmentFeatureNotes(session, input);
+          await augmentFeatureNotes(session, input);
           session.lastRoll = notes.roll;
           const beforeNumbers = numericSnapshot(session.state);
           const stats = await runTurn(session, input);

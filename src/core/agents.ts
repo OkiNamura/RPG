@@ -18,6 +18,7 @@ export type AgentId =
   | 'state'
   | 'summarizer'
   | 'filler'
+  | 'director'
   | 'artistHero'
   | 'artistNpc'
   | 'artistItem'
@@ -254,6 +255,17 @@ export const DEFAULT_AGENTS: AgentSet = {
 {"appearance":"внешность","character":"характер","clothes":"одежда","bio":"биография","habits":"привычки","wants":"желания","abilities":"способности","description":"краткое описание","note":"заметка"}
 Пустая строка — если поле нельзя вывести из карточки и мира. Пиши по-русски, конкретно, без воды.`,
   },
+  director: {
+    id: 'director',
+    title: 'Режиссёр сцены',
+    enabled: true,
+    model: MODEL,
+    temperature: 0.3,
+    maxTokens: 260,
+    prompt: `Ты — режиссёр текстовой RPG перед ходом ведущего. Не пиши прозу и не придумывай события.
+Верни 1–3 коротких директивы для ведущего: темп, чей фокус, что персонажи знают/не знают,
+чего избегать (повтор, вопрос в конце, всезнание NPC). Только директивы, без вступления.`,
+  },
   artistHero: {
     id: 'artistHero',
     title: 'Иллюстратор · герой',
@@ -416,7 +428,7 @@ export async function saveAgents(dir: string, incoming: Partial<AgentSet>): Prom
     result[id] = merge(current[id], incoming[id] ?? {});
   }
   await mkdir(dir, { recursive: true });
-  await writeFile(agentsPath(dir), `${JSON.stringify({ version: 17, agents: result }, null, 2)}\n`, 'utf8');
+  await writeFile(agentsPath(dir), `${JSON.stringify({ version: 18, agents: result }, null, 2)}\n`, 'utf8');
   return result;
 }
 
