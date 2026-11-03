@@ -227,6 +227,8 @@ function parseJsonObject(raw: string): Record<string, unknown> | null {
 /** Технический снимок чисел до и после хода: для строки «было → стало». */
 interface NumericSnapshot {
   health: number;
+  time: { day: number; hour: number; minute: number; second: number };
+  place: string;
   money: { gold: number; silver: number; copper: number };
   currencies: Record<string, { name: string; amount: number }>;
   resources: Record<string, { value: number; max?: number; unit?: string }>;
@@ -269,6 +271,13 @@ function numericSnapshot(state: GameState): NumericSnapshot {
   }
   return {
     health: state.hero.health,
+    time: {
+      day: state.time.day,
+      hour: state.time.hour ?? 0,
+      minute: state.time.minute ?? 0,
+      second: state.time.second ?? 0,
+    },
+    place: state.place,
     money: { ...state.money },
     currencies: currencyMap(state.currencies),
     resources: resourceMap(state.hero.resources),
@@ -300,6 +309,53 @@ function resText(resource: { value: number; max?: number; unit?: string }): stri
   return `${resource.value}${resource.max != null ? `/${resource.max}` : ''}${resource.unit ? ` ${resource.unit}` : ''}`;
 }
 
+function timeText(time: NumericSnapshot['time']): string {
+  return `${String(time.hour).padStart(2, '0')}:${String(time.minute).padStart(2, '0')}:${String(time.second).padStart(2, '0')}`;
+}
+
+function timeSeconds(time: NumericSnapshot['time']): number {
+  return ((time.day * 24 + time.hour) * 60 + time.minute) * 60 + time.second;
+}
+
+function secondsText(seconds: number): string {
+  const sign = seconds < 0 ? '−' : '+';
+  const value = Math.abs(seconds);
+  const hours = Math.floor(value / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+  const rest = value % 60;
+  if (hours) return `${sign}${hours} ч ${minutes} мин`;
+  if (minutes) return `${sign}${minutes} мин`;
+  return `${sign}${rest} с`;
+}
+
+function addTime(time: NumericSnapshot['time'], seconds: number): NumericSnapshot['time'] {
+  const total = Math.max(0, timeSeconds(time) + Math.round(seconds));
+  return {
+    day: Math.floor(total / 86400),
+    hour: Math.floor((total % 86400) / 3600),
+    minute: Math.floor((total % 3600) / 60),
+    second: total % 60,
+  };
+}
+
+/** Защита от «дошёл за минуту»: дорога не бывает мгновенной. */
+function travelFloorSeconds(
+  input: string,
+  prose: string,
+  before: NumericSnapshot,
+  after: { time: NumericSnapshot['time']; place: string },
+): number {
+  const text = `${input} ${prose}`.toLowerCase();
+  const inputText = input.toLowerCase();
+  const moved = before.place !== after.place;
+  const explicitTravel = /(иду|идём|идти|пошёл|пошла|пошли|еду|едем|ехать|дорог|путь|через дворы|до дома|домой|подъезд|вошл|пришл|добрал|бегу|бежит|метро|трамвай|автобус|такси|поезд)/i.test(inputText);
+  if (!moved && !explicitTravel) return 0;
+  const context = moved ? text : inputText;
+  if (/(метро|трамвай|автобус|поезд|такси|дорог|путь|ехать|ехали)/i.test(context)) return 20 * 60;
+  if (/(через дворы|до дома|домой|подъезд|вошл|пришл|добрал)/i.test(context)) return 15 * 60;
+  return 5 * 60;
+}
+
 function numberChange(label: string, before: string, after: string, delta?: string, reason?: string): NumberChange {
   return { label, before, after, ...(delta ? { delta } : {}), ...(reason ? { reason } : {}) };
 }
@@ -310,6 +366,15 @@ function diffNumbers(
   reasons: Record<string, string> = {},
 ): NumberChange[] {
   const rows: NumberChange[] = [];
+  if (timeText(before.time) !== timeText(after.time)) {
+    rows.push(numberChange(
+      'Время',
+      timeText(before.time),
+      timeText(after.time),
+      secondsText(timeSeconds(after.time) - timeSeconds(before.time)),
+      reasons.time,
+    ));
+  }
   if (before.health !== after.health) {
     const diff = after.health - before.health;
     rows.push(numberChange('Здоровье', String(before.health), String(after.health), `${diff > 0 ? '+' : ''}${diff}`, reasons.health));
@@ -923,12 +988,19 @@ function reviveIfAllowed(id: string, session: Session): void {
   if (stateResult.status === 'rejected') console.error('[state agent]', stateResult.reason);
   reviveIfAllowed(id, session);
 
+  const reasons = stateResult.status === 'fulfilled' ? { ...stateResult.value.reasons } : {};
+  if (beforeNumbers) {
+    const afterNow = numericSnapshot(session.state);
+    const floor = travelFloorSeconds(input, prose, beforeNumbers, afterNow);
+    const elapsed = timeSeconds(afterNow.time) - timeSeconds(beforeNumbers.time);
+    if (floor > 0 && elapsed < floor) {
+      session.state.time = addTime(beforeNumbers.time, floor);
+      reasons.time = 'дорога';
+      agentChanges.push(`время: не меньше ${Math.round(floor / 60)} мин (дорога)`);
+    }
+  }
   const numbers = beforeNumbers
-    ? diffNumbers(
-        beforeNumbers,
-        numericSnapshot(session.state),
-        stateResult.status === 'fulfilled' ? stateResult.value.reasons : {},
-      )
+    ? diffNumbers(beforeNumbers, numericSnapshot(session.state), reasons)
     : [];
   const gmEntry = [...session.state.log]
     .reverse()
