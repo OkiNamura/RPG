@@ -13,6 +13,7 @@ import { calendarDate, formatWorldDate } from '../src/core/calendar.ts';
 import { activateLore } from '../src/core/lore.ts';
 import { cleanProse } from '../src/core/anti-slop.ts';
 import { estimatePrice } from '../src/core/economy.ts';
+import { hashVector, retrieve } from '../src/core/vectors.ts';
 
 let failed = 0;
 
@@ -394,6 +395,12 @@ function testNewFeatures() {
   check('Экономика: город дороже дороги', city.copper > road.copper);
   const school = { ...({ era: 'Эра', startYear: 2025, startMonth: 8, months: [{ name: 'январь', days: 31 }, { name: 'сентябрь', days: 30 }], seasons: ['осень'], moons: [], hasNight: true, hoursPerDay: 24 }) };
   check('Календарь: старт с сентября', calendarDate(school, 2).monthName === 'сентябрь');
+  const vectors = [
+    { turn: 3, text: 'На рынке пахнет рыбой и солью.', vector: hashVector('На рынке пахнет рыбой и солью.') },
+    { turn: 7, text: 'В библиотеке архивариус прячет карту.', vector: hashVector('В библиотеке архивариус прячет карту.') },
+  ];
+  check('Векторная память: находит рынок', retrieve(vectors, 'иду на рынок', 1)[0]?.turn === 3);
+  check('Векторная память: находит библиотеку', retrieve(vectors, 'архивариус и карта', 1)[0]?.turn === 7);
 }
 
 testMechanics();

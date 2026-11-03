@@ -56,6 +56,8 @@ export interface Session {
   extraLore?: string;
   /** отчёт активации World Info для инспектора */
   lastLoreReport?: { id: string; title: string; active: boolean; reason: string; chars: number }[];
+  /** sticky/cooldown для World Info */
+  loreState?: Record<string, { lastTurn: number; stickyUntil: number; cooldownUntil: number }>;
   /** броски и скрытые проверки этого хода */
   extraNotes?: string;
   /** результат кубика за текущий ход */

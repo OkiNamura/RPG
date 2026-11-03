@@ -65,6 +65,7 @@ import { makeWorldProfile } from './core/world-profile.ts';
 import { DEFAULT_FEATURES, normalizeFeatures, type FeatureFlags } from './core/features.ts';
 import { estimatePrice } from './core/economy.ts';
 import { directorNote, recallLog } from './core/recall.ts';
+import { hashVector, retrieve, type VectorEntry } from './core/vectors.ts';
 
 interface ArtTagField {
   name: string;
@@ -149,6 +150,7 @@ const PRESETS_DIR = join(import.meta.dirname, '..', 'data', 'presets');
 const TRASH_DIR = join(import.meta.dirname, '..', 'data', 'trash');
 const FEEDBACK_DIR = join(import.meta.dirname, '..', 'data', 'feedback');
 const INSPECTOR_DIR = join(import.meta.dirname, '..', 'data', 'inspectors');
+const VECTOR_DIR = join(import.meta.dirname, '..', 'data', 'vectors');
 const BRANCH_DIR = join(import.meta.dirname, '..', 'data', 'branches');
 const TRACES_DIR = join(import.meta.dirname, '..', 'data', 'traces');
 
@@ -848,6 +850,25 @@ async function saveBranches(campaignId: string, branches: StoredBranch[]): Promi
   await writeFile(join(BRANCH_DIR, `${campaignId}.json`), `${JSON.stringify(branches, null, 2)}\n`, 'utf8');
 }
 
+async function loadVectors(campaignId: string): Promise<VectorEntry[]> {
+  try {
+    const parsed = JSON.parse(await readFile(join(VECTOR_DIR, `${campaignId}.json`), 'utf8')) as unknown;
+    return Array.isArray(parsed) ? (parsed as VectorEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function indexVectors(campaignId: string, session: Session): Promise<void> {
+  const gm = [...session.state.log].reverse().find((entry) => entry.role === 'gm');
+  if (!gm?.text?.trim()) return;
+  const entries = await loadVectors(campaignId);
+  if (entries.some((entry) => entry.turn === gm.turn)) return;
+  entries.push({ turn: gm.turn, text: gm.text.slice(0, 4000), vector: hashVector(gm.text) });
+  await mkdir(VECTOR_DIR, { recursive: true });
+  await writeFile(join(VECTOR_DIR, `${campaignId}.json`), `${JSON.stringify(entries.slice(-240))}\n`, 'utf8');
+}
+
 /** Простой рынок: ассортимент зависит от места, цена — от формулы. */
 function ensureMarket(state: GameState, seed: number): NonNullable<GameState['market']> {
   const place = state.place || 'неизвестно';
@@ -877,14 +898,18 @@ async function saveImage(campaignId: string, kind: string, buffer: Buffer, mime 
 /** Лор под текущую сцену: совпадение ключей в вводе, месте и прошлом ответе. */
 function pickLore(session: Session, input: string): string {
   const state = session.state;
-  const lastGm = [...state.log].reverse().find((e) => e.role === 'gm')?.text ?? '';
+  const lastGm = [...state.log]
+    .filter((e) => e.role === 'gm')
+    .slice(-3)
+    .map((e) => e.text)
+    .join(' ');
   const text = [
     input,
     state.place,
     state.weather,
     ...(state.party ?? []).map((a) => a.name),
     ...(state.locations ?? []).map((l) => l.name),
-    lastGm.slice(-500),
+    lastGm.slice(-1200),
   ].join(' ');
 
   // Автолор из состояния + ручные записи из лор-книги.
@@ -896,7 +921,29 @@ function pickLore(session: Session, input: string): string {
   }));
 
   if (features.advancedLore) {
-    const activation = activateLore([...lorebook, ...auto], text, { limit: 8, budgetChars: 6000 });
+    const turn = state.turn;
+    const loreState = session.loreState ?? {};
+    const prepared: LoreEntry[] = [...lorebook, ...auto]
+      .filter((entry) => {
+        const saved = loreState[entry.id];
+        return !entry.cooldown || !saved || saved.cooldownUntil <= turn;
+      })
+      .map((entry) => {
+        const saved = loreState[entry.id];
+        if (saved && saved.stickyUntil > turn) {
+          return { ...entry, constant: true };
+        }
+        return entry;
+      });
+    const activation = activateLore(prepared, text, { limit: 8, budgetChars: 6000 });
+    for (const entry of activation.active) {
+      loreState[entry.id] = {
+        lastTurn: turn,
+        stickyUntil: turn + (entry.sticky ?? 0),
+        cooldownUntil: turn + (entry.cooldown ?? 0),
+      };
+    }
+    session.loreState = loreState;
     session.lastLoreReport = activation.report.map((item) => ({
       id: item.entry.id,
       title: item.entry.group || item.entry.keys.slice(0, 2).join(', ') || item.entry.id,
@@ -970,11 +1017,19 @@ function pickNotes(
 }
 
 /** Дополнительные блоки новых фич: память, режиссёр, групповой фокус. */
-async function augmentFeatureNotes(session: Session, input: string): Promise<void> {
+async function augmentFeatureNotes(session: Session, input: string, id: string): Promise<void> {
   const parts = [session.extraNotes ?? ''];
   if (features.vectorMemory) {
-    const recall = recallLog(session.state.log, input);
-    if (recall) parts.push(recall);
+    const vectors = await loadVectors(id);
+    const found = retrieve(vectors, input);
+    if (found.length) {
+      parts.push(
+        ['Векторная память (прошлые сцены):', ...found.map((entry) => `- ход ${entry.turn}: ${entry.text.replace(/\s+/g, ' ').slice(0, 260)}`)].join('\n'),
+      );
+    } else {
+      const recall = recallLog(session.state.log, input);
+      if (recall) parts.push(recall);
+    }
   }
   if (features.storyDirector) {
     const present = [...session.state.party, ...session.state.npcs].filter(
@@ -1185,6 +1240,7 @@ function reviveIfAllowed(id: string, session: Session): void {
   );
 
   await writeTrace(id, session, { input, prose, stats });
+  await indexVectors(id, session);
   await persist(id, session);
 
   return {
@@ -3057,7 +3113,7 @@ const server = createServer(async (req, res) => {
           session.extraLore = pickLore(session, target.input);
           const notes = pickNotes(id, session, false, target.input);
           session.extraNotes = notes.text;
-          await augmentFeatureNotes(session, target.input);
+          await augmentFeatureNotes(session, target.input, id);
           session.lastRoll = notes.roll;
           const beforeNumbers = numericSnapshot(session.state);
           const stats = await runTurn(session, target.input);
@@ -3094,7 +3150,7 @@ const server = createServer(async (req, res) => {
           session.extraLore = pickLore(session, input);
           const notes = pickNotes(id, session, Boolean(body.dice), input);
           session.extraNotes = notes.text;
-          await augmentFeatureNotes(session, input);
+          await augmentFeatureNotes(session, input, id);
           session.lastRoll = notes.roll;
           const beforeNumbers = numericSnapshot(session.state);
           const stats = await runTurn(session, input);
@@ -4040,7 +4096,7 @@ const server = createServer(async (req, res) => {
               session.extraLore = pickLore(session, input);
               const notes = pickNotes(id, session, Boolean(body.dice), input);
               session.extraNotes = notes.text;
-              await augmentFeatureNotes(session, input);
+              await augmentFeatureNotes(session, input, id);
               session.lastRoll = notes.roll;
               const beforeNumbers = numericSnapshot(session.state);
               const stats = await runTurn(session, input, (delta) =>
@@ -4063,7 +4119,7 @@ const server = createServer(async (req, res) => {
           session.extraLore = pickLore(session, input);
           const notes = pickNotes(id, session, Boolean(body.dice), input);
           session.extraNotes = notes.text;
-          await augmentFeatureNotes(session, input);
+          await augmentFeatureNotes(session, input, id);
           session.lastRoll = notes.roll;
           const beforeNumbers = numericSnapshot(session.state);
           const stats = await runTurn(session, input);

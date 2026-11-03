@@ -11,7 +11,7 @@
 - **B3 Ветки** — сохранение текущего состояния, список, загрузка, удаление; full state. Добавлена отмена последнего хода.
 - **B7 Group scenes** — групповой блок в промте: несколько NPC получают разные реакции.
 - **B8 NPC minds** — goals/secrets/knows/notKnows/plans/mood в карточке и контексте.
-- **B9 Vector memory** — пока **лексический recall** прошлых сцен; embeddings выключены.
+- **B9 Vector memory** — локальный hashing-векторный индекс прошлых сцен с cosine-retrieval; внешние embeddings опционально.
 - **B10 Story Director** — отдельный агент `director` с короткими директивами перед ходом.
 - **B16 Image queue** — серверная последовательная очередь, статус и отмена через `/api/images/cancel`.
 - **B17 Image profiles** — natural/danbooru, negative, референсы; при первом кадре без мастер-листа герой получает автоматический референс.
