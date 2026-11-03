@@ -79,7 +79,14 @@ export function activateLore(
     report.push({ entry, active: ok, reason: ok ? 'ключ совпал' : 'selective не совпал' });
     if (ok) candidates.push(entry);
   }
-  candidates.sort((a, b) => (b.order ?? b.priority ?? 0) - (a.order ?? a.priority ?? 0) || a.content.length - b.content.length);
+  const positionWeight = (position: LoreEntry['position']): number =>
+    position === 'top' ? 3 : position === 'history' ? 2 : position === 'after' ? 1 : 0;
+  candidates.sort(
+    (a, b) =>
+      (b.order ?? b.priority ?? 0) - (a.order ?? a.priority ?? 0) ||
+      positionWeight(b.position) - positionWeight(a.position) ||
+      a.content.length - b.content.length,
+  );
   const limit = options.limit ?? 8;
   const budget = options.budgetChars ?? 6000;
   const active: LoreEntry[] = [];
