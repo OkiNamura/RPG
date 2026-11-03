@@ -48,3 +48,11 @@ data/telegram-offset.json
 
 # резервные копии кампаний
 data/backups/
+
+# локальные настройки и ветки
+data/features.json
+data/image-profile.json
+data/branches/
+
+# отчёт ночного прогона
+data/night-playtest-report.md

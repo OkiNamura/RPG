@@ -137,6 +137,15 @@ export function renderState(s: GameState): string {
           const extras = [
             a.resources?.length ? formatResources(a.resources) : '',
             a.money ? formatCoins(a.money) : '',
+            a.mind
+              ? [
+                  a.mind.goals?.length ? `цели: ${a.mind.goals.join(', ')}` : '',
+                  a.mind.secrets?.length ? `секреты (не раскрывать): ${a.mind.secrets.join(', ')}` : '',
+                  a.mind.knows?.length ? `знает: ${a.mind.knows.join(', ')}` : '',
+                  a.mind.notKnows?.length ? `не знает: ${a.mind.notKnows.join(', ')}` : '',
+                  a.mind.mood ? `настроение: ${a.mind.mood}` : '',
+                ].filter(Boolean).join('; ')
+              : '',
           ].filter(Boolean).join(', ');
           return `${a.name}${a.role ? ` — ${a.role}` : ''} (${a.status}${extras ? `, ${extras}` : ''})`;
         })

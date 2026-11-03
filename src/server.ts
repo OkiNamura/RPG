@@ -14,6 +14,7 @@ import { basename, extname, join, normalize, sep } from 'node:path';
 import { characterSheetPrompt, generateImage, itemCardPrompt, masterCardPrompt, portraitPrompt, scenePrompt } from './core/images.ts';
 import { renderMap } from './core/map.ts';
 import { createState, normalizeState, type Actor, type GameState, type NumberChange, type Resource } from './core/state.ts';
+import { Conspect, type Arc } from './core/conspect.ts';
 import { createSession, runTurn, addUsage, type Session, type TurnStats } from './core/turn.ts';
 import {
   conspectFrom,
@@ -54,13 +55,16 @@ import {
   type WorldPreset,
 } from './core/prompts.ts';
 import { HERO_NAME, TONE, WORLD } from './start/texts.ts';
-import { isLoreEntry, matchLore, renderLore, type LoreEntry } from './core/lore.ts';
+import { isLoreEntry, activateLore, renderLore, type LoreEntry } from './core/lore.ts';
 import { resolveRoll, rollD36, skillForAction } from './core/dice.ts';
 import { defaultSkills, hiddenCheck } from './core/skills.ts';
 import { TONE_LEVELS, toneDirective, toneLevel } from './core/tone-levels.ts';
 import { embedPngText, isPng } from './core/png.ts';
 import { KeyStore, fetchKeyModels, normalizeBaseUrl, type KeyModel } from './core/keys.ts';
 import { makeWorldProfile } from './core/world-profile.ts';
+import { DEFAULT_FEATURES, normalizeFeatures, type FeatureFlags } from './core/features.ts';
+import { estimatePrice } from './core/economy.ts';
+import { directorNote, recallLog } from './core/recall.ts';
 
 interface ArtTagField {
   name: string;
@@ -101,6 +105,21 @@ try {
 
 // Лор-книга: записи, которые подмешиваются только при совпадении ключей.
 const LOREBOOK_PATH = join(import.meta.dirname, '..', 'data', 'lorebook.json');
+const FEATURES_PATH = join(import.meta.dirname, '..', 'data', 'features.json');
+const IMAGE_PROFILE_PATH = join(import.meta.dirname, '..', 'data', 'image-profile.json');
+interface ImageProfile { style: 'natural' | 'booru'; negative: string; references: 'auto' | 'off' }
+let imageProfile: ImageProfile = { style: 'natural', negative: 'text, watermark, logo, comic panels', references: 'auto' };
+try {
+  imageProfile = { ...imageProfile, ...(JSON.parse(await readFile(IMAGE_PROFILE_PATH, 'utf8')) as Partial<ImageProfile>) };
+} catch {
+  /* значения по умолчанию */
+}
+let features: FeatureFlags = { ...DEFAULT_FEATURES };
+try {
+  features = normalizeFeatures(JSON.parse(await readFile(FEATURES_PATH, 'utf8')));
+} catch {
+  /* значения по умолчанию */
+}
 let lorebook: LoreEntry[] = [];
 try {
   const parsed = JSON.parse(await readFile(LOREBOOK_PATH, 'utf8')) as unknown;
@@ -129,7 +148,28 @@ const CARDS_DIR = join(import.meta.dirname, '..', 'data', 'cards');
 const PRESETS_DIR = join(import.meta.dirname, '..', 'data', 'presets');
 const TRASH_DIR = join(import.meta.dirname, '..', 'data', 'trash');
 const FEEDBACK_DIR = join(import.meta.dirname, '..', 'data', 'feedback');
+const BRANCH_DIR = join(import.meta.dirname, '..', 'data', 'branches');
 const TRACES_DIR = join(import.meta.dirname, '..', 'data', 'traces');
+
+/** Один локальный GPU: картинки идут строго по очереди. */
+let imageQueueTail: Promise<void> = Promise.resolve();
+let imageQueueRunning = 0;
+let imageQueueWaiting = 0;
+
+function withImageQueue<T>(task: () => Promise<T>): Promise<T> {
+  imageQueueWaiting += 1;
+  const run = imageQueueTail.then(async () => {
+    imageQueueWaiting = Math.max(0, imageQueueWaiting - 1);
+    imageQueueRunning += 1;
+    try {
+      return await task();
+    } finally {
+      imageQueueRunning = Math.max(0, imageQueueRunning - 1);
+    }
+  });
+  imageQueueTail = run.then(() => undefined, () => undefined);
+  return run;
+}
 
 const IMAGES_DIR = join(import.meta.dirname, '..', 'data', 'images');
 const AGENTS_DIR = join(import.meta.dirname, '..', 'data');
@@ -780,6 +820,47 @@ async function runSummary(
   return { ok: true, cost, tokensIn, tokensOut };
 }
 
+interface StoredBranch {
+  id: string;
+  name: string;
+  createdAt: string;
+  turn: number;
+  state: GameState;
+  summary: string;
+  memory: string;
+  lastSummaryTurn: number;
+  conspect: unknown;
+}
+
+async function loadBranches(campaignId: string): Promise<StoredBranch[]> {
+  try {
+    const parsed = JSON.parse(await readFile(join(BRANCH_DIR, `${campaignId}.json`), 'utf8')) as unknown;
+    return Array.isArray(parsed) ? (parsed as StoredBranch[]).filter((item) => item?.id && item?.state) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveBranches(campaignId: string, branches: StoredBranch[]): Promise<void> {
+  await mkdir(BRANCH_DIR, { recursive: true });
+  await writeFile(join(BRANCH_DIR, `${campaignId}.json`), `${JSON.stringify(branches, null, 2)}\n`, 'utf8');
+}
+
+/** Простой рынок: ассортимент зависит от места, цена — от формулы. */
+function ensureMarket(state: GameState, seed: number): NonNullable<GameState['market']> {
+  const place = state.place || 'неизвестно';
+  if (state.market && state.market.place === place && state.market.goods.length) return state.market;
+  const goodsNames = ['хлеб', 'похлёбка', 'вода', 'зелье', 'плащ', 'верёвка'];
+  state.market = {
+    place,
+    goods: goodsNames.map((name, index) => {
+      const quote = estimatePrice(name, place, state.currencies, seed + index);
+      return { name, price: quote.display, currency: quote.currency, qty: 2 + ((seed + index * 7) % 5) };
+    }),
+  };
+  return state.market;
+}
+
 /** Сложить картинку в data/images и вернуть имя файла. */
 async function saveImage(campaignId: string, kind: string, buffer: Buffer, mime = 'image/png'): Promise<string> {
   await mkdir(IMAGES_DIR, { recursive: true });
@@ -812,7 +893,18 @@ function pickLore(session: Session, input: string): string {
     priority: 1,
   }));
 
-  return renderLore(matchLore([...lorebook, ...auto], text));
+  if (features.advancedLore) {
+    const activation = activateLore([...lorebook, ...auto], text, { limit: 8, budgetChars: 6000 });
+    session.lastLoreReport = activation.report.map((item) => ({
+      id: item.entry.id,
+      title: item.entry.group || item.entry.keys.slice(0, 2).join(', ') || item.entry.id,
+      active: item.active,
+      reason: item.reason,
+      chars: item.entry.content.length,
+    }));
+    return renderLore(activation.active);
+  }
+  return renderLore(activateLore([...lorebook, ...auto], text, { limit: 3 }).active);
 }
 
 /** Сид карты места: одна сцена — один рисунок, разные игры — разные карты. */
@@ -873,6 +965,33 @@ function pickNotes(
   );
 
   return { text: parts.join('\n'), roll };
+}
+
+/** Дополнительные блоки новых фич: память, режиссёр, групповой фокус. */
+function augmentFeatureNotes(session: Session, input: string): void {
+  const parts = [session.extraNotes ?? ''];
+  if (features.vectorMemory) {
+    const recall = recallLog(session.state.log, input);
+    if (recall) parts.push(recall);
+  }
+  if (features.storyDirector) {
+    const present = [...session.state.party, ...session.state.npcs].filter(
+      (actor) => actor.present !== false && actor.status === 'alive',
+    ).length;
+    parts.push(directorNote(present));
+  }
+  if (features.groupScenes) {
+    const present = [...session.state.party, ...session.state.npcs].filter(
+      (actor) => actor.present !== false && actor.status === 'alive',
+    );
+    if (present.length > 1) {
+      parts.push(
+        `[Групповая сцена] Сейчас в сцене: ${present.map((actor) => actor.name).join(', ')}. ` +
+          'Дай каждому свою реакцию; не смешивай их голоса и не заставляй всех говорить по очереди.',
+      );
+    }
+  }
+  session.extraNotes = parts.filter(Boolean).join('\n\n');
 }
 
 /** Файл картинки → data-URL: так его можно передать модели как референс. */
@@ -1299,6 +1418,7 @@ async function getSession(id: string): Promise<Session | null> {
   session.totals = saved.totals;
   session.quietConspect = gameAgents.summarizer.enabled;
   session.expectDelta = !gameAgents.state.enabled;
+  session.antiSlop = features.antiSlop;
   if (saved.meta) metas.set(id, saved.meta);
   if (saved.turns) {
     // Старые снимки хранили полный лог и могли копиться сотнями — чистим и режем.
@@ -1653,6 +1773,31 @@ const server = createServer(async (req, res) => {
       return sendJson(res, await listCampaigns());
     }
 
+    if (path === '/api/features' && req.method === 'GET') {
+      return sendJson(res, { features });
+    }
+
+    if (path === '/api/admin/features' && (req.method === 'GET' || req.method === 'PUT')) {
+      if (req.method === 'GET') return sendJson(res, { features, imageProfile });
+      const body = await readBody(req);
+      features = normalizeFeatures(body.features ?? body);
+      await mkdir(join(import.meta.dirname, '..', 'data'), { recursive: true });
+      await writeFile(FEATURES_PATH, `${JSON.stringify(features, null, 2)}\n`, 'utf8');
+      return sendJson(res, { ok: true, features });
+    }
+
+    if (path === '/api/admin/image-profile' && (req.method === 'GET' || req.method === 'PUT')) {
+      if (req.method === 'GET') return sendJson(res, { profile: imageProfile });
+      const body = await readBody(req);
+      imageProfile = {
+        style: body.style === 'booru' ? 'booru' : 'natural',
+        negative: String(body.negative ?? '').slice(0, 500),
+        references: body.references === 'off' ? 'off' : 'auto',
+      };
+      await writeFile(IMAGE_PROFILE_PATH, `${JSON.stringify(imageProfile, null, 2)}\n`, 'utf8');
+      return sendJson(res, { ok: true, profile: imageProfile });
+    }
+
     if (path === '/api/admin/sessions' && req.method === 'GET') {
       return sendJson(res, {
         active: await listCampaigns(),
@@ -1803,6 +1948,9 @@ const server = createServer(async (req, res) => {
     const gameBlockMatch = /^\/api\/campaign\/([^/]+)\/(art|prompts)$/.exec(path);
     if (gameBlockMatch) {
       const campaign = decodeURIComponent(gameBlockMatch[1]);
+      if (!/^[\p{L}\p{N}][\p{L}\p{N}._-]{0,79}$/u.test(campaign) || campaign.includes('..')) {
+        return sendJson(res, { error: 'недопустимый id кампании' }, 400);
+      }
       const kind = gameBlockMatch[2];
       const saved = await loadCampaign(DATA_DIR, campaign);
       if (!saved) return sendJson(res, { error: 'кампания не найдена' }, 404);
@@ -1953,7 +2101,7 @@ const server = createServer(async (req, res) => {
       if (match) {
         const id = decodeURIComponent(match[1]);
         const file = basename(decodeURIComponent(match[2]));
-        if (!/^[A-Za-z0-9_.-]+$/.test(file) || file.includes('..')) {
+        if (!/^[A-Za-z0-9_.-]+$/.test(id) || id.includes('..') || !/^[A-Za-z0-9_.-]+$/.test(file) || file.includes('..')) {
           return sendJson(res, { error: 'плохой файл' }, 400);
         }
         try {
@@ -2592,6 +2740,7 @@ const server = createServer(async (req, res) => {
       session.agents = gameAgents;
       session.quietConspect = gameAgents.summarizer.enabled;
       session.expectDelta = !gameAgents.state.enabled;
+  session.antiSlop = features.antiSlop;
 
       metas.set(id, meta);
       sessions.set(id, session);
@@ -2602,7 +2751,64 @@ const server = createServer(async (req, res) => {
       return sendJson(res, { id, state, history: [], totals: session.totals, meta });
     }
 
-    const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|context|container|npc|forget|blocks|fill-card|reset|restart|save-card))?$/.exec(path);
+    const branchMatch = /^\/api\/campaign\/([^/]+)\/branches(?:\/([^/]+))?(?:\/(load))?$/.exec(path);
+    if (branchMatch) {
+      const campaignId = decodeURIComponent(branchMatch[1]);
+      if (!/^[\p{L}\p{N}][\p{L}\p{N}._-]{0,79}$/u.test(campaignId) || campaignId.includes('..')) {
+        return sendJson(res, { error: 'недопустимый id кампании' }, 400);
+      }
+      const session = await getSession(campaignId);
+      if (!session) return sendJson(res, { error: 'кампания не найдена' }, 404);
+      const branchId = branchMatch[2] ? decodeURIComponent(branchMatch[2]) : '';
+      const branches = await loadBranches(campaignId);
+      if (req.method === 'GET') {
+        return sendJson(res, {
+          branches: branches.map((branch) => ({
+            id: branch.id,
+            name: branch.name,
+            turn: branch.turn,
+            createdAt: branch.createdAt,
+          })),
+        });
+      }
+      if (req.method === 'POST' && !branchId) {
+        if (!features.branches) return sendJson(res, { error: 'ветки выключены в админке' }, 409);
+        const body = await readBody(req);
+        const id = `br-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+        const branch: StoredBranch = {
+          id,
+          name: String(body.name ?? '').trim().slice(0, 120) || `Ветка хода ${session.state.turn}`,
+          createdAt: new Date().toISOString(),
+          turn: session.state.turn,
+          state: structuredClone(session.state),
+          summary: session.summary ?? '',
+          memory: session.memory ?? '',
+          lastSummaryTurn: session.lastSummaryTurn ?? 0,
+          conspect: session.conspect.toJSON(),
+        };
+        branches.push(branch);
+        await saveBranches(campaignId, branches.slice(-40));
+        return sendJson(res, { ok: true, branch: { id, name: branch.name, turn: branch.turn, createdAt: branch.createdAt } });
+      }
+      if (req.method === 'POST' && branchId && branchMatch[3] === 'load') {
+        if (!features.branches) return sendJson(res, { error: 'ветки выключены в админке' }, 409);
+        const branch = branches.find((item) => item.id === branchId);
+        if (!branch) return sendJson(res, { error: 'ветка не найдена' }, 404);
+        session.state = normalizeState(structuredClone(branch.state));
+        session.summary = branch.summary ?? '';
+        session.memory = branch.memory ?? '';
+        session.lastSummaryTurn = branch.lastSummaryTurn ?? 0;
+        if (branch.conspect) session.conspect = Conspect.fromJSON(branch.conspect as Arc[], '# Конспект кампании');
+        await persist(campaignId, session);
+        return sendJson(res, { ok: true, state: session.state, branch: { id: branch.id, name: branch.name, turn: branch.turn } });
+      }
+      if (req.method === 'DELETE' && branchId) {
+        await saveBranches(campaignId, branches.filter((item) => item.id !== branchId));
+        return sendJson(res, { ok: true });
+      }
+    }
+
+    const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|context|container|npc|forget|blocks|fill-card|inspector|price|market|branches|branch|reset|restart|save-card))?$/.exec(path);
     if (campaignMatch) {
       const id = decodeURIComponent(campaignMatch[1]);
       // Id — это имя файла кампании: никаких слэшей и переходов вверх.
@@ -2627,6 +2833,63 @@ const server = createServer(async (req, res) => {
 
       const session = await getSession(id);
       if (!session) return sendJson(res, { error: 'кампания не найдена' }, 404);
+
+      // Оценка стоимости вещи в текущем месте.
+      if (action === 'price' && req.method === 'GET') {
+        const item = String(url.searchParams.get('item') ?? '').trim();
+        if (!item) return sendJson(res, { error: 'не указана вещь' }, 400);
+        return sendJson(res, {
+          quote: estimatePrice(item, session.state.place, session.state.currencies, session.state.turn),
+          place: session.state.place,
+        });
+      }
+
+      // Простой рынок: купить/продать без отдельного торговца.
+      if (action === 'market' && (req.method === 'GET' || req.method === 'POST')) {
+        if (!features.shops) return sendJson(res, { error: 'магазины выключены в админке' }, 409);
+        const market = ensureMarket(session.state, session.state.turn);
+        const wallet = session.state.currencies?.find((currency) => currency.name === market.goods[0]?.currency) ?? session.state.currencies?.[0];
+        if (req.method === 'GET') {
+          return sendJson(res, { market, wallet: wallet ?? null, currencies: session.state.currencies ?? [] });
+        }
+        if (!wallet) return sendJson(res, { error: 'у мира нет валюты' }, 409);
+        const body = await readBody(req);
+        const mode = body.mode === 'sell' ? 'sell' : 'buy';
+        const name = String(body.name ?? '').trim().toLowerCase();
+        const good = market.goods.find((entry) => entry.name.toLowerCase() === name);
+        if (!good) return sendJson(res, { error: 'такого товара нет' }, 404);
+        const payCurrency = session.state.currencies?.find((currency) => currency.name === good.currency) ?? wallet;
+        if (!payCurrency) return sendJson(res, { error: 'нет подходящей валюты' }, 409);
+        const item = session.state.items.find((entry) => entry.name.toLowerCase() === name);
+        if (mode === 'buy') {
+          if (good.qty <= 0) return sendJson(res, { error: 'товар кончился' }, 409);
+          if (payCurrency.amount < good.price) return sendJson(res, { error: 'не хватает денег' }, 409);
+          payCurrency.amount -= good.price;
+          good.qty -= 1;
+          if (item) item.qty += 1;
+          else session.state.items.push({ name: good.name, qty: 1, where: 'inventory' });
+        } else {
+          if (!item) return sendJson(res, { error: 'у героя нет такого предмета' }, 409);
+          item.qty -= 1;
+          if (item.qty <= 0) session.state.items = session.state.items.filter((entry) => entry !== item);
+          good.qty += 1;
+          payCurrency.amount += Math.max(1, Math.floor(good.price / 2));
+        }
+        await persist(id, session);
+        return sendJson(res, { ok: true, market, wallet: payCurrency, currencies: session.state.currencies ?? [], items: session.state.items });
+      }
+
+      // Контекстный инспектор: что реально ушло в модель.
+      if (action === 'inspector' && req.method === 'GET') {
+        return sendJson(res, {
+          enabled: features.contextInspector,
+          totalTokens: session.lastContext?.totalTokens ?? 0,
+          segments: session.lastContext?.segments ?? [],
+          messages: session.lastContext?.messages ?? [],
+          lore: session.lastLoreReport ?? [],
+          features,
+        });
+      }
 
       // Контейнер игры: агенты с промтами, предметы, конспект, галерея.
       if (action === 'container' && req.method === 'GET') {
@@ -2732,6 +2995,7 @@ const server = createServer(async (req, res) => {
           session.extraLore = pickLore(session, target.input);
           const notes = pickNotes(id, session, false, target.input);
           session.extraNotes = notes.text;
+          augmentFeatureNotes(session, target.input);
           session.lastRoll = notes.roll;
           const beforeNumbers = numericSnapshot(session.state);
           const stats = await runTurn(session, target.input);
@@ -2768,6 +3032,7 @@ const server = createServer(async (req, res) => {
           session.extraLore = pickLore(session, input);
           const notes = pickNotes(id, session, Boolean(body.dice), input);
           session.extraNotes = notes.text;
+          augmentFeatureNotes(session, input);
           session.lastRoll = notes.roll;
           const beforeNumbers = numericSnapshot(session.state);
           const stats = await runTurn(session, input);
@@ -3550,12 +3815,21 @@ const server = createServer(async (req, res) => {
         // Выбранный стиль — в начало промта, иначе модель его почти не слышит.
         if (extra) prompt = `${extra}. ${prompt}`;
         if (avoid) prompt += ` Не изображать: ${avoid}.`;
+        if (features.imageProfiles) {
+          if (imageProfile.style === 'booru') {
+            prompt = `${prompt}, masterpiece, best quality, highly detailed`;
+          } else {
+            prompt = `${prompt} Кинематографичный свет, естественные пропорции, единый стиль.`;
+          }
+          if (imageProfile.negative) prompt += ` Не изображать: ${imageProfile.negative}.`;
+          if (imageProfile.references === 'off') references = [];
+        }
 
         // Seedream может быть недоступен у провайдера — тогда честно откатываемся.
         // Локальный Qwen не откатываем в облако: ошибка должна быть видна.
         let usedModel = model;
         const imageSize = localImage ? '512x768' : undefined;
-        let result = await generateImage({
+        let result = await withImageQueue(() => generateImage({
           apiKey,
           baseUrl,
           model,
@@ -3573,7 +3847,7 @@ const server = createServer(async (req, res) => {
             prompt,
             references,
           });
-        });
+        }));
 
         addUsage(session, 'artist', 0, 0, result.cost);
         const file = await saveImage(id, mode, result.buffer, result.mime);
@@ -3673,6 +3947,7 @@ const server = createServer(async (req, res) => {
               session.extraLore = pickLore(session, input);
               const notes = pickNotes(id, session, Boolean(body.dice), input);
               session.extraNotes = notes.text;
+              augmentFeatureNotes(session, input);
               session.lastRoll = notes.roll;
               const beforeNumbers = numericSnapshot(session.state);
               const stats = await runTurn(session, input, (delta) =>
@@ -3695,6 +3970,7 @@ const server = createServer(async (req, res) => {
           session.extraLore = pickLore(session, input);
           const notes = pickNotes(id, session, Boolean(body.dice), input);
           session.extraNotes = notes.text;
+          augmentFeatureNotes(session, input);
           session.lastRoll = notes.roll;
           const beforeNumbers = numericSnapshot(session.state);
           const stats = await runTurn(session, input);
@@ -3705,6 +3981,14 @@ const server = createServer(async (req, res) => {
           session.busy = false;
         }
       }
+    }
+
+    if (path === '/api/images/queue' && req.method === 'GET') {
+      return sendJson(res, {
+        enabled: features.imageQueue,
+        running: imageQueueRunning,
+        waiting: imageQueueWaiting,
+      });
     }
 
     if (path.startsWith('/api/images/') && req.method === 'GET') {

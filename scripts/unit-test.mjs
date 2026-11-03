@@ -10,6 +10,9 @@ import { matchLore, renderLore } from '../src/core/lore.ts';
 import { resolveRoll, skillForAction } from '../src/core/dice.ts';
 import { addRankPoints, randomStartRank, RANKS } from '../src/core/rank.ts';
 import { calendarDate, formatWorldDate } from '../src/core/calendar.ts';
+import { activateLore } from '../src/core/lore.ts';
+import { cleanProse } from '../src/core/anti-slop.ts';
+import { estimatePrice } from '../src/core/economy.ts';
 
 let failed = 0;
 
@@ -374,12 +377,32 @@ function testCalendar() {
   check('календарь: формат даты', formatWorldDate(calendar, { day: 17, hour: 8, minute: 3, second: 9 }).includes('второй 1') && formatWorldDate(calendar, { day: 17, hour: 8, minute: 3, second: 9 }).includes('08:03:09'));
 }
 
+function testNewFeatures() {
+  const lore = [
+    { id: 'a', keys: ['колодец'], content: 'В колодце вода.' },
+    { id: 'b', keys: ['колодец'], secondaryKeys: ['ночь'], selective: true, content: 'Ночью колодец светится.' },
+    { id: 'c', keys: [], constant: true, content: 'Мир стоит на костях.' },
+  ];
+  const activation = activateLore(lore, 'колодец днём', { limit: 5 });
+  check('World Info: constant активен', activation.active.some((entry) => entry.id === 'c'));
+  check('World Info: selective не активен без вторичного ключа', !activation.active.some((entry) => entry.id === 'b'));
+  check('World Info: причина записана', activation.report.some((item) => item.reason === 'selective не совпал'));
+  const prose = cleanProse('Он идёт. Он идёт. Он идёт.\n\nОн идёт.\n\nВдалеке лает собака. Ты слышишь шаги.');
+  check('Anti-slop: повторы схлопнуты', !prose.includes('Он идёт. Он идёт.'));
+  const road = estimatePrice('похлёбка', 'дорога', [{ name: 'медь' }]);
+  const city = estimatePrice('похлёбка', 'столица', [{ name: 'медь' }]);
+  check('Экономика: город дороже дороги', city.copper > road.copper);
+  const school = { ...({ era: 'Эра', startYear: 2025, startMonth: 8, months: [{ name: 'январь', days: 31 }, { name: 'сентябрь', days: 30 }], seasons: ['осень'], moons: [], hasNight: true, hoursPerDay: 24 }) };
+  check('Календарь: старт с сентября', calendarDate(school, 2).monthName === 'сентябрь');
+}
+
 testMechanics();
 testFixes();
 testActors();
 testRanks();
 testResources();
 testCalendar();
+testNewFeatures();
 testDice();
 
 console.log('');

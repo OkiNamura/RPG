@@ -39,6 +39,8 @@ export interface Actor {
   skills?: Record<string, number>;
   /** временные штрафы/бонусы к навыкам */
   skillMods?: SkillMod[];
+  /** личные цели, секреты и знание NPC */
+  mind?: Mind;
   /** произвольные ресурсы: мана, топливо, рассудок, патроны */
   resources?: Resource[];
   /** кошелёк персонажа, если он есть в сцене */
@@ -186,6 +188,29 @@ export interface SkillMod {
   reason: string;
 }
 
+/** Внутренний мир важного NPC. */
+export interface Mind {
+  goals?: string[];
+  secrets?: string[];
+  knows?: string[];
+  notKnows?: string[];
+  plans?: string[];
+  mood?: string;
+  updatedTurn?: number;
+}
+
+export interface MarketGood {
+  name: string;
+  price: number;
+  currency?: string;
+  qty: number;
+}
+
+export interface Market {
+  place: string;
+  goods: MarketGood[];
+}
+
 /** Календарь мира: месяцы, сезоны, луны и эпоха задаются один раз. */
 export interface WorldCalendar {
   era: string;
@@ -255,6 +280,7 @@ export interface GameState {
   currencies?: Currency[];
   /** календарь и эпоха этого мира */
   calendar?: WorldCalendar;
+  market?: Market;
   items: Item[];
   party: Actor[];
   npcs: Actor[];

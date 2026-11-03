@@ -1,4 +1,4 @@
-﻿/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
+/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -1078,7 +1078,47 @@ async function loreCard() {
         render();
       });
 
-      roww.append(keys, content, remove);
+      const advanced = el('details', 'lore-advanced');
+      advanced.append(el('summary', '', 'Дополнительно'));
+      const secondary = el('input', 'lore-keys');
+      secondary.placeholder = 'вторичные ключи';
+      secondary.value = (entry.secondaryKeys ?? []).join(', ');
+      secondary.addEventListener('input', () => {
+        entry.secondaryKeys = secondary.value.split(',').map((k) => k.trim()).filter(Boolean);
+      });
+      const constant = el('input');
+      constant.type = 'checkbox';
+      constant.checked = entry.constant === true;
+      constant.addEventListener('change', () => {
+        entry.constant = constant.checked;
+      });
+      const selective = el('input');
+      selective.type = 'checkbox';
+      selective.checked = entry.selective === true;
+      selective.addEventListener('change', () => {
+        entry.selective = selective.checked;
+      });
+      const order = el('input');
+      order.type = 'number';
+      order.value = String(entry.order ?? 0);
+      order.addEventListener('input', () => {
+        entry.order = Number(order.value) || 0;
+      });
+      const budget = el('input');
+      budget.type = 'number';
+      budget.value = String(entry.budget ?? 0);
+      budget.addEventListener('input', () => {
+        entry.budget = Number(budget.value) || undefined;
+      });
+      advanced.append(
+        agentField('Вторичные ключи', secondary),
+        agentField('Всегда (constant)', constant),
+        agentField('Требует вторичный (selective)', selective),
+        agentField('Порядок', order),
+        agentField('Бюджет, знаков', budget),
+      );
+
+      roww.append(keys, content, remove, advanced);
       list.append(roww);
     });
     if (entries.length === 0) list.append(el('p', 'page-sub', 'Пока пусто.'));
@@ -1097,7 +1137,7 @@ async function loreCard() {
   });
 
   save.addEventListener('click', async () => {
-    const clean = entries.filter((e) => e.keys.length && e.content.trim());
+    const clean = entries.filter((e) => (e.constant || e.keys.length) && e.content.trim());
     state.textContent = 'сохраняю…';
     try {
       const res = await api('/api/lorebook', { method: 'PUT', body: JSON.stringify({ entries: clean }) });
@@ -1230,6 +1270,82 @@ async function adminSessionsTab(container) {
   renderList();
 }
 
+const FEATURE_LABELS = {
+  contextInspector: 'Context Inspector',
+  advancedLore: 'Продвинутый World Info',
+  branches: 'Ветки и чекпоинты',
+  groupScenes: 'Групповые сцены',
+  npcMinds: 'Разумы NPC',
+  vectorMemory: 'Векторная память',
+  storyDirector: 'Story Director',
+  imageQueue: 'Очередь картинок',
+  imageProfiles: 'Профили картинок',
+  antiSlop: 'Anti-slop',
+  shops: 'Магазины и экономика',
+};
+
+async function adminFeaturesTab(container) {
+  const page = el('div');
+  page.append(el('p', 'page-sub', 'Динамические выключатели механик. Сохраняются сразу.'));
+  const box = await api('/api/admin/features');
+  const features = box.features ?? {};
+  const inputs = {};
+  for (const [key, label] of Object.entries(FEATURE_LABELS)) {
+    const row = el('label', 'switch feature-switch');
+    const input = el('input');
+    input.type = 'checkbox';
+    input.checked = Boolean(features[key]);
+    inputs[key] = input;
+    row.append(input, el('span', '', label));
+    page.append(row);
+  }
+  const profile = box.imageProfile ?? { style: 'natural', negative: '', references: 'auto' };
+  const style = el('select');
+  for (const [value, label] of [['natural', 'Natural language'], ['booru', 'Danbooru tags']]) {
+    const option = el('option', '', label);
+    option.value = value;
+    style.append(option);
+  }
+  style.value = profile.style === 'booru' ? 'booru' : 'natural';
+  const negative = el('input');
+  negative.value = profile.negative ?? '';
+  const refs = el('select');
+  for (const [value, label] of [['auto', 'Референсы включены'], ['off', 'Без референсов']]) {
+    const option = el('option', '', label);
+    option.value = value;
+    refs.append(option);
+  }
+  refs.value = profile.references === 'off' ? 'off' : 'auto';
+  page.append(
+    el('h3', '', 'Картинки'),
+    agentField('Стиль промта', style),
+    agentField('Negative prompt', negative),
+    agentField('Референсы', refs),
+  );
+  const save = el('button', 'btn primary', 'Сохранить функции');
+  save.type = 'button';
+  const status = el('span', 'status');
+  save.addEventListener('click', async () => {
+    save.disabled = true;
+    try {
+      const payload = {};
+      for (const [key, input] of Object.entries(inputs)) payload[key] = input.checked;
+      await api('/api/admin/features', { method: 'PUT', body: JSON.stringify({ features: payload, imageProfile: profile }) });
+      await api('/api/admin/image-profile', {
+        method: 'PUT',
+        body: JSON.stringify({ style: style.value, negative: negative.value, references: refs.value }),
+      });
+      status.textContent = 'сохранено';
+    } catch (err) {
+      status.textContent = err.message;
+    } finally {
+      save.disabled = false;
+    }
+  });
+  page.append(save, status);
+  container.append(page);
+}
+
 async function adminFeedbackTab(container) {
   const box = el('div');
   const reload = async () => {
@@ -1303,6 +1419,7 @@ async function viewAdmin(view) {
   const sections = [
     ['sessions', 'Сессии'],
     ['feedback', 'Обращения'],
+    ['features', 'Функции'],
     ['stats', 'Статистика'],
     ['keys', 'Ключи'],
     ['core', 'Ядро'],
@@ -1324,6 +1441,7 @@ async function viewAdmin(view) {
     content.replaceChildren();
     if (active === 'sessions') await adminSessionsTab(content);
     else if (active === 'feedback') await adminFeedbackTab(content);
+    else if (active === 'features') await adminFeaturesTab(content);
     else if (active === 'stats') await viewStats(content);
     else if (active === 'keys') await viewKeys(content);
     else if (active === 'core') await viewCore(content);
@@ -3540,6 +3658,22 @@ function personCard(actor, campaignId, isNpc = false) {
   if (resources) card.append(resources);
   const actorWallet = currenciesText(actor.currencies, actor.money);
   if (actorWallet) card.append(el('div', 'person-field', `Деньги: ${actorWallet}`));
+  if (actor.mind && Object.values(actor.mind).some((value) => Array.isArray(value) ? value.length : value)) {
+    const mind = el('details', 'mind-block');
+    mind.append(el('summary', '', 'Разум NPC'));
+    for (const [label, value] of [
+      ['Цели', actor.mind.goals],
+      ['Секреты', actor.mind.secrets],
+      ['Знает', actor.mind.knows],
+      ['Не знает', actor.mind.notKnows],
+      ['Планы', actor.mind.plans],
+      ['Настроение', actor.mind.mood],
+    ]) {
+      if (!value || (Array.isArray(value) && !value.length)) continue;
+      mind.append(el('div', 'mind-row', `${label}: ${Array.isArray(value) ? value.join('; ') : value}`));
+    }
+    card.append(mind);
+  }
 
   if (actor.relations?.length) {
     const rel = el('div', 'person-field');
@@ -4233,6 +4367,10 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     ? itemList(state.items.map((i) => {
         const li = el('li');
         li.append(el('span', '', `${i.name} ×${i.qty}`), el('span', 'tag', i.where));
+        li.append(miniBtn('₽', 'узнать цену здесь', async () => {
+          const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/price?item=${encodeURIComponent(i.name)}`);
+          toast(`${i.name}: ~${res.quote.display} ${res.quote.currency}`);
+        }));
         if (i.card) {
           const img = el('img', 'item-card');
           img.src = i.card;
@@ -4254,6 +4392,41 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
       }))
     : row('С собой', 'пусто');
   frag.append(section('Снаряжение', [inventory]));
+
+  const marketBox = el('div', 'market-box');
+  const marketSection = section('Рынок', [marketBox]);
+  frag.append(marketSection);
+  const loadMarket = async () => {
+    try {
+      const data = await api(`/api/campaign/${encodeURIComponent(campaignId)}/market`);
+      marketBox.replaceChildren();
+      marketBox.append(el('p', 'page-sub', `Кошелёк: ${currenciesText(data.currencies, null)} · ${data.market.place}`));
+      for (const good of data.market.goods) {
+        const line = el('div', 'market-row');
+        line.append(el('span', '', `${good.name} · ${good.price} ${good.currency || ''} · осталось ${good.qty}`));
+        line.append(
+          miniBtn('Купить', 'купить товар', async () => {
+            await api(`/api/campaign/${encodeURIComponent(campaignId)}/market`, {
+              method: 'POST',
+              body: JSON.stringify({ mode: 'buy', name: good.name }),
+            });
+            await refresh();
+          }),
+          miniBtn('Продать', 'продать товар', async () => {
+            await api(`/api/campaign/${encodeURIComponent(campaignId)}/market`, {
+              method: 'POST',
+              body: JSON.stringify({ mode: 'sell', name: good.name }),
+            });
+            await refresh();
+          }),
+        );
+        marketBox.append(line);
+      }
+    } catch (err) {
+      marketBox.replaceChildren(el('p', 'page-sub', err.message));
+    }
+  };
+  void loadMarket();
 
   if (state.quests.length) {
     frag.append(section('Задачи', [itemList(state.quests.map((q) => {
@@ -4454,6 +4627,150 @@ function openTimeDetails(state) {
   document.body.append(overlay);
 }
 
+function openBranchesDialog(campaignId) {
+  const overlay = el('div', 'library-modal');
+  const sheet = el('article', 'library-sheet');
+  const head = el('div', 'library-sheet-head');
+  const titles = el('div');
+  titles.append(el('h2', 'person-name', 'Ветки'));
+  titles.append(el('div', 'person-role', 'снимки состояния и возврат'));
+  const close = el('button', 'btn small', '✕');
+  close.type = 'button';
+  head.append(titles, close);
+  const body = el('div', 'library-sheet-body');
+  const create = el('button', 'btn primary', 'Сохранить текущий ход');
+  create.type = 'button';
+  const status = el('span', 'status');
+  const list = el('div', 'branches-list');
+  body.append(create, status, list);
+  sheet.append(head, body);
+  overlay.append(sheet);
+  close.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  document.body.append(overlay);
+
+  const reload = async () => {
+    list.replaceChildren(el('p', 'page-sub', 'Загружаю…'));
+    try {
+      const data = await api(`/api/campaign/${encodeURIComponent(campaignId)}/branches`);
+      list.replaceChildren();
+      if (!(data.branches ?? []).length) {
+        list.append(el('p', 'page-sub', 'Веток пока нет.'));
+        return;
+      }
+      for (const branch of data.branches) {
+        const row = el('div', 'branch-row');
+        row.append(
+          el('div', 'branch-main', `${branch.name} · ход ${branch.turn}`),
+          el('span', 'branch-date', dateLabel(branch.createdAt)),
+        );
+        const actions = el('div', 'person-actions');
+        actions.append(
+          miniBtn('Загрузить', 'вернуть это состояние', async () => {
+            if (!window.confirm(`Загрузить ветку «${branch.name}»? Текущее состояние будет заменено.`)) return;
+            await api(`/api/campaign/${encodeURIComponent(campaignId)}/branches/${encodeURIComponent(branch.id)}/load`, { method: 'POST' });
+            overlay.remove();
+            router();
+          }),
+          miniBtn('Удалить', 'удалить ветку', async () => {
+            if (!window.confirm(`Удалить ветку «${branch.name}»?`)) return;
+            await api(`/api/campaign/${encodeURIComponent(campaignId)}/branches/${encodeURIComponent(branch.id)}`, { method: 'DELETE' });
+            await reload();
+          }),
+        );
+        row.append(actions);
+        list.append(row);
+      }
+    } catch (err) {
+      list.replaceChildren(el('p', 'page-sub', err.message));
+    }
+  };
+  create.addEventListener('click', async () => {
+    create.disabled = true;
+    try {
+      const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/branches`, {
+        method: 'POST',
+        body: JSON.stringify({ name: window.prompt('Название ветки', '') || '' }),
+      });
+      status.textContent = `сохранено: ${res.branch?.name ?? ''}`;
+      await reload();
+    } catch (err) {
+      status.textContent = err.message;
+    } finally {
+      create.disabled = false;
+    }
+  });
+  void reload();
+}
+
+function openContextInspector(campaignId) {
+  const overlay = el('div', 'library-modal');
+  const sheet = el('article', 'library-sheet context-sheet');
+  const head = el('div', 'library-sheet-head');
+  const titles = el('div');
+  titles.append(el('h2', 'person-name', 'Контекст'));
+  titles.append(el('div', 'person-role', 'что реально ушло в модель'));
+  const close = el('button', 'btn small', '✕');
+  close.type = 'button';
+  head.append(titles, close);
+  const body = el('div', 'library-sheet-body');
+  body.append(el('p', 'page-sub', 'Загружаю…'));
+  sheet.append(head, body);
+  overlay.append(sheet);
+  close.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  document.body.append(overlay);
+
+  api(`/api/campaign/${encodeURIComponent(campaignId)}/inspector`)
+    .then((data) => {
+      body.replaceChildren();
+      body.append(el('div', 'person-field', `Токенов: ${data.totalTokens ?? 0}`));
+      if (!data.enabled) body.append(el('div', 'person-field', 'Инспектор выключен в админке.'));
+      const segments = data.segments ?? [];
+      if (segments.length) {
+        const table = el('div', 'context-segments');
+        for (const segment of segments) {
+          const line = el('div', 'context-segment');
+          line.append(
+            el('span', 'context-name', String(segment.name)),
+            el('span', 'context-tokens', `${segment.tokens ?? '?'} ток · ${segment.chars ?? 0} зн.`),
+          );
+          table.append(line);
+        }
+        body.append(el('h3', '', 'Блоки'), table);
+      }
+      const lore = data.lore ?? [];
+      if (lore.length) {
+        body.append(el('h3', '', 'World Info'));
+        const list = el('div', 'context-lore');
+        for (const entry of lore) {
+          const line = el('div', 'context-lore-row');
+          line.append(
+            el('span', 'context-name', entry.title || entry.id),
+            el('span', `tag ${entry.active ? 'gold' : ''}`, entry.active ? 'активна' : 'пропущена'),
+            el('span', 'context-reason', entry.reason || ''),
+          );
+          list.append(line);
+        }
+        body.append(list);
+      }
+      const messages = data.messages ?? [];
+      if (messages.length) {
+        const details = el('details', 'context-messages');
+        details.append(el('summary', '', `Финальные сообщения (${messages.length})`));
+        const pre = el('pre', 'prompt-dump');
+        pre.textContent = messages.map((message) => `[${message.role}]\n${message.content}`).join('\n\n').slice(0, 60000);
+        details.append(pre);
+        body.append(details);
+      }
+    })
+    .catch((err) => body.replaceChildren(el('p', 'page-sub', err.message)));
+}
+
 async function viewPlay(view, id) {
   const data = await api(`/api/campaign/${encodeURIComponent(id)}`);
   const route = currentRoute();
@@ -4574,7 +4891,15 @@ async function viewPlay(view, id) {
     if (!menu.contains(event.target) && event.target !== menuBtn) closeMenu();
   });
 
-  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn);
+  const contextBtn = menuItem('🧠', 'Контекст');
+  contextBtn.title = 'что реально ушло в модель';
+  contextBtn.addEventListener('click', () => openContextInspector(id));
+
+  const branchesBtn = menuItem('🌿', 'Ветки');
+  branchesBtn.title = 'чекпоинты и возврат к другому ходу';
+  branchesBtn.addEventListener('click', () => openBranchesDialog(id));
+
+  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn, contextBtn, branchesBtn);
   const clockBtn = el('button', 'btn small clock-btn');
   clockBtn.type = 'button';
   clockBtn.title = 'подробнее о времени мира';

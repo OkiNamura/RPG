@@ -5,7 +5,7 @@
  * отбрасывается, ход продолжается — стейт нельзя испортить одним ответом.
  */
 
-import { addHiddenFact, type Actor, type Currency, type GameState, type Item, type Quest, type Resource, type SkillMod, type Status } from './state.ts';
+import { addHiddenFact, type Actor, type Currency, type GameState, type Item, type Mind, type Quest, type Resource, type SkillMod, type Status } from './state.ts';
 
 /** Изменение валюты мира или карточки. */
 export interface CurrencyPatch {
@@ -48,6 +48,7 @@ export interface ActorPatch {
   abilities?: string;
   skills?: Record<string, number>;
   skillMods?: SkillMod[];
+  mind?: Mind;
   rank?: Actor['rank'];
   rankPoints?: number;
   relations?: { with: string; feeling: string }[];
@@ -276,6 +277,7 @@ function upsertActor(
     if (patch.abilities) existing.abilities = patch.abilities;
     if (patch.skills) existing.skills = { ...(existing.skills ?? {}), ...patch.skills };
     if (patch.skillMods) existing.skillMods = patch.skillMods;
+    if (patch.mind) existing.mind = { ...(existing.mind ?? {}), ...patch.mind, updatedTurn: patch.mind.updatedTurn };
     if (patch.rank) existing.rank = patch.rank;
     if (typeof patch.rankPoints === 'number') existing.rankPoints = patch.rankPoints;
     if (patch.relations) existing.relations = patch.relations;
@@ -315,6 +317,7 @@ function upsertActor(
     abilities: patch.abilities,
     skills: patch.skills,
     skillMods: patch.skillMods,
+    mind: patch.mind,
     rank: patch.rank ?? 'F',
     rankPoints: patch.rankPoints ?? 0,
     rankHistory: [],

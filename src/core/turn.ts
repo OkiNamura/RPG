@@ -12,6 +12,7 @@ import { critique } from './critic.ts';
 import type { Model } from './model.ts';
 import type { AgentSet } from './agents.ts';
 import type { GameState } from './state.ts';
+import { cleanProse } from './anti-slop.ts';
 
 /** Цены за 1M токенов. Пока — заглушка, реальные подставим после M1. */
 export interface Prices {
@@ -53,6 +54,8 @@ export interface Session {
   agents?: AgentSet;
   /** лор-книга, подобранная под текущий ход */
   extraLore?: string;
+  /** отчёт активации World Info для инспектора */
+  lastLoreReport?: { id: string; title: string; active: boolean; reason: string; chars: number }[];
   /** броски и скрытые проверки этого хода */
   extraNotes?: string;
   /** результат кубика за текущий ход */
@@ -76,6 +79,8 @@ export interface Session {
   quietConspect?: boolean;
   /** состоянием владеет агент — от ведущего JSON не требуем */
   expectDelta?: boolean;
+  /** включён ли мягкий anti-slop */
+  antiSlop?: boolean;
   /** идёт ход: второй параллельный запрос не пускаем */
   busy?: boolean;
   /** скользящий конспект: всё, что старше окна последних ходов */
@@ -84,7 +89,7 @@ export interface Session {
   lastContext?: {
     messages: { role: string; content: string }[];
     totalTokens: number;
-    segments: { name: string; chars: number }[];
+    segments: { name: string; chars: number; tokens?: number }[];
   };
 }
 
@@ -212,6 +217,8 @@ export async function runTurn(
 
   if (!parsed.prose.trim()) {
     parsed = { ...parsed, prose: 'Сцена обрывается — ведущий молчит, и тишина становится ответом.' };
+  } else {
+    parsed = { ...parsed, prose: session.antiSlop === false ? parsed.prose : cleanProse(parsed.prose) };
   }
 
   state.turn += 1;

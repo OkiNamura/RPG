@@ -128,6 +128,7 @@ export const DEFAULT_AGENTS: AgentSet = {
                    "character": "...", "clothes": "...", "bio": "...", "description": "короткое описание для карточки", "abilities": "что умеет", "note": "...",
                    "resources": [{"name": "мана", "value": 4, "max": 10, "reason": "потратила"}],
                    "skillMods": [{"skill": "Ловкость", "delta": -2, "reason": "устала"}],
+                   "mind": {"goals": ["..."], "secrets": ["..."], "knows": ["..."], "notKnows": ["..."], "plans": ["..."], "mood": "..."},
                    "currencies": [{"name": "серебро", "amount": 3, "reason": "заплатила"}],
                    "money": {"gold": 0, "silver": 3, "copper": 0},
                    "skills": {"Красноречие": 12, "Восприятие": 9}}],
@@ -192,6 +193,8 @@ export const DEFAULT_AGENTS: AgentSet = {
 - простые навыки — число; временные модификаторы (кандалы, яд) не меняй в skills,
   а пиши в heroSkillMods / skillMods: {"skill":"Ловкость","delta":-6,"reason":"кандалы"};
   карточка покажет базу и штраф отдельно;
+- для важных NPC веди mind: goals, secrets, knows, notKnows, plans, mood. Это личные
+  мотивы и границы знания; не раскрывай секреты в прозе, если NPC не проговорился;
 - ресурсы (heroResources у героя, resources у NPC/пати) — это мана, топливо, рассудок,
   патроны, еда и любые шкалы мира. Создавай ресурс, когда он впервые появляется
   в сцене; value — новое значение, delta — прирост/расход. max ставь, если он известен.
