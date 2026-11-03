@@ -4605,7 +4605,9 @@ async function viewPlay(view, id) {
       if (current) showOutbox(current);
     } finally {
       app.game.busy = false;
-      input.focus();
+      // Не возвращаем фокус в textarea: на телефоне это снова открывает
+      // клавиатуру и дёргает ленту после ответа.
+      input.blur();
       if (keepTop) {
         window.requestAnimationFrame(() => {
           suppressAutoHide = true;
