@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Генерация иллюстраций.
  *
  * Картинка приходит от модели как data-URL в ответе чата, мы сохраняем её
@@ -27,6 +27,13 @@ interface ImageOptions {
   /** размер кадра для локального провайдера, например 512x768 */
   size?: string;
   timeoutMs?: number;
+  /** отмена текущей генерации */
+  signal?: AbortSignal;
+}
+
+function abortSignal(options: ImageOptions, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
 }
 
 /**
@@ -99,14 +106,14 @@ async function generateQwenImage(options: ImageOptions): Promise<ImageResult> {
             reference_images: options.references.slice(0, 9),
             reference_resolution: 512,
           }),
-          signal: AbortSignal.timeout(options.timeoutMs ?? 300_000),
+          signal: abortSignal(options, options.timeoutMs ?? 300_000),
         });
         if (ref.ok) {
           const found = (await ref.json()) as { images?: { url?: string }[] };
           const imageUrl = found.images?.[0]?.url;
           if (imageUrl) {
             const absolute = imageUrl.startsWith('http') ? imageUrl : `${root}${imageUrl}`;
-            const image = await fetch(absolute, { headers, signal: AbortSignal.timeout(60_000) });
+            const image = await fetch(absolute, { headers, signal: abortSignal(options, 60_000) });
             if (image.ok) {
               return {
                 buffer: Buffer.from(await image.arrayBuffer()),
@@ -152,7 +159,7 @@ async function generateQwenImage(options: ImageOptions): Promise<ImageResult> {
       'X-Title': 'Omika',
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(options.timeoutMs ?? (local ? 300_000 : 120_000)),
+    signal: abortSignal(options, options.timeoutMs ?? (local ? 300_000 : 120_000)),
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
@@ -167,7 +174,7 @@ async function generateQwenImage(options: ImageOptions): Promise<ImageResult> {
   if (first?.b64_json) {
     buffer = Buffer.from(first.b64_json, 'base64');
   } else if (first?.url) {
-    const image = await fetch(first.url, { signal: AbortSignal.timeout(options.timeoutMs ?? 120_000) });
+    const image = await fetch(first.url, { signal: abortSignal(options, options.timeoutMs ?? 120_000) });
     if (!image.ok) throw new Error(`картинка не скачалась: ${image.status}`);
     buffer = Buffer.from(await image.arrayBuffer());
   } else {
@@ -222,7 +229,7 @@ export async function generateImage(options: ImageOptions): Promise<ImageResult>
       image_config: { aspect_ratio: '9:16' },
       usage: { include: true },
     }),
-    signal: AbortSignal.timeout(options.timeoutMs ?? 120_000),
+    signal: abortSignal(options, options.timeoutMs ?? 120_000),
   });
 
   if (!res.ok) {

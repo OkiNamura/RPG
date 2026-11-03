@@ -4909,8 +4909,18 @@ async function viewPlay(view, id) {
       toast(err.message);
     }
   });
+  const cancelImagesBtn = menuItem('⏹', 'Отменить картинки');
+  cancelImagesBtn.title = 'остановить текущую и ожидающую генерацию';
+  cancelImagesBtn.addEventListener('click', async () => {
+    try {
+      await api('/api/images/cancel', { method: 'POST' });
+      toast('генерация картинок отменена');
+    } catch (err) {
+      toast(err.message);
+    }
+  });
 
-  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn, contextBtn, branchesBtn, undoBtn);
+  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn, contextBtn, branchesBtn, undoBtn, cancelImagesBtn);
   const clockBtn = el('button', 'btn small clock-btn');
   clockBtn.type = 'button';
   clockBtn.title = 'подробнее о времени мира';

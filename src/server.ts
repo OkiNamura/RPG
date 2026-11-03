@@ -155,6 +155,7 @@ const TRACES_DIR = join(import.meta.dirname, '..', 'data', 'traces');
 let imageQueueTail: Promise<void> = Promise.resolve();
 let imageQueueRunning = 0;
 let imageQueueWaiting = 0;
+const imageAbortControllers = new Set<AbortController>();
 
 function withImageQueue<T>(task: () => Promise<T>): Promise<T> {
   imageQueueWaiting += 1;
@@ -3828,6 +3829,9 @@ const server = createServer(async (req, res) => {
         // Выбранный стиль — в начало промта, иначе модель его почти не слышит.
         if (extra) prompt = `${extra}. ${prompt}`;
         if (avoid) prompt += ` Не изображать: ${avoid}.`;
+        const imageSize = localImage ? '512x768' : undefined;
+        const imageController = new AbortController();
+        imageAbortControllers.add(imageController);
         if (features.imageProfiles) {
           if (imageProfile.style === 'booru') {
             prompt = `${prompt}, masterpiece, best quality, highly detailed`;
@@ -3850,6 +3854,7 @@ const server = createServer(async (req, res) => {
               });
               const heroResult = await withImageQueue(() => generateImage({
                 apiKey, baseUrl, model, prompt: heroPrompt, references: [], size: imageSize,
+                signal: imageController.signal,
               }));
               const heroFile = await saveImage(id, 'sheet', heroResult.buffer, heroResult.mime);
               const heroUrl = `/api/images/${heroFile}`;
@@ -3866,7 +3871,6 @@ const server = createServer(async (req, res) => {
         // Seedream может быть недоступен у провайдера — тогда честно откатываемся.
         // Локальный Qwen не откатываем в облако: ошибка должна быть видна.
         let usedModel = model;
-        const imageSize = localImage ? '512x768' : undefined;
         let result = await withImageQueue(() => generateImage({
           apiKey,
           baseUrl,
@@ -3874,6 +3878,7 @@ const server = createServer(async (req, res) => {
           prompt,
           references,
           size: imageSize,
+          signal: imageController.signal,
         }).catch(async (err: Error) => {
           if (localImage || model === IMAGE_FALLBACK_MODEL) throw err;
           console.error('[artist]', err.message, '→ откат на', IMAGE_FALLBACK_MODEL);
@@ -3884,12 +3889,14 @@ const server = createServer(async (req, res) => {
             model: IMAGE_FALLBACK_MODEL,
             prompt,
             references,
+            signal: imageController.signal,
           });
         }));
 
         addUsage(session, 'artist', 0, 0, result.cost);
         const file = await saveImage(id, mode, result.buffer, result.mime);
         const url = `/api/images/${file}`;
+        imageAbortControllers.delete(imageController);
 
         if (mode === 'hero') {
           session.state.hero.card = url;
@@ -4026,7 +4033,14 @@ const server = createServer(async (req, res) => {
         enabled: features.imageQueue,
         running: imageQueueRunning,
         waiting: imageQueueWaiting,
+        cancellable: imageAbortControllers.size,
       });
+    }
+
+    if (path === '/api/images/cancel' && req.method === 'POST') {
+      for (const controller of imageAbortControllers) controller.abort();
+      imageAbortControllers.clear();
+      return sendJson(res, { ok: true });
     }
 
     if (path.startsWith('/api/images/') && req.method === 'GET') {
