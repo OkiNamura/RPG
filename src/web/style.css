@@ -4206,3 +4206,20 @@ select {
 .log {
   overflow-anchor: none;
 }
+
+.ticket-text {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.ticket-image {
+  display: block;
+  max-width: min(100%, 420px);
+  max-height: 320px;
+  object-fit: contain;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}

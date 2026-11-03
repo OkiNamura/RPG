@@ -1213,6 +1213,62 @@ async function adminSessionsTab(container) {
   renderList();
 }
 
+async function adminFeedbackTab(container) {
+  const box = el('div');
+  const reload = async () => {
+    const data = await api('/api/feedback');
+    const tickets = data.tickets ?? [];
+    box.replaceChildren();
+    box.append(el('p', 'page-sub', `Обращений: ${tickets.length}`));
+    if (!tickets.length) {
+      box.append(emptyBox('Пока пусто', 'Напиши боту в Telegram — тикет появится здесь.'));
+      return;
+    }
+    for (const ticket of tickets) {
+      const card = el('article', 'row-card feedback-card');
+      const main = el('div', 'row-main');
+      main.append(el('h3', '', ticket.text ? ticket.text.slice(0, 100) : `Тикет ${ticket.id}`));
+      const meta = el('div', 'row-meta');
+      meta.append(
+        el('span', '', dateLabel(ticket.createdAt)),
+        el('span', '', ticket.user?.username ? `@${ticket.user.username}` : 'Telegram'),
+        el('span', `chip${ticket.status === 'done' ? ' gold' : ''}`, ticket.status === 'done' ? 'готово' : ticket.status === 'in_progress' ? 'в работе' : 'новое'),
+      );
+      main.append(meta);
+      if (ticket.text) main.append(el('div', 'ticket-text', ticket.text));
+      for (const file of ticket.files ?? []) {
+        if (!/\.(png|jpe?g)$/i.test(file.name)) continue;
+        const img = el('img', 'ticket-image');
+        img.src = file.url;
+        img.alt = file.name;
+        img.loading = 'lazy';
+        main.append(img);
+      }
+      const actions = el('div', 'row-actions');
+      for (const [status, label] of [
+        ['in_progress', 'В работу'],
+        ['done', 'Готово'],
+        ['new', 'Вернуть в новые'],
+      ]) {
+        const btn = el('button', 'btn small', label);
+        btn.type = 'button';
+        btn.addEventListener('click', async () => {
+          await api(`/api/feedback/${encodeURIComponent(ticket.id)}`, {
+            method: 'POST',
+            body: JSON.stringify({ status }),
+          });
+          await reload();
+        });
+        actions.append(btn);
+      }
+      card.append(main, actions);
+      box.append(card);
+    }
+  };
+  await reload();
+  container.append(box);
+}
+
 async function viewAdmin(view) {
   const page = el('div', 'page');
   page.append(
@@ -1229,6 +1285,7 @@ async function viewAdmin(view) {
 
   const sections = [
     ['sessions', 'Сессии'],
+    ['feedback', 'Обращения'],
     ['stats', 'Статистика'],
     ['keys', 'Ключи'],
     ['core', 'Ядро'],
@@ -1249,6 +1306,7 @@ async function viewAdmin(view) {
     }
     content.replaceChildren();
     if (active === 'sessions') await adminSessionsTab(content);
+    else if (active === 'feedback') await adminFeedbackTab(content);
     else if (active === 'stats') await viewStats(content);
     else if (active === 'keys') await viewKeys(content);
     else if (active === 'core') await viewCore(content);

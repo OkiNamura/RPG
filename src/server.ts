@@ -1,4 +1,4 @@
-﻿/**
+/**
  * HTTP-сервер игры: статика и API. Без зависимостей.
  *
  *   node src/server.ts
@@ -127,6 +127,7 @@ const DATA_DIR = join(import.meta.dirname, '..', 'data', 'campaigns');
 const CARDS_DIR = join(import.meta.dirname, '..', 'data', 'cards');
 const PRESETS_DIR = join(import.meta.dirname, '..', 'data', 'presets');
 const TRASH_DIR = join(import.meta.dirname, '..', 'data', 'trash');
+const FEEDBACK_DIR = join(import.meta.dirname, '..', 'data', 'feedback');
 const TRACES_DIR = join(import.meta.dirname, '..', 'data', 'traces');
 
 const IMAGES_DIR = join(import.meta.dirname, '..', 'data', 'images');
@@ -1595,6 +1596,64 @@ const server = createServer(async (req, res) => {
         return sendJson(res, session.agents ?? agents);
       }
       return sendJson(res, agents);
+    }
+
+    // Обращения из Telegram: задачи и скриншоты.
+    if (path === '/api/feedback' && req.method === 'GET') {
+      const rows: unknown[] = [];
+      const dirs = await readdir(FEEDBACK_DIR, { withFileTypes: true }).catch(() => []);
+      for (const dir of dirs.filter((entry) => entry.isDirectory()).slice(-100)) {
+        try {
+          const ticket = JSON.parse(await readFile(join(FEEDBACK_DIR, dir.name, 'message.json'), 'utf8'));
+          const meta = await readFile(join(FEEDBACK_DIR, dir.name, 'meta.json'), 'utf8')
+            .then((text) => JSON.parse(text))
+            .catch(() => ({}));
+          rows.push({
+            ...ticket,
+            status: meta.status ?? 'new',
+            files: (ticket.files ?? []).map((file: string) => ({
+              name: file,
+              url: `/api/feedback/${encodeURIComponent(dir.name)}/file/${encodeURIComponent(file)}`,
+            })),
+          });
+        } catch {
+          /* битый тикет пропускаем */
+        }
+      }
+      rows.sort((a, b) => String((b as { createdAt?: string }).createdAt).localeCompare(String((a as { createdAt?: string }).createdAt)));
+      return sendJson(res, { tickets: rows });
+    }
+
+    if (path.startsWith('/api/feedback/') && req.method === 'GET') {
+      const match = /^\/api\/feedback\/([^/]+)\/file\/([^/]+)$/.exec(path);
+      if (match) {
+        const id = decodeURIComponent(match[1]);
+        const file = basename(decodeURIComponent(match[2]));
+        if (!/^[A-Za-z0-9_.-]+$/.test(file) || file.includes('..')) {
+          return sendJson(res, { error: 'плохой файл' }, 400);
+        }
+        try {
+          const data = await readFile(join(FEEDBACK_DIR, id, file));
+          res.writeHead(200, {
+            'Content-Type': file.endsWith('.png') ? 'image/png' : file.endsWith('.jpg') || file.endsWith('.jpeg') ? 'image/jpeg' : 'application/octet-stream',
+            'Cache-Control': 'private, max-age=3600',
+          });
+          return res.end(data);
+        } catch {
+          return sendJson(res, { error: 'файл не найден' }, 404);
+        }
+      }
+    }
+
+    if (path.startsWith('/api/feedback/') && req.method === 'POST') {
+      const id = decodeURIComponent(path.slice('/api/feedback/'.length));
+      if (!/^[A-Za-z0-9_.-]+$/.test(id) || id.includes('..')) {
+        return sendJson(res, { error: 'плохой тикет' }, 400);
+      }
+      const body = await readBody(req);
+      const status = ['new', 'in_progress', 'done'].includes(String(body.status)) ? body.status : 'new';
+      await writeFile(join(FEEDBACK_DIR, id, 'meta.json'), JSON.stringify({ status, updatedAt: new Date().toISOString() }, null, 2));
+      return sendJson(res, { ok: true, status });
     }
 
     // Библиотека карточек: один JSON на карточку в data/cards.
