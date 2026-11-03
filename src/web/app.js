@@ -1,4 +1,4 @@
-﻿/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
+/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -1316,11 +1316,15 @@ async function adminFeaturesTab(container) {
     refs.append(option);
   }
   refs.value = profile.references === 'off' ? 'off' : 'auto';
+  const modelAware = el('input');
+  modelAware.type = 'checkbox';
+  modelAware.checked = profile.modelAware !== false;
   page.append(
     el('h3', '', 'Картинки'),
     agentField('Стиль промта', style),
     agentField('Negative prompt', negative),
     agentField('Референсы', refs),
+    agentField('Учитывать модель (Qwen → natural)', modelAware),
   );
   const save = el('button', 'btn primary', 'Сохранить функции');
   save.type = 'button';
@@ -1333,7 +1337,7 @@ async function adminFeaturesTab(container) {
       await api('/api/admin/features', { method: 'PUT', body: JSON.stringify({ features: payload, imageProfile: profile }) });
       await api('/api/admin/image-profile', {
         method: 'PUT',
-        body: JSON.stringify({ style: style.value, negative: negative.value, references: refs.value }),
+        body: JSON.stringify({ style: style.value, negative: negative.value, references: refs.value, modelAware: modelAware.checked }),
       });
       status.textContent = 'сохранено';
     } catch (err) {

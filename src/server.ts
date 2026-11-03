@@ -108,8 +108,8 @@ try {
 const LOREBOOK_PATH = join(import.meta.dirname, '..', 'data', 'lorebook.json');
 const FEATURES_PATH = join(import.meta.dirname, '..', 'data', 'features.json');
 const IMAGE_PROFILE_PATH = join(import.meta.dirname, '..', 'data', 'image-profile.json');
-interface ImageProfile { style: 'natural' | 'booru'; negative: string; references: 'auto' | 'off' }
-let imageProfile: ImageProfile = { style: 'natural', negative: 'text, watermark, logo, comic panels', references: 'auto' };
+interface ImageProfile { style: 'natural' | 'booru'; negative: string; references: 'auto' | 'off'; modelAware?: boolean }
+let imageProfile: ImageProfile = { style: 'natural', negative: 'text, watermark, logo, comic panels', references: 'auto', modelAware: true };
 try {
   imageProfile = { ...imageProfile, ...(JSON.parse(await readFile(IMAGE_PROFILE_PATH, 'utf8')) as Partial<ImageProfile>) };
 } catch {
@@ -1894,6 +1894,7 @@ const server = createServer(async (req, res) => {
         style: body.style === 'booru' ? 'booru' : 'natural',
         negative: String(body.negative ?? '').slice(0, 500),
         references: body.references === 'off' ? 'off' : 'auto',
+        modelAware: body.modelAware !== false,
       };
       await writeFile(IMAGE_PROFILE_PATH, `${JSON.stringify(imageProfile, null, 2)}\n`, 'utf8');
       return sendJson(res, { ok: true, profile: imageProfile });
@@ -3941,11 +3942,13 @@ const server = createServer(async (req, res) => {
         const imageController = new AbortController();
         imageAbortControllers.add(imageController);
         if (features.imageProfiles) {
-          if (imageProfile.style === 'booru') {
+          const useBooru = imageProfile.style === 'booru' && (!imageProfile.modelAware || !localImage);
+          if (useBooru) {
             prompt = `${prompt}, masterpiece, best quality, highly detailed`;
           } else {
             prompt = `${prompt} Кинематографичный свет, естественные пропорции, единый стиль.`;
           }
+          if (imageProfile.modelAware && localImage) prompt += ' Локальная Qwen: без текста и панелей.';
           if (imageProfile.negative) prompt += ` Не изображать: ${imageProfile.negative}.`;
           if (imageProfile.references === 'off') references = [];
           // Первый кадр без мастер-листа героя даёт «другого человека».
