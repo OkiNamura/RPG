@@ -1,4 +1,4 @@
-/**
+﻿/**
  * HTTP-сервер игры: статика и API. Без зависимостей.
  *
  *   node src/server.ts
@@ -3306,7 +3306,7 @@ const server = createServer(async (req, res) => {
       } catch {
         return sendJson(res, { error: 'плохое имя файла' }, 400);
       }
-      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(file) || file.includes('..')) {
+      if (!/^[A-Za-z0-9_.-]+$/.test(file) || file.includes('..')) {
         return sendJson(res, { error: 'плохое имя файла' }, 400);
       }
       try {
