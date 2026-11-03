@@ -1,11 +1,22 @@
-﻿/**
+/**
  * Изменения состояния: разбор блока из ответа модели и применение к стейту.
  *
  * Принцип: модель предлагает, движок проверяет. Непрошедшее изменение
  * отбрасывается, ход продолжается — стейт нельзя испортить одним ответом.
  */
 
-import { addHiddenFact, type Actor, type GameState, type Item, type Quest, type Status } from './state.ts';
+import { addHiddenFact, type Actor, type GameState, type Item, type Quest, type Resource, type Status } from './state.ts';
+
+/** Изменение ресурса: можно задать новое значение или прирост. */
+export interface ResourcePatch {
+  name: string;
+  value?: number;
+  delta?: number;
+  max?: number;
+  unit?: string;
+  note?: string;
+  reason?: string;
+}
 
 /** Карточка персонажа: одна и та же для пати и для знакомых. */
 export interface ActorPatch {
@@ -29,6 +40,8 @@ export interface ActorPatch {
   rank?: Actor['rank'];
   rankPoints?: number;
   relations?: { with: string; feeling: string }[];
+  resources?: ResourcePatch[];
+  money?: { gold?: number; silver?: number; copper?: number };
 }
 
 export interface Delta {
@@ -36,9 +49,13 @@ export interface Delta {
   weather?: string;
   advanceHours?: number;
   health?: number;
+  healthReason?: string;
   money?: { gold?: number; silver?: number; copper?: number };
-  addItems?: { name: string; qty: number; where?: Item['where'] }[];
-  removeItems?: { name: string; qty: number }[];
+  moneyReason?: string;
+  /** ресурсы героя: мана, топливо, рассудок и т.п. */
+  heroResources?: ResourcePatch[];
+  addItems?: { name: string; qty: number; where?: Item['where']; reason?: string }[];
+  removeItems?: { name: string; qty: number; reason?: string }[];
   conditions?: string[];
   conditionsRemove?: string[];
   statuses?: Status[];
@@ -216,6 +233,7 @@ function upsertActor(
   patch: ActorPatch,
   prefix: string,
   other?: Actor[],
+  changes: string[] = [],
 ): string {
   const status: Actor['status'] =
     patch.status === 'dead' || patch.status === 'gone' ? patch.status : 'alive';
@@ -242,6 +260,11 @@ function upsertActor(
     if (patch.rank) existing.rank = patch.rank;
     if (typeof patch.rankPoints === 'number') existing.rankPoints = patch.rankPoints;
     if (patch.relations) existing.relations = patch.relations;
+    if (patch.resources) applyResourcePatches(existing, patch.resources, existing.name, changes);
+    if (patch.money) {
+      existing.money ??= { gold: 0, silver: 0, copper: 0 };
+      if (applyCoins(existing.money, patch.money)) changes.push(`кошелёк ${existing.name}: изменён`);
+    }
     if (typeof patch.present === 'boolean') existing.present = patch.present;
 
     const attitude = clampScore(patch.attitude);
@@ -252,13 +275,15 @@ function upsertActor(
     return `${prefix}: ${existing.name}`;
   }
 
-  list.push({
+  const created: Actor = {
     name: patch.name,
     role: patch.role ?? '',
     status,
     bond: clampScore(patch.bond) ?? 0,
     attitude: clampScore(patch.attitude),
     present: patch.present ?? true,
+    resources: [],
+    money: patch.money ? { gold: 0, silver: 0, copper: 0 } : undefined,
     wounds: [],
     note: patch.note,
     appearance: patch.appearance,
@@ -272,7 +297,10 @@ function upsertActor(
     rankPoints: patch.rankPoints ?? 0,
     rankHistory: [],
     relations: patch.relations,
-  });
+  };
+  if (patch.resources) applyResourcePatches(created, patch.resources, created.name, changes);
+  if (patch.money) applyCoins(created.money!, patch.money);
+  list.push(created);
   return `${prefix}: ${patch.name}`;
 }
 
@@ -289,6 +317,61 @@ function normalizeWhere(value: unknown): Item['where'] {
   if (/(схрон|хранил|тайник|сундук|дом)/.test(raw)) return 'vault';
   if (/(потеря|выброс|брошен)/.test(raw)) return 'lost';
   return 'inventory';
+}
+
+/** Применяет ресурсы к герою или карточке NPC. */
+function applyResourcePatches(
+  target: { resources?: Resource[] },
+  patches: ResourcePatch[] | undefined,
+  label: string,
+  changes: string[],
+): void {
+  if (!Array.isArray(patches) || !patches.length) return;
+  target.resources ??= [];
+  for (const patch of patches) {
+    const name = String(patch?.name ?? '').trim().slice(0, 40);
+    if (!name) continue;
+    let resource = target.resources.find((item) => item.name.toLowerCase() === name.toLowerCase());
+    if (!resource) {
+      resource = { name, value: 0 };
+      target.resources.push(resource);
+    }
+    const before = resource.value;
+    if (typeof patch.max === 'number' && Number.isFinite(patch.max)) {
+      resource.max = Math.max(0, patch.max);
+    }
+    if (typeof patch.unit === 'string' && patch.unit.trim()) resource.unit = patch.unit.trim().slice(0, 12);
+    if (typeof patch.note === 'string' && patch.note.trim()) resource.note = patch.note.trim().slice(0, 120);
+    if (typeof patch.value === 'number' && Number.isFinite(patch.value)) {
+      resource.value = patch.value;
+    } else if (typeof patch.delta === 'number' && Number.isFinite(patch.delta)) {
+      resource.value += patch.delta;
+    }
+    resource.value = Math.max(0, Number(resource.value.toFixed(2)));
+    if (typeof resource.max === 'number') {
+      resource.value = Math.min(resource.max, resource.value);
+    }
+    if (resource.value !== before) {
+      changes.push(`${label} · ${resource.name}: ${before} → ${resource.value}`);
+    }
+  }
+}
+
+function applyCoins(
+  wallet: { gold: number; silver: number; copper: number },
+  patch: { gold?: number; silver?: number; copper?: number },
+): boolean {
+  let changed = false;
+  for (const key of ['gold', 'silver', 'copper'] as const) {
+    const next = patch[key];
+    if (typeof next !== 'number' || !Number.isFinite(next)) continue;
+    const value = Math.max(0, Math.round(next));
+    if (wallet[key] !== value) {
+      wallet[key] = value;
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 /**
@@ -411,6 +494,8 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
     }
   }
 
+  applyResourcePatches(state.hero, delta.heroResources, 'герой', changes);
+
   for (const where of delta.healWounds ?? []) {
     const wound = state.hero.wounds.find(
       (w) => w.where.toLowerCase() === String(where).toLowerCase(),
@@ -520,12 +605,12 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
       continue;
     }
     const inParty = state.party.some((actor) => sameNpc(actor, npc));
-    changes.push(inParty ? upsertActor(state.party, npc, '= пати') : upsertActor(state.npcs, npc, '+ NPC'));
+    changes.push(inParty ? upsertActor(state.party, npc, '= пати', undefined, changes) : upsertActor(state.npcs, npc, '+ NPC', undefined, changes));
   }
 
   for (const member of delta.party ?? []) {
     if (!member.name) continue;
-    changes.push(upsertActor(state.party, member, '+ в пати', state.npcs));
+    changes.push(upsertActor(state.party, member, '+ в пати', state.npcs, changes));
   }
   dedupeActorLists(state);
 

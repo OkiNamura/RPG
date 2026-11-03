@@ -13,7 +13,7 @@ import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 
 import { basename, extname, join, normalize, sep } from 'node:path';
 import { characterSheetPrompt, generateImage, itemCardPrompt, masterCardPrompt, portraitPrompt, scenePrompt } from './core/images.ts';
 import { renderMap } from './core/map.ts';
-import { createState, normalizeState, type Actor, type GameState } from './core/state.ts';
+import { createState, normalizeState, type Actor, type GameState, type NumberChange, type Resource } from './core/state.ts';
 import { createSession, runTurn, addUsage, type Session, type TurnStats } from './core/turn.ts';
 import {
   conspectFrom,
@@ -223,6 +223,133 @@ function parseJsonObject(raw: string): Record<string, unknown> | null {
   }
 }
 
+/** Технический снимок чисел до и после хода: для строки «было → стало». */
+interface NumericSnapshot {
+  health: number;
+  money: { gold: number; silver: number; copper: number };
+  resources: Record<string, { value: number; max?: number; unit?: string }>;
+  items: Record<string, number>;
+  rank: string;
+  rankPoints: number;
+  actors: Record<string, { name: string; resources: Record<string, { value: number; max?: number; unit?: string }>; money?: { gold: number; silver: number; copper: number } }>;
+}
+
+function resourceMap(resources?: Resource[]): Record<string, { value: number; max?: number; unit?: string }> {
+  const map: Record<string, { value: number; max?: number; unit?: string }> = {};
+  for (const resource of resources ?? []) {
+    map[resource.name.toLowerCase()] = { value: resource.value, max: resource.max, unit: resource.unit };
+  }
+  return map;
+}
+
+function numericSnapshot(state: GameState): NumericSnapshot {
+  const actors: NumericSnapshot['actors'] = {};
+  for (const actor of [...state.party, ...state.npcs.filter((item) => !item.archived)]) {
+    actors[actor.name.toLowerCase()] = {
+      name: actor.name,
+      resources: resourceMap(actor.resources),
+      money: actor.money,
+    };
+  }
+  return {
+    health: state.hero.health,
+    money: { ...state.money },
+    resources: resourceMap(state.hero.resources),
+    items: Object.fromEntries(state.items.map((item) => [item.name.toLowerCase(), item.qty])),
+    rank: state.hero.rank ?? 'F',
+    rankPoints: state.hero.rankPoints ?? 0,
+    actors,
+  };
+}
+
+function coinText(money: { gold: number; silver: number; copper: number }): string {
+  const parts: string[] = [];
+  if (money.gold) parts.push(`${money.gold}з`);
+  if (money.silver) parts.push(`${money.silver}с`);
+  if (money.copper) parts.push(`${money.copper}м`);
+  return parts.join(' ') || '0';
+}
+
+function coinDelta(before: NumericSnapshot['money'], after: NumericSnapshot['money']): string {
+  const parts: string[] = [];
+  for (const [key, suffix] of [['gold', 'з'], ['silver', 'с'], ['copper', 'м']] as const) {
+    const diff = after[key] - before[key];
+    if (diff) parts.push(`${diff > 0 ? '+' : ''}${diff}${suffix}`);
+  }
+  return parts.join(' ');
+}
+
+function resText(resource: { value: number; max?: number; unit?: string }): string {
+  return `${resource.value}${resource.max != null ? `/${resource.max}` : ''}${resource.unit ? ` ${resource.unit}` : ''}`;
+}
+
+function numberChange(label: string, before: string, after: string, delta?: string, reason?: string): NumberChange {
+  return { label, before, after, ...(delta ? { delta } : {}), ...(reason ? { reason } : {}) };
+}
+
+function diffNumbers(
+  before: NumericSnapshot,
+  after: NumericSnapshot,
+  reasons: Record<string, string> = {},
+): NumberChange[] {
+  const rows: NumberChange[] = [];
+  if (before.health !== after.health) {
+    const diff = after.health - before.health;
+    rows.push(numberChange('Здоровье', String(before.health), String(after.health), `${diff > 0 ? '+' : ''}${diff}`, reasons.health));
+  }
+  const coins = ['gold', 'silver', 'copper'] as const;
+  if (coins.some((key) => before.money[key] !== after.money[key])) {
+    rows.push(numberChange('Деньги', coinText(before.money), coinText(after.money), coinDelta(before.money, after.money), reasons.money));
+  }
+  const resourceKeys = new Set([...Object.keys(before.resources), ...Object.keys(after.resources)]);
+  for (const key of resourceKeys) {
+    const old = before.resources[key] ?? { value: 0 };
+    const now = after.resources[key] ?? { value: 0 };
+    if (old.value === now.value && old.max === now.max) continue;
+    const name = after.resources[key] ? key : key;
+    rows.push(numberChange(name.charAt(0).toUpperCase() + name.slice(1), resText(old), resText(now), undefined, reasons[`hero:${key}`]));
+  }
+  const itemKeys = new Set([...Object.keys(before.items), ...Object.keys(after.items)]);
+  for (const key of itemKeys) {
+    const oldQty = before.items[key] ?? 0;
+    const newQty = after.items[key] ?? 0;
+    if (oldQty === newQty) continue;
+    rows.push(numberChange(key, String(oldQty), String(newQty), `${newQty > oldQty ? '+' : ''}${newQty - oldQty}`, reasons[`item:${key}`]));
+  }
+  if (before.rank !== after.rank || before.rankPoints !== after.rankPoints) {
+    rows.push(numberChange('Ранг', `${before.rank} · ${before.rankPoints}/100`, `${after.rank} · ${after.rankPoints}/100`, undefined, reasons.rank));
+  }
+  const actorKeys = new Set([...Object.keys(before.actors), ...Object.keys(after.actors)]);
+  for (const key of actorKeys) {
+    const oldActor = before.actors[key];
+    const newActor = after.actors[key];
+    if (!oldActor || !newActor) continue;
+    for (const resKey of new Set([...Object.keys(oldActor.resources), ...Object.keys(newActor.resources)])) {
+      const oldRes = oldActor.resources[resKey] ?? { value: 0 };
+      const newRes = newActor.resources[resKey] ?? { value: 0 };
+      if (oldRes.value === newRes.value && oldRes.max === newRes.max) continue;
+      const name = newActor.resources[resKey] ? resKey : resKey;
+      rows.push(numberChange(
+        `${newActor.name} · ${name}`,
+        resText(oldRes),
+        resText(newRes),
+        undefined,
+        reasons[`actor:${key}:${resKey}`],
+      ));
+    }
+    if (oldActor.money && newActor.money && coins.some((coin) => oldActor.money![coin] !== newActor.money![coin])) {
+      rows.push(numberChange(
+        `${newActor.name} · деньги`,
+        coinText(oldActor.money),
+        coinText(newActor.money),
+        coinDelta(oldActor.money, newActor.money),
+        reasons[`actor-money:${key}`],
+      ));
+    }
+  }
+  return rows.slice(0, 14);
+}
+
 /** Хранитель сохранения: добирает то, что ведущий мог не внести в стейт. */
 async function runStateAgent(
   session: Session,
@@ -234,10 +361,11 @@ async function runStateAgent(
   tokensOut: number;
   rankGain: number;
   rankReason: string;
+  reasons: Record<string, string>;
 }> {
   const agent = session.agents?.state ?? agents.state;
   if (!agent.enabled) {
-    return { changes: [], cost: 0, tokensIn: 0, tokensOut: 0, rankGain: 1, rankReason: 'ход' };
+    return { changes: [], cost: 0, tokensIn: 0, tokensOut: 0, rankGain: 1, rankReason: 'ход', reasons: {} };
   }
 
   const model = makeAgentModel(agent);
@@ -245,7 +373,7 @@ async function runStateAgent(
     { role: 'system', content: agent.prompt },
     {
       role: 'user',
-      content: `СОСТОЯНИЕ:\n${renderState(session.state)}\n\nПОСЛЕДНИЙ ХОД:\n${prose.slice(0, 4000)}`,
+      content: `СОСТОЯНИЕ:\n${renderState(session.state)}\n\nПОСЛЕДНИЙ ХОД:\n${prose.slice(0, 4000)}\n\nРесурсы: если в сцене появилась мана, топливо, рассудок, патроны или другая шкала — добавь heroResources (герой) или resources (NPC/пати) с name, value или delta, max и коротким reason. Деньги NPC — money. Не выдумывай ресурс без сцены.`,
     },
   ]);
 
@@ -256,6 +384,39 @@ async function runStateAgent(
 
   const delta = parseJsonObject(reply.text);
   const changes = delta ? applyDelta(session.state, delta as Delta) : [];
+  const reasons: Record<string, string> = {};
+  const short = (value: unknown): string => String(value ?? '').trim().slice(0, 80);
+  if (delta) {
+    if (short(delta.healthReason)) reasons.health = short(delta.healthReason);
+    if (short(delta.moneyReason)) reasons.money = short(delta.moneyReason);
+    for (const patch of (delta.heroResources as Delta['heroResources']) ?? []) {
+      const name = short(patch.name).toLowerCase();
+      if (name && short(patch.reason)) reasons[`hero:${name}`] = short(patch.reason);
+    }
+    for (const patch of (delta.party as Delta['party']) ?? []) {
+      const actor = short(patch.name).toLowerCase();
+      for (const resource of patch.resources ?? []) {
+        const name = short(resource.name).toLowerCase();
+        if (actor && name && short(resource.reason)) reasons[`actor:${actor}:${name}`] = short(resource.reason);
+      }
+      if (patch.money && short((patch as { moneyReason?: unknown }).moneyReason)) {
+        reasons[`actor-money:${actor}`] = short((patch as { moneyReason?: unknown }).moneyReason);
+      }
+    }
+    for (const patch of (delta.npcs as Delta['npcs']) ?? []) {
+      const actor = short(patch.name).toLowerCase();
+      for (const resource of patch.resources ?? []) {
+        const name = short(resource.name).toLowerCase();
+        if (actor && name && short(resource.reason)) reasons[`actor:${actor}:${name}`] = short(resource.reason);
+      }
+    }
+    for (const add of (delta.addItems as Delta['addItems']) ?? []) {
+      if (short(add.reason)) reasons[`item:${short(add.name).toLowerCase()}`] = short(add.reason);
+    }
+    for (const remove of (delta.removeItems as Delta['removeItems']) ?? []) {
+      if (short(remove.reason)) reasons[`item:${short(remove.name).toLowerCase()}`] = short(remove.reason);
+    }
+  }
   return {
     changes,
     cost,
@@ -263,6 +424,7 @@ async function runStateAgent(
     tokensOut,
     rankGain: Math.max(0, Math.min(10, Number(delta?.rankGain ?? 1))),
     rankReason: String(delta?.rankReason ?? 'значимый ход').slice(0, 200),
+    reasons,
   };
 }
 
@@ -688,6 +850,7 @@ function reviveIfAllowed(id: string, session: Session): void {
   started: number,
   variantFrom?: TurnSnapshot,
   clientTurnId?: string,
+  beforeNumbers?: NumericSnapshot,
 ): Promise<Record<string, unknown>> {
   const [stateResult, summaryResult] = await Promise.allSettled([
     runStateAgent(session, prose),
@@ -704,6 +867,18 @@ function reviveIfAllowed(id: string, session: Session): void {
   }
   if (stateResult.status === 'rejected') console.error('[state agent]', stateResult.reason);
   reviveIfAllowed(id, session);
+
+  const numbers = beforeNumbers
+    ? diffNumbers(
+        beforeNumbers,
+        numericSnapshot(session.state),
+        stateResult.status === 'fulfilled' ? stateResult.value.reasons : {},
+      )
+    : [];
+  const gmEntry = [...session.state.log]
+    .reverse()
+    .find((entry) => entry.role === 'gm' && entry.turn === stats.turn);
+  if (gmEntry && numbers.length) gmEntry.numbers = numbers;
 
   const summarized = summaryResult.status === 'fulfilled' && summaryResult.value.ok;
   if (summaryResult.status === 'rejected') console.error('[summarizer]', summaryResult.reason);
@@ -733,6 +908,7 @@ function reviveIfAllowed(id: string, session: Session): void {
       prose,
       state: snapshotState(session.state),
       summary: session.summary ?? '',
+      numbers,
       lastSummaryTurn: session.lastSummaryTurn ?? 0,
       variant: 1,
     },
@@ -746,6 +922,7 @@ function reviveIfAllowed(id: string, session: Session): void {
     prose,
     changes: [...stats.changes, ...agentChanges],
     agentChanges,
+    numbers,
     summarized,
     problems: stats.problems,
     state: session.state,
@@ -775,6 +952,7 @@ function replayTurn(session: Session, snap: TurnSnapshot): Record<string, unknow
     prose: snap.prose,
     changes: [],
     agentChanges: [],
+    numbers: snap.numbers ?? [...snap.state.log].reverse().find((entry) => entry.role === 'gm' && entry.turn === snap.turn)?.numbers ?? [],
     summarized: false,
     problems: [],
     state: snap.turn === session.state.turn ? session.state : snap.state,
@@ -2393,9 +2571,10 @@ const server = createServer(async (req, res) => {
           const notes = pickNotes(id, session, false, target.input);
           session.extraNotes = notes.text;
           session.lastRoll = notes.roll;
+          const beforeNumbers = numericSnapshot(session.state);
           const stats = await runTurn(session, target.input);
           const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
-          const payload = await afterTurn(session, id, target.input, prose, stats, started, target);
+          const payload = await afterTurn(session, id, target.input, prose, stats, started, target, undefined, beforeNumbers);
           return sendJson(res, payload);
         } catch (err) {
           restoreTo(session, id, turn);
@@ -2428,9 +2607,10 @@ const server = createServer(async (req, res) => {
           const notes = pickNotes(id, session, Boolean(body.dice), input);
           session.extraNotes = notes.text;
           session.lastRoll = notes.roll;
+          const beforeNumbers = numericSnapshot(session.state);
           const stats = await runTurn(session, input);
           const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
-          const payload = await afterTurn(session, id, input, prose, stats, started, target);
+          const payload = await afterTurn(session, id, input, prose, stats, started, target, undefined, beforeNumbers);
           return sendJson(res, payload);
         } catch (err) {
           restoreTo(session, id, turn);
@@ -2855,6 +3035,8 @@ const server = createServer(async (req, res) => {
               bodyAttitude: hero.bodyAttitude,
               start: hero.start,
               quote: hero.intuition,
+              resources: hero.resources ?? [],
+              money: session.state.money,
             },
           };
         } else if (type === 'npc') {
@@ -2882,6 +3064,8 @@ const server = createServer(async (req, res) => {
               bond: actor.bond ?? 0,
               clothes: actor.clothes,
               note: actor.note,
+              resources: actor.resources ?? [],
+              money: actor.money,
               present: actor.present,
             },
           };
@@ -3326,11 +3510,12 @@ const server = createServer(async (req, res) => {
               const notes = pickNotes(id, session, Boolean(body.dice), input);
               session.extraNotes = notes.text;
               session.lastRoll = notes.roll;
+              const beforeNumbers = numericSnapshot(session.state);
               const stats = await runTurn(session, input, (delta) =>
                 send('delta', { type: 'delta', text: delta }),
               );
               const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
-              const payload = await afterTurn(session, id, input, prose, stats, started, undefined, clientTurnId);
+              const payload = await afterTurn(session, id, input, prose, stats, started, undefined, clientTurnId, beforeNumbers);
               send('done', { type: 'done', payload });
             } catch (err) {
               send('error', {
@@ -3347,9 +3532,10 @@ const server = createServer(async (req, res) => {
           const notes = pickNotes(id, session, Boolean(body.dice), input);
           session.extraNotes = notes.text;
           session.lastRoll = notes.roll;
+          const beforeNumbers = numericSnapshot(session.state);
           const stats = await runTurn(session, input);
           const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
-          const payload = await afterTurn(session, id, input, prose, stats, started, undefined, clientTurnId);
+          const payload = await afterTurn(session, id, input, prose, stats, started, undefined, clientTurnId, beforeNumbers);
           return sendJson(res, payload);
         } finally {
           session.busy = false;

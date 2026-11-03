@@ -9,7 +9,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Conspect, type Arc } from './conspect.ts';
-import type { GameState } from './state.ts';
+import type { GameState, NumberChange } from './state.ts';
 import type { CampaignText, Totals } from './turn.ts';
 
 export interface CampaignMeta {
@@ -68,6 +68,8 @@ export interface TurnSnapshot {
   prose: string;
   state: GameState;
   summary: string;
+  /** техническая сверка чисел этого хода */
+  numbers?: NumberChange[];
   /** до какого хода конспект уже собран */
   lastSummaryTurn?: number;
   /** какой вариант сейчас показан: 1 — основной, 2..N — альтернативы */

@@ -102,9 +102,14 @@ export const DEFAULT_AGENTS: AgentSet = {
   "weather": "если сменилась",
   "advanceHours": 1,
   "health": 100,
-  "addItems":    [{"name": "...", "qty": 1, "where": "inventory"}],
-  "removeItems": [{"name": "...", "qty": 1}],
-  "money":       {"gold": 0, "silver": 0, "copper": 0},
+  "healthReason": "рана от удара",
+  "heroResources": [
+    {"name": "мана", "value": 7, "max": 12, "unit": "ед.", "reason": "потратил заклинание"}
+  ],
+  "addItems":    [{"name": "...", "qty": 1, "where": "inventory", "reason": "нашёл"}],
+  "removeItems": [{"name": "...", "qty": 1, "reason": "потерял"}],
+  "money":       {"gold": 0, "silver": 8, "copper": 20},
+  "moneyReason": "оплатил ужин",
   "statuses":    [{"name": "выспался", "kind": "buff", "note": "внимательнее"}],
   "statusRemove":["простуда"],
   "wounds":      [{"where": "левое плечо", "severity": 2}],
@@ -116,10 +121,14 @@ export const DEFAULT_AGENTS: AgentSet = {
   "npcs":        [{"name": "Гуннар", "role": "трактирщик", "status": "alive",
                    "present": true, "attitude": 20, "appearance": "...",
                    "character": "...", "clothes": "...", "bio": "...", "description": "короткое описание для карточки", "abilities": "что умеет", "note": "...",
+                   "resources": [{"name": "мана", "value": 4, "max": 10, "reason": "потратила"}],
+                   "money": {"gold": 0, "silver": 3, "copper": 0},
                    "skills": {"Красноречие": 12, "Восприятие": 9}}],
   "party":       [{"name": "...", "role": "...", "bond": 40, "attitude": 60,
                    "present": true, "appearance": "...", "character": "...",
                    "clothes": "...",
+                   "resources": [{"name": "мана", "value": 6, "max": 12, "reason": "восстановила"}],
+                   "money": {"gold": 1, "silver": 0, "copper": 0},
                    "skills": {"Скрытность": 14, "Ловкость": 11},
                    "relations": [{"with": "Морайла", "feeling": "ревнует"}]}],
   "factions":    [{"name": "Городской совет", "attitude": -10, "note": "...",
@@ -161,6 +170,11 @@ export const DEFAULT_AGENTS: AgentSet = {
 - NPC добавляй, если персонаж назван или у него есть устойчивое прозвище;
 - добавляй только то, что реально появилось в сцене; предметы, которых герой не брал, не добавляй;
 - деньги указывай только если они изменились; никогда не обнуляй кошель без покупки;
+- ресурсы (heroResources у героя, resources у NPC/пати) — это мана, топливо, рассудок,
+  патроны, еда и любые шкалы мира. Создавай ресурс, когда он впервые появляется
+  в сцене; value — новое значение, delta — прирост/расход. max ставь, если он известен.
+  В reason коротко: «потратил», «восстановила», «нашёл», «украли», «оплатил»;
+- деньги NPC меняй через money в его карточке, только если он реально платил/получал;
 - крючков не больше двух за ход; обещания — только явные; задачи — только взятые;
 - если у задачи есть срок, ставь turnsLimit в ходах: срочное — 1-2, обычное — 3-5,
   долгое — 8-10. Без срока не ставь;
@@ -354,6 +368,11 @@ export async function loadAgents(dir: string): Promise<AgentSet> {
       result.state.prompt = DEFAULT_AGENTS.state.prompt;
     }
 
+    // v15 → v16: ресурсы героя и карточек (мана, топливо и т.п.).
+    if (version < 16) {
+      result.state.prompt = DEFAULT_AGENTS.state.prompt;
+    }
+
     return result;
   } catch {
     return structuredClone(DEFAULT_AGENTS);
@@ -367,7 +386,7 @@ export async function saveAgents(dir: string, incoming: Partial<AgentSet>): Prom
     result[id] = merge(current[id], incoming[id] ?? {});
   }
   await mkdir(dir, { recursive: true });
-  await writeFile(agentsPath(dir), `${JSON.stringify({ version: 15, agents: result }, null, 2)}\n`, 'utf8');
+  await writeFile(agentsPath(dir), `${JSON.stringify({ version: 16, agents: result }, null, 2)}\n`, 'utf8');
   return result;
 }
 

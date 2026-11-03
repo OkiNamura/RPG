@@ -37,6 +37,10 @@ export interface Actor {
   present?: boolean;
   /** скиллы персонажа: 0..20, используются в скрытых проверках */
   skills?: Record<string, number>;
+  /** произвольные ресурсы: мана, топливо, рассудок, патроны */
+  resources?: Resource[];
+  /** кошелёк персонажа, если он есть в сцене */
+  money?: { gold: number; silver: number; copper: number };
   wounds: Wound[];
   note?: string;
   /** карточка: внешность, характер, одежда, прошлое */
@@ -147,6 +151,26 @@ export interface LogEntry {
   role: Role;
   text: string;
   clientTurnId?: string;
+  /** техническая сверка чисел для новых ходов */
+  numbers?: NumberChange[];
+}
+
+/** Ресурс карточки: мана, топливо, рассудок, патроны и т.п. */
+export interface Resource {
+  name: string;
+  value: number;
+  max?: number;
+  unit?: string;
+  note?: string;
+}
+
+/** Строка системной сверки: было → стало. */
+export interface NumberChange {
+  label: string;
+  before: string;
+  after: string;
+  delta?: string;
+  reason?: string;
 }
 
 export interface GameState {
@@ -158,6 +182,8 @@ export interface GameState {
     name: string;
     /** 0..100, ниже нуля — смерть */
     health: number;
+    /** произвольные ресурсы героя: мана, топливо, рассудок */
+    resources?: Resource[];
     wounds: Wound[];
     conditions: string[];
     statuses: Status[];
@@ -288,6 +314,12 @@ export function normalizeState(state: GameState): GameState {
   state.hero.wounds ??= [];
   state.hero.conditions ??= [];
   state.hero.statuses ??= [];
+  if (!Array.isArray(state.hero.resources)) state.hero.resources = [];
+  for (const list of [state.party, state.npcs]) {
+    for (const actor of list) {
+      if (!Array.isArray(actor.resources)) actor.resources = [];
+    }
+  }
   if (typeof state.hero.health !== 'number') state.hero.health = 100;
   return state;
 }

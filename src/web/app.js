@@ -3214,6 +3214,8 @@ function addGm(log, payload, turnData, imageUrl, entryTurn = null) {
   }
 
   if (payload.stats && Object.keys(payload.stats).length > 0) wrap.append(metaLine(payload));
+  const numbers = numbersLine(payload.numbers);
+  if (numbers) wrap.append(numbers);
 
   const campaignId = app.game?.id ?? currentCampaignId();
   if (turnData && campaignId) {
@@ -3535,6 +3537,10 @@ function personCard(actor, campaignId, isNpc = false) {
     card.append(skills);
   }
 
+  const resources = resourceList(actor.resources);
+  if (resources) card.append(resources);
+  if (actor.money) card.append(el('div', 'person-field', `Деньги: ${coinsText(actor.money)}`));
+
   if (actor.relations?.length) {
     const rel = el('div', 'person-field');
     rel.append(
@@ -3630,6 +3636,8 @@ function openHeroSheet(hero, money, campaignId) {
     if (field) body.append(field);
   }
   if (hero.intuition) body.append(el('div', 'person-quote', `«${hero.intuition}»`));
+  const sheetResources = resourceList(hero.resources);
+  if (sheetResources) body.append(sheetResources);
   if (hero.skills && Object.keys(hero.skills).length) {
     const wrap = el('div', 'person-field');
     wrap.append(el('span', 'person-label', 'Навыки'));
@@ -3747,6 +3755,9 @@ function heroCard(hero, money, campaignId) {
   }
   if (hero.intuition) card.append(el('div', 'person-quote', `«${hero.intuition}»`));
 
+  const heroResources = resourceList(hero.resources);
+  if (heroResources) card.append(heroResources);
+
   if (hero.skills && Object.keys(hero.skills).length) {
     const skills = el('div', 'person-skills');
     for (const [name, value] of Object.entries(hero.skills)) {
@@ -3805,6 +3816,11 @@ function actorTile(actor, campaignId, isNpc = false) {
   }
   tile.append(el('span', 'actor-tile-name', actor.name));
   tile.append(el('span', 'actor-tile-role', actor.role || 'знакомый'));
+  const res = resourceLine(actor);
+  if (res) {
+    res.classList.add('actor-tile-res');
+    tile.append(res);
+  }
   tile.addEventListener('click', () => openActorModal(actor, campaignId, isNpc));
   return tile;
 }
@@ -3863,6 +3879,9 @@ function openActorModal(actor, campaignId, isNpc = false) {
     info.append(field);
   }
   if (actor.skills && Object.keys(actor.skills).length) info.append(templateSkills(actor.skills));
+  const actorResources = resourceList(actor.resources);
+  if (actorResources) info.append(actorResources);
+  if (actor.money) info.append(el('div', 'person-field', `Деньги: ${coinsText(actor.money)}`));
 
   const actions = el('div', 'actor-sheet-actions');
   const sheetBtn = el('button', 'btn small', '▣ в полный рост');
@@ -3962,6 +3981,59 @@ function healthBar(value) {
   bar.style.width = `${Math.max(0, Math.min(100, value))}%`;
   wrap.append(bar, el('span', 'health-label', `${value}/100`));
   return wrap;
+}
+
+function coinsText(money) {
+  if (!money) return '';
+  const parts = [];
+  if (money.gold) parts.push(`${money.gold}з`);
+  if (money.silver) parts.push(`${money.silver}с`);
+  if (money.copper) parts.push(`${money.copper}м`);
+  return parts.join(' ') || '0';
+}
+
+function resourceList(resources, compact = false) {
+  if (!Array.isArray(resources) || !resources.length) return null;
+  const wrap = el('div', `resource-list${compact ? ' compact' : ''}`);
+  for (const resource of resources) {
+    const row = el('div', 'resource-row');
+    const head = el('div', 'resource-head');
+    head.append(el('span', 'resource-name', resource.name));
+    const unit = resource.unit ? ` ${resource.unit}` : '';
+    head.append(el('span', 'resource-value', `${resource.value}${resource.max != null ? `/${resource.max}` : ''}${unit}`));
+    const bar = el('div', 'resource-bar');
+    const fill = el('i');
+    const max = resource.max != null && resource.max > 0 ? resource.max : Math.max(resource.value, 1);
+    fill.style.width = `${Math.max(0, Math.min(100, (resource.value / max) * 100))}%`;
+    bar.append(fill);
+    row.append(head, bar);
+    wrap.append(row);
+  }
+  return wrap;
+}
+
+function resourceLine(actor) {
+  const parts = [];
+  for (const resource of actor.resources ?? []) {
+    parts.push(`${resource.name}: ${resource.value}${resource.max != null ? `/${resource.max}` : ''}`);
+  }
+  if (actor.money) parts.push(`деньги: ${coinsText(actor.money)}`);
+  return parts.length ? el('div', 'resource-summary', parts.join(' · ')) : null;
+}
+
+function numbersLine(numbers) {
+  if (!Array.isArray(numbers) || !numbers.length) return null;
+  const box = el('details', 'turn-numbers');
+  box.append(el('summary', '', `Числа · ${numbers.length}`));
+  for (const row of numbers) {
+    const line = el('div', 'turn-number-row');
+    line.append(el('span', 'turn-number-label', row.label));
+    line.append(el('span', 'turn-number-value', `${row.before} → ${row.after}`));
+    if (row.delta) line.append(el('span', 'turn-number-delta', row.delta));
+    if (row.reason) line.append(el('span', 'turn-number-reason', row.reason));
+    box.append(line);
+  }
+  return box;
 }
 
 function showNewCards(state, g) {
@@ -4413,7 +4485,7 @@ async function viewPlay(view, id) {
     else if (entry.role === 'gm') {
       // Кнопки действий — только у последних десяти ходов, иначе лента тормозит.
       const recent = entry.turn > data.state.turn - 10;
-      addGm(log, { prose: entry.text, stats: {} }, recent ? turnsById.get(entry.turn) : null, imagesByTurn.get(entry.turn), entry.turn);
+      addGm(log, { prose: entry.text, stats: {}, numbers: entry.numbers }, recent ? turnsById.get(entry.turn) : null, imagesByTurn.get(entry.turn), entry.turn);
     }
   }
 
@@ -4538,6 +4610,8 @@ async function viewPlay(view, id) {
       }
       prose.textContent = result.prose || prose.textContent;
       wrap.append(metaLine(result));
+      const liveNumbers = numbersLine(result.numbers);
+      if (liveNumbers) wrap.append(liveNumbers);
       wrap.append(
         actionsBar({ turn: result.stats?.turn ?? result.state.turn, variants: 1, input: text }, id),
       );

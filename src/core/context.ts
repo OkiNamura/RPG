@@ -61,6 +61,16 @@ function hash(text: string): string {
   return createHash('sha1').update(text).digest('hex').slice(0, 12);
 }
 
+function formatResources(resources?: { name: string; value: number; max?: number; unit?: string }[]): string {
+  return (resources ?? [])
+    .map((r) => `${r.name} ${r.value}${r.max != null ? `/${r.max}` : ''}${r.unit ? ` ${r.unit}` : ''}`)
+    .join(', ');
+}
+
+function formatCoins(money?: { gold: number; silver: number; copper: number }): string {
+  return money ? `${money.gold}з ${money.silver}с ${money.copper}м` : '';
+}
+
 export function renderState(s: GameState): string {
   const hh = String(s.time.hour).padStart(2, '0');
   const lines: string[] = [];
@@ -86,6 +96,7 @@ export function renderState(s: GameState): string {
     );
   }
   lines.push(`Деньги: ${s.money.gold} золота, ${s.money.silver} серебра, ${s.money.copper} меди`);
+  if (s.hero.resources?.length) lines.push(`Ресурсы героя: ${formatResources(s.hero.resources)}`);
 
   if (s.hero.skills && Object.keys(s.hero.skills).length) {
     lines.push(
@@ -101,12 +112,30 @@ export function renderState(s: GameState): string {
 
   lines.push(`Предметы: ${s.items.map((i) => `${i.name}×${i.qty} [${i.where}]`).join('; ') || 'пусто'}`);
   if (s.party.length) {
-    lines.push(`Пати: ${s.party.map((a) => `${a.name} (${a.status}, связь ${a.bond}, ранг ${a.rank ?? 'F'})`).join('; ')}`);
+    lines.push(
+      `Пати: ${s.party
+        .map((a) => {
+          const extras = [
+            a.resources?.length ? formatResources(a.resources) : '',
+            a.money ? formatCoins(a.money) : '',
+          ].filter(Boolean).join(', ');
+          return `${a.name} (${a.status}, связь ${a.bond}, ранг ${a.rank ?? 'F'}${extras ? `, ${extras}` : ''})`;
+        })
+        .join('; ')}`,
+    );
   }
   const activeNpcs = (s.npcs ?? []).filter((a) => !a.archived);
   if (activeNpcs.length) {
     lines.push(
-      `NPC: ${activeNpcs.map((a) => `${a.name}${a.role ? ` — ${a.role}` : ''} (${a.status})`).join('; ')}`,
+      `NPC: ${activeNpcs
+        .map((a) => {
+          const extras = [
+            a.resources?.length ? formatResources(a.resources) : '',
+            a.money ? formatCoins(a.money) : '',
+          ].filter(Boolean).join(', ');
+          return `${a.name}${a.role ? ` — ${a.role}` : ''} (${a.status}${extras ? `, ${extras}` : ''})`;
+        })
+        .join('; ')}`,
     );
   }
   if (s.quests.length) {

@@ -4223,3 +4223,82 @@ select {
   border: 1px solid var(--line);
   border-radius: 8px;
 }
+
+.resource-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.resource-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.resource-name {
+  text-transform: capitalize;
+}
+
+.resource-value {
+  color: var(--text);
+}
+
+.resource-bar {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #232027;
+}
+
+.resource-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #4f6f8f, #7eb6d6);
+}
+
+.resource-summary,
+.actor-tile-res {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.turn-numbers {
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 5px 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.turn-numbers summary {
+  cursor: pointer;
+  color: var(--text);
+}
+
+.turn-number-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 3px 0;
+  border-top: 1px solid rgba(255,255,255,.05);
+}
+
+.turn-number-label {
+  color: var(--text);
+}
+
+.turn-number-delta {
+  color: #d1ad68;
+}
+
+.turn-number-reason {
+  font-style: italic;
+  opacity: .8;
+}

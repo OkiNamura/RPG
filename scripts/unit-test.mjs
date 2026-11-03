@@ -328,10 +328,35 @@ function testRanks() {
   check('ранги: locked не повышается', locked.rank === 'S');
 }
 
+function testResources() {
+  const s = createState('Кай', 'Площадь');
+  applyDelta(s, {
+    heroResources: [{ name: 'мана', value: 7, max: 10, reason: 'нашёл' }],
+    party: [{
+      name: 'Аня',
+      role: 'спутница',
+      resources: [{ name: 'мана', value: 5, max: 8 }],
+      money: { gold: 0, silver: 3, copper: 0 },
+    }],
+  });
+  check('ресурсы: герой получил ману', s.hero.resources?.[0]?.value === 7);
+  check('ресурсы: у спутницы своя мана', s.party[0]?.resources?.[0]?.value === 5);
+  check('ресурсы: у спутницы свой кошелёк', s.party[0]?.money?.silver === 3);
+  applyDelta(s, {
+    heroResources: [{ name: 'мана', delta: -4 }],
+    party: [{ name: 'Аня', resources: [{ name: 'мана', delta: -2 }] }],
+  });
+  check('ресурсы: расход героя', s.hero.resources?.[0]?.value === 3);
+  check('ресурсы: расход спутницы', s.party[0]?.resources?.[0]?.value === 3);
+  applyDelta(s, { heroResources: [{ name: 'мана', value: 99, max: 10 }] });
+  check('ресурсы: значение не выше максимума', s.hero.resources?.[0]?.value === 10);
+}
+
 testMechanics();
 testFixes();
 testActors();
 testRanks();
+testResources();
 testDice();
 
 console.log('');
