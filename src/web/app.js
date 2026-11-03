@@ -1,4 +1,4 @@
-﻿/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
+/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -4627,6 +4627,48 @@ function openTimeDetails(state) {
   document.body.append(overlay);
 }
 
+function openImageQueueDialog() {
+  const overlay = el('div', 'library-modal');
+  const sheet = el('article', 'library-sheet');
+  const head = el('div', 'library-sheet-head');
+  const titles = el('div');
+  titles.append(el('h2', 'person-name', 'Очередь картинок'));
+  titles.append(el('div', 'person-role', 'локальный GPU работает по одной задаче'));
+  const close = el('button', 'btn small', '✕');
+  close.type = 'button';
+  head.append(titles, close);
+  const body = el('div', 'library-sheet-body');
+  const status = el('p', 'page-sub', 'Загружаю…');
+  const cancel = el('button', 'btn', 'Отменить всё');
+  cancel.type = 'button';
+  body.append(status, cancel);
+  sheet.append(head, body);
+  overlay.append(sheet);
+  close.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  document.body.append(overlay);
+  const load = async () => {
+    try {
+      const data = await api('/api/images/queue');
+      status.textContent = `В работе: ${data.running ?? 0} · ждут: ${data.waiting ?? 0} · можно отменить: ${data.cancellable ?? 0}`;
+    } catch (err) {
+      status.textContent = err.message;
+    }
+  };
+  cancel.addEventListener('click', async () => {
+    await api('/api/images/cancel', { method: 'POST' });
+    await load();
+  });
+  void load();
+  const timer = window.setInterval(load, 1500);
+  close.addEventListener('click', () => window.clearInterval(timer));
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) window.clearInterval(timer);
+  });
+}
+
 function openBranchesDialog(campaignId) {
   const overlay = el('div', 'library-modal');
   const sheet = el('article', 'library-sheet');
@@ -4920,7 +4962,11 @@ async function viewPlay(view, id) {
     }
   });
 
-  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn, contextBtn, branchesBtn, undoBtn, cancelImagesBtn);
+  const queueBtn = menuItem('⏳', 'Очередь картинок');
+  queueBtn.title = 'текущая и ожидающая генерация';
+  queueBtn.addEventListener('click', () => openImageQueueDialog());
+
+  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn, contextBtn, branchesBtn, undoBtn, cancelImagesBtn, queueBtn);
   const clockBtn = el('button', 'btn small clock-btn');
   clockBtn.type = 'button';
   clockBtn.title = 'подробнее о времени мира';
