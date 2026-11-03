@@ -1062,6 +1062,10 @@ async function augmentFeatureNotes(session: Session, input: string, id: string):
     const present = [...session.state.party, ...session.state.npcs].filter(
       (actor) => actor.present !== false && actor.status === 'alive',
     );
+    const focus = (session.groupFocus ?? []).filter((name) => present.some((actor) => actor.name === name));
+    if (focus.length) {
+      parts.push(`[Фокус сцены] В центре: ${focus.join(', ')}. Остальные присутствуют, но не перетягивают внимание.`);
+    }
     if (present.length > 1) {
       parts.push(
         `[Групповая сцена] Сейчас в сцене: ${present.map((actor) => actor.name).join(', ')}. ` +
@@ -4093,6 +4097,9 @@ const server = createServer(async (req, res) => {
             send('delta', { type: 'delta', text: '' });
 
             try {
+              session.groupFocus = Array.isArray(body.focus)
+                ? body.focus.map((name: unknown) => String(name)).filter(Boolean).slice(0, 8)
+                : [];
               session.extraLore = pickLore(session, input);
               const notes = pickNotes(id, session, Boolean(body.dice), input);
               session.extraNotes = notes.text;

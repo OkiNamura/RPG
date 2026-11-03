@@ -58,6 +58,8 @@ export interface Session {
   lastLoreReport?: { id: string; title: string; active: boolean; reason: string; chars: number }[];
   /** sticky/cooldown для World Info */
   loreState?: Record<string, { lastTurn: number; stickyUntil: number; cooldownUntil: number }>;
+  /** имена NPC, на которых сфокусирована сцена */
+  groupFocus?: string[];
   /** броски и скрытые проверки этого хода */
   extraNotes?: string;
   /** результат кубика за текущий ход */

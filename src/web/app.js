@@ -1,4 +1,4 @@
-/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
+﻿/* OMIKA — клиент. Восстановлен после потери файла; API и стили прежние. */
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -4627,6 +4627,50 @@ function openTimeDetails(state) {
   document.body.append(overlay);
 }
 
+function openSceneFocusDialog(state, selected, save) {
+  const actors = [...(state.party ?? []), ...(state.npcs ?? [])].filter(
+    (actor) => actor.present !== false && actor.status === 'alive',
+  );
+  const overlay = el('div', 'library-modal');
+  const sheet = el('article', 'library-sheet');
+  const head = el('div', 'library-sheet-head');
+  const titles = el('div');
+  titles.append(el('h2', 'person-name', 'Фокус сцены'));
+  titles.append(el('div', 'person-role', 'кто ведёт сцену прямо сейчас'));
+  const close = el('button', 'btn small', '✕');
+  close.type = 'button';
+  head.append(titles, close);
+  const body = el('div', 'library-sheet-body');
+  const chosen = new Set(selected);
+  for (const actor of actors) {
+    const row = el('label', 'switch');
+    const input = el('input');
+    input.type = 'checkbox';
+    input.checked = chosen.has(actor.name);
+    input.addEventListener('change', () => {
+      if (input.checked) chosen.add(actor.name);
+      else chosen.delete(actor.name);
+    });
+    row.append(input, el('span', '', `${actor.name}${actor.role ? ` — ${actor.role}` : ''}`));
+    body.append(row);
+  }
+  if (!actors.length) body.append(el('p', 'page-sub', 'В сцене пока никого, кроме героя.'));
+  const apply = el('button', 'btn primary', 'Применить');
+  apply.type = 'button';
+  apply.addEventListener('click', () => {
+    save([...chosen]);
+    overlay.remove();
+  });
+  body.append(apply);
+  sheet.append(head, body);
+  overlay.append(sheet);
+  close.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  document.body.append(overlay);
+}
+
 function openImageQueueDialog() {
   const overlay = el('div', 'library-modal');
   const sheet = el('article', 'library-sheet');
@@ -4965,8 +5009,17 @@ async function viewPlay(view, id) {
   const queueBtn = menuItem('⏳', 'Очередь картинок');
   queueBtn.title = 'текущая и ожидающая генерация';
   queueBtn.addEventListener('click', () => openImageQueueDialog());
+  let sceneFocus = [];
+  const focusBtn = menuItem('👁', 'Фокус сцены');
+  focusBtn.title = 'кто сейчас в центре внимания';
+  focusBtn.addEventListener('click', () => {
+    openSceneFocusDialog(state, sceneFocus, (next) => {
+      sceneFocus = next;
+      toast(next.length ? `фокус: ${next.join(', ')}` : 'фокус снят');
+    });
+  });
 
-  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn, contextBtn, branchesBtn, undoBtn, cancelImagesBtn, queueBtn);
+  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn, contextBtn, branchesBtn, undoBtn, cancelImagesBtn, queueBtn, focusBtn);
   const clockBtn = el('button', 'btn small clock-btn');
   clockBtn.type = 'button';
   clockBtn.title = 'подробнее о времени мира';
@@ -5208,7 +5261,7 @@ async function viewPlay(view, id) {
         try {
           const res = await api(`/api/campaign/${encodeURIComponent(id)}/turn`, {
             method: 'POST',
-            body: JSON.stringify({ input: text, dice: Boolean(dice), clientTurnId }),
+            body: JSON.stringify({ input: text, dice: Boolean(dice), clientTurnId, focus: sceneFocus }),
           });
           clearPending(id, clientTurnId);
           hideOutbox();
@@ -5264,7 +5317,7 @@ async function streamTurn(id, input, onText, dice, clientTurnId) {
   const res = await fetch(`/api/campaign/${encodeURIComponent(id)}/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ input, dice, clientTurnId }),
+    body: JSON.stringify({ input, dice, clientTurnId, focus: sceneFocus }),
   });
   if (!res.ok || !res.body) throw new Error(`поток недоступен: ${res.status}`);
 
