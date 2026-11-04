@@ -45,6 +45,11 @@ export interface ContextInput {
   playerInput: string;
   /** лор-книга: только совпавшие по ключам записи */
   lore?: string;
+  /** точные позиции World Info */
+  loreTop?: string;
+  loreHistory?: string;
+  loreAfter?: string;
+  loreDepth?: string;
   /** броски, проверки и прочие заметки на этот ход */
   notes?: string;
   /** память истории: игрок закрепляет важные факты */
@@ -101,6 +106,9 @@ export function renderState(s: GameState): string {
   }
   lines.push(`Деньги: ${s.currencies?.length ? formatCurrencies(s.currencies) : `${s.money.gold} золота, ${s.money.silver} серебра, ${s.money.copper} меди`}`);
   if (s.currencies?.length) lines.push(`Валюты мира: ${s.currencies.map((c) => c.name).join(', ')}`);
+  if (s.reputation) {
+    lines.push(`Репутация героя: ${s.reputation.public} (${s.reputation.label})${s.reputation.note ? ` — ${s.reputation.note}` : ''}`);
+  }
   if (s.hero.resources?.length) lines.push(`Ресурсы героя: ${formatResources(s.hero.resources)}`);
 
   if (s.hero.skills && Object.keys(s.hero.skills).length) {
@@ -123,6 +131,8 @@ export function renderState(s: GameState): string {
           const extras = [
             a.resources?.length ? formatResources(a.resources) : '',
             a.money ? formatCoins(a.money) : '',
+            typeof a.attitude === 'number' ? `отношение к герою ${a.attitude}` : '',
+            typeof a.morale === 'number' ? `дух ${a.morale}` : '',
           ].filter(Boolean).join(', ');
           return `${a.name} (${a.status}, связь ${a.bond}, ранг ${a.rank ?? 'F'}${extras ? `, ${extras}` : ''})`;
         })
@@ -137,6 +147,7 @@ export function renderState(s: GameState): string {
           const extras = [
             a.resources?.length ? formatResources(a.resources) : '',
             a.money ? formatCoins(a.money) : '',
+            typeof a.attitude === 'number' ? `отношение к герою ${a.attitude}` : '',
             a.mind
               ? [
                   a.mind.goals?.length ? `цели: ${a.mind.goals.join(', ')}` : '',
@@ -223,6 +234,10 @@ export function buildContext(input: ContextInput): BuiltContext {
     messages.push({ role: 'system', content: staticBlock });
     segments.push(seg('static', staticBlock));
   }
+  if (input.loreTop) {
+    messages.push({ role: 'system', content: input.loreTop });
+    segments.push(seg('lore.top', input.loreTop));
+  }
 
   // 1.5. Память истории: то, что игрок закрепил сам. Маленький блок,
   //      но меняется редко — кэш статики не страдает.
@@ -235,6 +250,10 @@ export function buildContext(input: ContextInput): BuiltContext {
   if (input.conspectFrozen) {
     messages.push({ role: 'system', content: input.conspectFrozen });
     segments.push(seg('conspect.frozen', input.conspectFrozen));
+  }
+  if (input.loreHistory) {
+    messages.push({ role: 'system', content: input.loreHistory });
+    segments.push(seg('lore.history', input.loreHistory));
   }
 
   // 3. История — настоящими сообщениями, только дописывается в конец.
@@ -267,6 +286,10 @@ export function buildContext(input: ContextInput): BuiltContext {
     messages.push({ role: 'system', content: block });
     segments.push(seg('conspect', block));
   }
+  if (input.loreAfter) {
+    messages.push({ role: 'system', content: input.loreAfter });
+    segments.push(seg('lore.after', input.loreAfter));
+  }
 
   // 4. Цифры этого хода. Маленький и меняется всегда — поэтому в самом конце,
   //    перед ходом игрока, а не перед историей.
@@ -275,9 +298,10 @@ export function buildContext(input: ContextInput): BuiltContext {
   segments.push(seg('state', stateBlock));
 
   // 4.1. Лор-книга: только записи, чьи ключи встретились в этой сцене.
-  if (input.lore) {
-    messages.push({ role: 'system', content: input.lore });
-    segments.push(seg('lore', input.lore));
+  if (input.loreDepth || input.lore) {
+    const lore = input.loreDepth || input.lore || '';
+    messages.push({ role: 'system', content: lore });
+    segments.push(seg('lore.depth', lore));
   }
 
   // 4.2. Броски и скрытые проверки этого хода.

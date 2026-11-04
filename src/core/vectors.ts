@@ -9,6 +9,7 @@ export interface VectorEntry {
   turn: number;
   text: string;
   vector: number[];
+  model?: 'hash' | 'api';
 }
 
 export function hashVector(text: string, dims = 384): number[] {
@@ -41,9 +42,13 @@ export function cosine(a: number[], b: number[]): number {
 }
 
 export function retrieve(entries: VectorEntry[], query: string, limit = 3): VectorEntry[] {
-  const probe = hashVector(query);
+  return retrieveVector(entries, hashVector(query), limit);
+}
+
+export function retrieveVector(entries: VectorEntry[], vector: number[], limit = 3): VectorEntry[] {
   return entries
-    .map((entry) => ({ entry, score: cosine(probe, entry.vector) }))
+    .filter((entry) => entry.vector.length === vector.length)
+    .map((entry) => ({ entry, score: cosine(vector, entry.vector) }))
     .filter((row) => row.score > 0.02)
     .sort((a, b) => b.score - a.score || b.entry.turn - a.entry.turn)
     .slice(0, limit)

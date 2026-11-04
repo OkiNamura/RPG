@@ -54,6 +54,10 @@ export interface Session {
   agents?: AgentSet;
   /** лор-книга, подобранная под текущий ход */
   extraLore?: string;
+  extraLoreTop?: string;
+  extraLoreHistory?: string;
+  extraLoreAfter?: string;
+  extraLoreDepth?: string;
   /** отчёт активации World Info для инспектора */
   lastLoreReport?: { id: string; title: string; active: boolean; reason: string; chars: number }[];
   /** sticky/cooldown для World Info */
@@ -170,6 +174,10 @@ export async function runTurn(
     windowTurns: session.windowTurns,
     playerInput,
     lore: session.extraLore,
+    loreTop: session.extraLoreTop,
+    loreHistory: session.extraLoreHistory,
+    loreAfter: session.extraLoreAfter,
+    loreDepth: session.extraLoreDepth,
     notes: session.extraNotes,
     memory: session.memory,
   });

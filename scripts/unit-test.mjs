@@ -14,6 +14,8 @@ import { activateLore } from '../src/core/lore.ts';
 import { cleanProse } from '../src/core/anti-slop.ts';
 import { estimatePrice } from '../src/core/economy.ts';
 import { hashVector, retrieve } from '../src/core/vectors.ts';
+import { buildContext } from '../src/core/context.ts';
+import { applySocialReaction } from '../src/core/social.ts';
 
 let failed = 0;
 
@@ -401,6 +403,22 @@ function testNewFeatures() {
   ];
   check('Векторная память: находит рынок', retrieve(vectors, 'иду на рынок', 1)[0]?.turn === 3);
   check('Векторная память: находит библиотеку', retrieve(vectors, 'архивариус и карта', 1)[0]?.turn === 7);
+  const state = createState('Кай', 'рынок');
+  state.log.push({ turn: 1, role: 'player', text: 'привет' }, { turn: 1, role: 'gm', text: 'ответ' });
+  const context = buildContext({
+    core: 'ядро', world: 'мир', tone: '', hero: '', conspectFrozen: '',
+    state, windowTurns: 4, playerInput: 'хожу',
+    loreTop: 'ТОП', loreHistory: 'ИСТОРИЯ', loreAfter: 'ПОСЛЕ', loreDepth: 'ГЛУБИНА',
+  });
+  const names = context.segments.map((segment) => segment.name);
+  check('World Info: top стоит до истории', names.indexOf('lore.top') < names.findIndex((name) => name.startsWith('log:')));
+  check('World Info: after стоит после истории', names.indexOf('lore.after') > names.findIndex((name) => name.startsWith('log:')));
+  check('World Info: depth стоит после состояния', names.indexOf('lore.depth') > names.indexOf('state'));
+  state.party.push({ name: 'Соня', role: 'спутница', status: 'alive', bond: 50, attitude: 40, morale: 60, wounds: [] });
+  const social = applySocialReaction(state, 'Я бью Соню.');
+  check('Репутация: удар по пати бьёт общество', state.reputation.public < 0);
+  check('Репутация: удар по пати бьёт дух', state.party[0].morale < 60);
+  check('Репутация: изменение записано', social.changed.length > 0);
 }
 
 testMechanics();

@@ -64,10 +64,13 @@ const inputs = [
   'Ищу старую женщину.', 'Слушаю её рассказ.', 'Записываю имена.', 'Иду к библиотеке.',
   'Проверяю архив.', 'Нахожу запись.', 'Иду к порту.', 'Встречаюсь с матросом.',
   'Планирую следующий шаг.', 'Отдыхаю в таверне.', 'Проверяю вещи.', 'Иду спать.',
+  'Просыпаюсь и проверяю кошелёк.', 'Иду к рынку.', 'Покупаю еду.',
+  'Разговариваю с торговцем.', 'Возвращаюсь в таверну.',
 ];
 
 const rows = [];
 let failed = 0;
+let checkpoint = null;
 for (let index = 0; index < inputs.length; index += 1) {
   const started = Date.now();
   const result = await api(`/api/campaign/${ID}/turn`, {
@@ -89,9 +92,30 @@ for (let index = 0; index < inputs.length; index += 1) {
     console.log(result.body);
     break;
   }
+  if (index === 19) {
+    const created = await api(`/api/campaign/${ID}/branches`, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'checkpoint-20', turn: 20 }),
+    });
+    checkpoint = created.body?.branch ?? null;
+    console.log('checkpoint', checkpoint);
+  }
 }
 
 const file = (await api(`/api/campaign/${ID}`)).body;
+let restored = null;
+if (checkpoint) {
+  const loaded = await api(`/api/campaign/${ID}/branches/${checkpoint.id}/load`, { method: 'POST' });
+  restored = {
+    status: loaded.status,
+    turn: loaded.body?.state?.turn,
+    log: loaded.body?.state?.log?.length,
+    reputation: loaded.body?.state?.reputation,
+    currencies: loaded.body?.state?.currencies,
+    summary: loaded.body?.state?.summary,
+  };
+  console.log('restored checkpoint', restored);
+}
 const report = [
   '# Ночной прогон',
   '',
@@ -100,6 +124,10 @@ const report = [
   `Время: ${JSON.stringify(file?.state?.time ?? {})}`,
   `Валюты: ${JSON.stringify(file?.state?.currencies ?? [])}`,
   `Предметы: ${(file?.state?.items ?? []).map((item) => item.name).join(', ')}`,
+  `Репутация: ${JSON.stringify(file?.state?.reputation ?? {})}`,
+  `Пати: ${(file?.state?.party ?? []).map((actor) => `${actor.name}(отн ${actor.attitude ?? 0}, дух ${actor.morale ?? 50})`).join('; ')}`,
+  `Конспект: ${(file?.summary ?? '').length} символов`,
+  `Чекпоинт 20: ${JSON.stringify(restored)}`,
   '',
   '| # | статус | мс | чисел | время |',
   '|---|---|---|---|---|',
@@ -107,3 +135,4 @@ const report = [
 ].join('\n');
 writeFileSync('data/night-playtest-report.md', report);
 console.log(report);
+

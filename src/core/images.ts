@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Генерация иллюстраций.
  *
  * Картинка приходит от модели как data-URL в ответе чата, мы сохраняем её
@@ -26,6 +26,8 @@ interface ImageOptions {
   references?: string[];
   /** размер кадра для локального провайдера, например 512x768 */
   size?: string;
+  aspectRatio?: string;
+  temperature?: number;
   timeoutMs?: number;
   /** отмена текущей генерации */
   signal?: AbortSignal;
@@ -137,13 +139,15 @@ async function generateQwenImage(options: ImageOptions): Promise<ImageResult> {
         n: 1,
         size: options.size ?? '512x768',
         response_format: 'b64_json',
+        ...(typeof options.temperature === 'number' ? { temperature: options.temperature } : {}),
       }
     : {
         model: options.model,
         prompt: options.prompt,
-        aspect_ratio: '9:16',
+        aspect_ratio: options.aspectRatio ?? '9:16',
         resolution: '1K',
         n: 1,
+        ...(typeof options.temperature === 'number' ? { temperature: options.temperature } : {}),
       };
   if (!local && options.references?.length) {
     body.input_references = options.references
@@ -370,4 +374,17 @@ export function itemCardPrompt(params: { style: string; name: string; note?: str
   ]
     .filter(Boolean)
     .join(' ');
+}
+
+/** Карточка локации: место, атмосфера, детали, без героев и текста. */
+export function locationPrompt(params: { style: string; name: string; description?: string; note?: string; time?: string; weather?: string }): string {
+  return [
+    params.style,
+    `Локация: ${params.name}.`,
+    params.description ? `Описание: ${params.description}.` : '',
+    params.note ? `Детали: ${params.note}.` : '',
+    params.time ? `Время: ${params.time}.` : '',
+    params.weather ? `Погода: ${params.weather}.` : '',
+    'Широкий кадр места, без людей на первом плане, без текста и подписей.',
+  ].filter(Boolean).join(' ');
 }

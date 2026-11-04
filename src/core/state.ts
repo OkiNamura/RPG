@@ -25,6 +25,22 @@ export interface Item {
   card?: string;
 }
 
+export interface Relation {
+  with: string;
+  feeling?: string;
+  /** -100..100: как этот персонаж относится к другому */
+  attitude?: number;
+  note?: string;
+}
+
+export interface Reputation {
+  /** -100..100: как героя видят горожане/общество */
+  public: number;
+  label: string;
+  witnesses?: string[];
+  note?: string;
+}
+
 export interface Actor {
   name: string;
   role: string;
@@ -33,10 +49,14 @@ export interface Actor {
   bond: number;
   /** -100..100, отношение к герою */
   attitude?: number;
+  /** 0..100: боевой дух пати */
+  morale?: number;
   /** находится ли в текущей сцене */
   present?: boolean;
   /** скиллы персонажа: 0..20, используются в скрытых проверках */
   skills?: Record<string, number>;
+  /** предрасположенность к навыкам: +2 к скрытым проверкам */
+  skillAffinities?: Record<string, number>;
   /** временные штрафы/бонусы к навыкам */
   skillMods?: SkillMod[];
   /** личные цели, секреты и знание NPC */
@@ -54,6 +74,8 @@ export interface Actor {
   character?: string;
   clothes?: string;
   bio?: string;
+  /** протяжённая история/биография */
+  history?: string;
   /** что носит при себе (для пати и важных NPC) */
   inventory?: Item[];
   /** портрет, если нарисован */
@@ -72,7 +94,7 @@ export interface Actor {
   /** способности из шаблона NPC */
   abilities?: string;
   /** чувства внутри пати: ревность, любовь, зависть */
-  relations?: { with: string; feeling: string }[];
+  relations?: Relation[];
   /** забыт в корзине контейнера, но не удалён */
   archived?: boolean;
   archivedAt?: string;
@@ -104,6 +126,12 @@ export interface Faction {
 export interface LocationCard {
   name: string;
   note: string;
+  /** полное описание места */
+  description?: string;
+  /** история и события, которые здесь были */
+  history?: string;
+  /** карточка места */
+  card?: string;
 }
 
 /** Закрытая страница истории: выполненные долги, брошенные дела, выброшенные вещи. */
@@ -273,6 +301,10 @@ export interface GameState {
     rankHistory?: RankChange[];
     /** прошлое и способности — из шаблона героя */
     bio?: string;
+    /** протяжённая история/биография */
+    history?: string;
+    /** предрасположенность к навыкам */
+    skillAffinities?: Record<string, number>;
     abilities?: string;
   };
   money: { gold: number; silver: number; copper: number };
@@ -294,6 +326,8 @@ export interface GameState {
   locations: LocationCard[];
   /** закрытые страницы: выполнено, брошено, потеряно */
   archive: ArchiveEntry[];
+  /** репутация героя в обществе */
+  reputation: Reputation;
   /** встреченные существа */
   bestiary: Creature[];
   /** автолор: записи, которые агент состояния завёл сам */
@@ -351,6 +385,7 @@ export function createState(heroName: string, place: string): GameState {
     factions: [],
     locations: [],
     archive: [],
+    reputation: { public: 0, label: 'нейтрально', witnesses: [] },
     bestiary: [],
     lore: [],
     illustrations: [],
@@ -373,7 +408,16 @@ export function normalizeState(state: GameState): GameState {
   state.hooks ??= [];
   state.factions ??= [];
   state.locations ??= [];
+  for (const location of state.locations) {
+    location.note ??= '';
+    location.description ??= '';
+    location.history ??= '';
+  }
   state.archive ??= [];
+  state.reputation ??= { public: 0, label: 'нейтрально', witnesses: [] };
+  state.reputation.public = Math.max(-100, Math.min(100, Number(state.reputation.public) || 0));
+  state.reputation.label ||= 'нейтрально';
+  state.reputation.witnesses ??= [];
   state.bestiary ??= [];
   state.lore ??= [];
   state.illustrations ??= [];
@@ -391,6 +435,9 @@ export function normalizeState(state: GameState): GameState {
     for (const actor of list) {
       if (!Array.isArray(actor.resources)) actor.resources = [];
       if (!Array.isArray(actor.currencies)) actor.currencies = [];
+      if (!Array.isArray(actor.relations)) actor.relations = [];
+      if (!Number.isFinite(Number(actor.morale))) actor.morale = 50;
+      if (!actor.skillAffinities) actor.skillAffinities = {};
     }
   }
   if (typeof state.hero.health !== 'number') state.hero.health = 100;

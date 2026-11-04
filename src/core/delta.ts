@@ -5,7 +5,7 @@
  * отбрасывается, ход продолжается — стейт нельзя испортить одним ответом.
  */
 
-import { addHiddenFact, type Actor, type Currency, type GameState, type Item, type Mind, type Quest, type Resource, type SkillMod, type Status } from './state.ts';
+import { addHiddenFact, type Actor, type Currency, type GameState, type Item, type Mind, type Quest, type Relation, type Resource, type SkillMod, type Status } from './state.ts';
 
 /** Изменение валюты мира или карточки. */
 export interface CurrencyPatch {
@@ -36,12 +36,18 @@ export interface ActorPatch {
   note?: string;
   bond?: number;
   attitude?: number;
+  /** 0..100: боевой дух пати */
+  morale?: number;
   /** в сцене ли прямо сейчас */
   present?: boolean;
   appearance?: string;
   character?: string;
   clothes?: string;
   bio?: string;
+  /** протяжённая история/биография */
+  history?: string;
+  /** предрасположенность к навыкам */
+  skillAffinities?: Record<string, number>;
   /** короткое описание для карточки */
   description?: string;
   /** способности/умения */
@@ -51,7 +57,7 @@ export interface ActorPatch {
   mind?: Mind;
   rank?: Actor['rank'];
   rankPoints?: number;
-  relations?: { with: string; feeling: string }[];
+  relations?: Relation[];
   resources?: ResourcePatch[];
   money?: { gold?: number; silver?: number; copper?: number };
   /** валюты персонажа: кредиты, ракушки, фантики */
@@ -101,9 +107,13 @@ export interface Delta {
     shadow?: string;
     roster?: { name: string; role: string; note?: string; hidden?: boolean }[];
   }[];
-  places?: { name: string; note?: string }[];
+  places?: { name: string; note?: string; description?: string; history?: string }[];
   lore?: { keys: string[]; content: string }[];
   intuition?: string;
+  /** репутация героя в обществе: абсолютная или дельта */
+  reputation?: { public?: number; delta?: number; label?: string; witnesses?: string[]; note?: string; reason?: string };
+  heroHistory?: string;
+  heroSkillAffinities?: Record<string, number>;
   heroSkills?: Record<string, number>;
   heroSkillMods?: SkillMod[];
   /** очки ранга за значимое событие (0..10); обычный ход — 0 или 1 */
@@ -281,6 +291,9 @@ function upsertActor(
     if (patch.rank) existing.rank = patch.rank;
     if (typeof patch.rankPoints === 'number') existing.rankPoints = patch.rankPoints;
     if (patch.relations) existing.relations = patch.relations;
+    if (patch.history) existing.history = patch.history;
+    if (patch.skillAffinities) existing.skillAffinities = { ...(existing.skillAffinities ?? {}), ...patch.skillAffinities };
+    if (typeof patch.morale === 'number') existing.morale = Math.max(0, Math.min(100, Math.round(patch.morale)));
     if (patch.resources) applyResourcePatches(existing, patch.resources, existing.name, changes);
     if (patch.currencies) applyCurrencyPatches(existing, patch.currencies, existing.name, changes);
     if (patch.money) {
@@ -313,11 +326,14 @@ function upsertActor(
     character: patch.character,
     clothes: patch.clothes,
     bio: patch.bio,
+    history: patch.history,
     description: patch.description,
     abilities: patch.abilities,
     skills: patch.skills,
+    skillAffinities: patch.skillAffinities,
     skillMods: patch.skillMods,
     mind: patch.mind,
+    morale: typeof patch.morale === 'number' ? Math.max(0, Math.min(100, Math.round(patch.morale))) : 50,
     rank: patch.rank ?? 'F',
     rankPoints: patch.rankPoints ?? 0,
     rankHistory: [],
@@ -437,6 +453,25 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
   const changes: string[] = [];
   // Старые кампании могли не иметь лор-книги.
   state.lore ??= [];
+  state.reputation ??= { public: 0, label: 'нейтрально', witnesses: [] };
+  if (delta.heroHistory) state.hero.history = delta.heroHistory;
+  if (delta.heroSkillAffinities) {
+    state.hero.skillAffinities = { ...(state.hero.skillAffinities ?? {}), ...delta.heroSkillAffinities };
+  }
+  if (delta.reputation) {
+    const before = state.reputation.public;
+    if (typeof delta.reputation.public === 'number') state.reputation.public = delta.reputation.public;
+    if (typeof delta.reputation.delta === 'number') state.reputation.public += delta.reputation.delta;
+    state.reputation.public = Math.max(-100, Math.min(100, Math.round(state.reputation.public)));
+    if (delta.reputation.label) state.reputation.label = delta.reputation.label;
+    if (delta.reputation.note) state.reputation.note = delta.reputation.note;
+    if (Array.isArray(delta.reputation.witnesses)) {
+      state.reputation.witnesses = [...new Set([...(state.reputation.witnesses ?? []), ...delta.reputation.witnesses])].slice(-20);
+    }
+    if (state.reputation.public !== before) {
+      changes.push(`репутация: ${before} → ${state.reputation.public}${delta.reputation.reason ? ` (${delta.reputation.reason})` : ''}`);
+    }
+  }
 
   if (
     typeof delta.advanceHours === 'number' ||
@@ -758,8 +793,10 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
     const existing = state.locations.find((l) => l.name.toLowerCase() === place.name.toLowerCase());
     if (existing) {
       if (place.note) existing.note = place.note;
+      if (place.description) existing.description = place.description;
+      if (place.history) existing.history = place.history;
     } else {
-      state.locations.push({ name: place.name, note: place.note ?? '' });
+      state.locations.push({ name: place.name, note: place.note ?? '', description: place.description, history: place.history });
   // Автолор: новое место само попадает в лор-книгу.
   state.lore.push({ keys: [place.name], content: `${place.name}${place.note ? ` — ${place.note}` : ''}` });
       changes.push(`+ место: ${place.name}`);

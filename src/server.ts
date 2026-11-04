@@ -11,7 +11,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, extname, join, normalize, sep } from 'node:path';
-import { characterSheetPrompt, generateImage, itemCardPrompt, masterCardPrompt, portraitPrompt, scenePrompt } from './core/images.ts';
+import { characterSheetPrompt, generateImage, itemCardPrompt, locationPrompt, masterCardPrompt, portraitPrompt, scenePrompt } from './core/images.ts';
 import { renderMap } from './core/map.ts';
 import { createState, normalizeState, type Actor, type GameState, type NumberChange, type Resource } from './core/state.ts';
 import { Conspect, type Arc } from './core/conspect.ts';
@@ -65,7 +65,9 @@ import { makeWorldProfile } from './core/world-profile.ts';
 import { DEFAULT_FEATURES, normalizeFeatures, type FeatureFlags } from './core/features.ts';
 import { estimatePrice } from './core/economy.ts';
 import { directorNote, recallLog } from './core/recall.ts';
-import { hashVector, retrieve, type VectorEntry } from './core/vectors.ts';
+import { applySocialReaction } from './core/social.ts';
+import { embedTexts } from './core/embeddings.ts';
+import { hashVector, retrieve, retrieveVector, type VectorEntry } from './core/vectors.ts';
 
 interface ArtTagField {
   name: string;
@@ -108,8 +110,24 @@ try {
 const LOREBOOK_PATH = join(import.meta.dirname, '..', 'data', 'lorebook.json');
 const FEATURES_PATH = join(import.meta.dirname, '..', 'data', 'features.json');
 const IMAGE_PROFILE_PATH = join(import.meta.dirname, '..', 'data', 'image-profile.json');
-interface ImageProfile { style: 'natural' | 'booru'; negative: string; references: 'auto' | 'off'; modelAware?: boolean }
-let imageProfile: ImageProfile = { style: 'natural', negative: 'text, watermark, logo, comic panels', references: 'auto', modelAware: true };
+interface ImageProfile {
+  style: 'natural' | 'booru';
+  negative: string;
+  references: 'auto' | 'off';
+  modelAware?: boolean;
+  format?: 'portrait' | 'square' | 'landscape';
+  temperature?: number;
+  stylePreset?: 'auto' | 'fantasy' | 'anime' | 'realistic' | 'dark';
+}
+let imageProfile: ImageProfile = {
+  style: 'natural',
+  negative: 'text, watermark, logo, comic panels',
+  references: 'auto',
+  modelAware: true,
+  format: 'portrait',
+  temperature: 0.7,
+  stylePreset: 'auto',
+};
 try {
   imageProfile = { ...imageProfile, ...(JSON.parse(await readFile(IMAGE_PROFILE_PATH, 'utf8')) as Partial<ImageProfile>) };
 } catch {
@@ -158,6 +176,8 @@ const TRACES_DIR = join(import.meta.dirname, '..', 'data', 'traces');
 let imageQueueTail: Promise<void> = Promise.resolve();
 let imageQueueRunning = 0;
 let imageQueueWaiting = 0;
+let imageQueueStartedAt = 0;
+let imageQueueLastMs = 0;
 const imageAbortControllers = new Set<AbortController>();
 
 function withImageQueue<T>(task: () => Promise<T>): Promise<T> {
@@ -165,9 +185,12 @@ function withImageQueue<T>(task: () => Promise<T>): Promise<T> {
   const run = imageQueueTail.then(async () => {
     imageQueueWaiting = Math.max(0, imageQueueWaiting - 1);
     imageQueueRunning += 1;
+    imageQueueStartedAt = Date.now();
     try {
       return await task();
     } finally {
+      imageQueueLastMs = Date.now() - imageQueueStartedAt;
+      imageQueueStartedAt = 0;
       imageQueueRunning = Math.max(0, imageQueueRunning - 1);
     }
   });
@@ -279,11 +302,14 @@ interface NumericSnapshot {
   items: Record<string, number>;
   rank: string;
   rankPoints: number;
+  reputation: number;
   actors: Record<string, {
     name: string;
     currencies: Record<string, { name: string; amount: number }>;
     resources: Record<string, { value: number; max?: number; unit?: string }>;
     money?: { gold: number; silver: number; copper: number };
+    attitude?: number;
+    morale?: number;
   }>;
 }
 
@@ -311,6 +337,8 @@ function numericSnapshot(state: GameState): NumericSnapshot {
       currencies: currencyMap(actor.currencies),
       resources: resourceMap(actor.resources),
       money: actor.money,
+      attitude: actor.attitude,
+      morale: actor.morale,
     };
   }
   return {
@@ -328,6 +356,7 @@ function numericSnapshot(state: GameState): NumericSnapshot {
     items: Object.fromEntries(state.items.map((item) => [item.name.toLowerCase(), item.qty])),
     rank: state.hero.rank ?? 'F',
     rankPoints: state.hero.rankPoints ?? 0,
+    reputation: state.reputation?.public ?? 0,
     actors,
   };
 }
@@ -423,6 +452,10 @@ function diffNumbers(
     const diff = after.health - before.health;
     rows.push(numberChange('Здоровье', String(before.health), String(after.health), `${diff > 0 ? '+' : ''}${diff}`, reasons.health));
   }
+  if (before.reputation !== after.reputation) {
+    const diff = after.reputation - before.reputation;
+    rows.push(numberChange('Репутация', String(before.reputation), String(after.reputation), `${diff > 0 ? '+' : ''}${diff}`, reasons.reputation));
+  }
   const coins = ['gold', 'silver', 'copper'] as const;
   const hasCurrencies = Object.keys(before.currencies).length > 0 || Object.keys(after.currencies).length > 0;
   if (hasCurrencies) {
@@ -496,6 +529,24 @@ function diffNumbers(
         coinText(newActor.money),
         coinDelta(oldActor.money, newActor.money),
         reasons[`actor-money:${key}`],
+      ));
+    }
+    if ((oldActor.attitude ?? 0) !== (newActor.attitude ?? 0)) {
+      rows.push(numberChange(
+        `${newActor.name} · отношение`,
+        String(oldActor.attitude ?? 0),
+        String(newActor.attitude ?? 0),
+        `${(newActor.attitude ?? 0) - (oldActor.attitude ?? 0) > 0 ? '+' : ''}${(newActor.attitude ?? 0) - (oldActor.attitude ?? 0)}`,
+        reasons[`actor-attitude:${key}`],
+      ));
+    }
+    if ((oldActor.morale ?? 0) !== (newActor.morale ?? 0)) {
+      rows.push(numberChange(
+        `${newActor.name} · дух`,
+        String(oldActor.morale ?? 0),
+        String(newActor.morale ?? 0),
+        `${(newActor.morale ?? 0) - (oldActor.morale ?? 0) > 0 ? '+' : ''}${(newActor.morale ?? 0) - (oldActor.morale ?? 0)}`,
+        reasons[`actor-morale:${key}`],
       ));
     }
   }
@@ -864,7 +915,16 @@ async function indexVectors(campaignId: string, session: Session): Promise<void>
   if (!gm?.text?.trim()) return;
   const entries = await loadVectors(campaignId);
   if (entries.some((entry) => entry.turn === gm.turn)) return;
-  entries.push({ turn: gm.turn, text: gm.text.slice(0, 4000), vector: hashVector(gm.text) });
+  let vector: number[] | null = null;
+  let model: VectorEntry['model'] = 'hash';
+  if (API_KEY && process.env.OMIKA_EMBED_API !== '0') {
+    const embedded = await embedTexts([gm.text.slice(0, 4000)], { apiKey: API_KEY });
+    if (embedded?.[0]) {
+      vector = embedded[0];
+      model = 'api';
+    }
+  }
+  entries.push({ turn: gm.turn, text: gm.text.slice(0, 4000), vector: vector ?? hashVector(gm.text), model });
   await mkdir(VECTOR_DIR, { recursive: true });
   await writeFile(join(VECTOR_DIR, `${campaignId}.json`), `${JSON.stringify(entries.slice(-240))}\n`, 'utf8');
 }
@@ -878,7 +938,15 @@ function ensureMarket(state: GameState, seed: number): NonNullable<GameState['ma
     place,
     goods: goodsNames.map((name, index) => {
       const quote = estimatePrice(name, place, state.currencies, seed + index);
-      return { name, price: quote.display, currency: quote.currency, qty: 2 + ((seed + index * 7) % 5) };
+      const reputationMultiplier =
+        (state.reputation?.public ?? 0) >= 40 ? 0.9 :
+        (state.reputation?.public ?? 0) <= -40 ? 1.35 : 1;
+      return {
+        name,
+        price: Math.max(1, Math.round(quote.display * reputationMultiplier)),
+        currency: quote.currency,
+        qty: 2 + ((seed + index * 7) % 5),
+      };
     }),
   };
   return state.market;
@@ -951,8 +1019,24 @@ function pickLore(session: Session, input: string): string {
       reason: item.reason,
       chars: item.entry.content.length,
     }));
-    return renderLore(activation.active);
+    const byPosition = (position: string): string =>
+      renderLore(activation.active.filter((entry) => (entry.position ?? 'depth') === position));
+    session.extraLoreTop = byPosition('top');
+    session.extraLoreHistory = byPosition('history');
+    session.extraLoreAfter = byPosition('after');
+    session.extraLoreDepth = byPosition('depth');
+    session.extraLore = [
+      session.extraLoreTop,
+      session.extraLoreHistory,
+      session.extraLoreAfter,
+      session.extraLoreDepth,
+    ].filter(Boolean).join('\n\n');
+    return session.extraLore;
   }
+  session.extraLoreTop = '';
+  session.extraLoreHistory = '';
+  session.extraLoreAfter = '';
+  session.extraLoreDepth = '';
   return renderLore(activateLore([...lorebook, ...auto], text, { limit: 3 }).active);
 }
 
@@ -1021,7 +1105,16 @@ async function augmentFeatureNotes(session: Session, input: string, id: string):
   const parts = [session.extraNotes ?? ''];
   if (features.vectorMemory) {
     const vectors = await loadVectors(id);
-    const found = retrieve(vectors, input);
+    let found: VectorEntry[] = [];
+    const apiEntries = vectors.filter((entry) => entry.model === 'api');
+    if (API_KEY && process.env.OMIKA_EMBED_API !== '0' && apiEntries.length) {
+      const embedded = await embedTexts([input], { apiKey: API_KEY });
+      if (embedded?.[0]) found = retrieveVector(apiEntries, embedded[0]);
+    }
+    if (!found.length) {
+      const hashEntries = vectors.filter((entry) => entry.model !== 'api');
+      found = hashEntries.length ? retrieve(hashEntries, input) : retrieve(vectors, input);
+    }
     if (found.length) {
       parts.push(
         ['Векторная память (прошлые сцены):', ...found.map((entry) => `- ход ${entry.turn}: ${entry.text.replace(/\s+/g, ' ').slice(0, 260)}`)].join('\n'),
@@ -1187,6 +1280,8 @@ function reviveIfAllowed(id: string, session: Session): void {
     );
   }
   if (stateResult.status === 'rejected') console.error('[state agent]', stateResult.reason);
+  const social = applySocialReaction(session.state, input);
+  agentChanges.push(...social.changed);
   reviveIfAllowed(id, session);
 
   const reasons = stateResult.status === 'fulfilled' ? { ...stateResult.value.reasons } : {};
@@ -1895,6 +1990,11 @@ const server = createServer(async (req, res) => {
         negative: String(body.negative ?? '').slice(0, 500),
         references: body.references === 'off' ? 'off' : 'auto',
         modelAware: body.modelAware !== false,
+        format: body.format === 'square' || body.format === 'landscape' ? body.format : 'portrait',
+        temperature: Math.max(0, Math.min(1.5, Number(body.temperature ?? 0.7))),
+        stylePreset: ['fantasy', 'anime', 'realistic', 'dark'].includes(String(body.stylePreset))
+          ? String(body.stylePreset) as ImageProfile['stylePreset']
+          : 'auto',
       };
       await writeFile(IMAGE_PROFILE_PATH, `${JSON.stringify(imageProfile, null, 2)}\n`, 'utf8');
       return sendJson(res, { ok: true, profile: imageProfile });
@@ -2876,16 +2976,28 @@ const server = createServer(async (req, res) => {
       if (req.method === 'POST' && !branchId) {
         if (!features.branches) return sendJson(res, { error: 'ветки выключены в админке' }, 409);
         const body = await readBody(req);
+        const requested = Number(body.turn);
+        const past = Number.isFinite(requested) && requested > 0 && requested < session.state.turn
+          ? (snapshots.get(campaignId) ?? []).find((snap) => snap.turn === requested)
+          : null;
+        if (Number.isFinite(requested) && requested > 0 && requested < session.state.turn && !past) {
+          return sendJson(res, { error: 'нет снимка этого хода' }, 404);
+        }
         const id = `br-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+        const branchState = past ? structuredClone(past.state) : structuredClone(session.state);
+        if (past) {
+          branchState.log = session.state.log.filter((entry) => entry.turn <= requested);
+          branchState.turn = requested;
+        }
         const branch: StoredBranch = {
           id,
-          name: String(body.name ?? '').trim().slice(0, 120) || `Ветка хода ${session.state.turn}`,
+          name: String(body.name ?? '').trim().slice(0, 120) || `Ветка хода ${branchState.turn}`,
           createdAt: new Date().toISOString(),
-          turn: session.state.turn,
-          state: structuredClone(session.state),
-          summary: session.summary ?? '',
+          turn: branchState.turn,
+          state: branchState,
+          summary: past?.summary ?? session.summary ?? '',
           memory: session.memory ?? '',
-          lastSummaryTurn: session.lastSummaryTurn ?? 0,
+          lastSummaryTurn: past?.lastSummaryTurn ?? session.lastSummaryTurn ?? 0,
           conspect: session.conspect.toJSON(),
         };
         branches.push(branch);
@@ -2910,7 +3022,7 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|context|container|npc|forget|blocks|fill-card|inspector|price|market|undo|branches|branch|reset|restart|save-card))?$/.exec(path);
+    const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|context|container|npc|actor|location|forget|blocks|fill-card|inspector|price|market|undo|branches|branch|reset|restart|save-card))?$/.exec(path);
     if (campaignMatch) {
       const id = decodeURIComponent(campaignMatch[1]);
       // Id — это имя файла кампании: никаких слэшей и переходов вверх.
@@ -3256,7 +3368,7 @@ const server = createServer(async (req, res) => {
                 role: actor.role,
                 attitude: actor.attitude,
                 bond: actor.bond,
-                relations: actor.relations ?? [],
+                relations: (actor.relations ?? []).map((relation) => ({ with: relation.with, feeling: relation.feeling ?? '' })),
                 present: actor.present,
                 skills: actor.skills ?? {},
               },
@@ -3450,6 +3562,76 @@ const server = createServer(async (req, res) => {
         return sendJson(res, { ok: true, state: session.state });
       }
 
+      // Правка карточки локации.
+      if (action === 'location' && req.method === 'POST') {
+        if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
+        const body = await readBody(req);
+        const name = String(body.name ?? '').trim();
+        const patch = (body.patch ?? body) as Record<string, unknown>;
+        let location = session.state.locations.find((item) => item.name.toLowerCase() === name.toLowerCase());
+        if (!location && name.toLowerCase() === session.state.place.toLowerCase()) {
+          location = { name: session.state.place, note: '' };
+          session.state.locations.push(location);
+        }
+        if (!location) return sendJson(res, { error: 'локация не найдена' }, 404);
+        for (const field of ['note', 'description', 'history'] as const) {
+          if (typeof patch[field] === 'string') location[field] = String(patch[field]).trim().slice(0, 12000);
+        }
+        await persist(id, session);
+        return sendJson(res, { ok: true, location });
+      }
+
+      // Правка статичной карточки героя/NPC/пати.
+      if (action === 'actor' && req.method === 'POST') {
+        if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
+        const body = await readBody(req);
+        const name = String(body.name ?? '').trim();
+        const patch = (body.patch ?? body) as Record<string, unknown>;
+        if (!name) return sendJson(res, { error: 'не указано имя' }, 400);
+        const actor = [...session.state.party, ...session.state.npcs].find(
+          (item) => item.name.trim().toLowerCase() === name.toLowerCase(),
+        );
+        const hero = name.toLowerCase() === session.state.hero.name.trim().toLowerCase();
+        if (!actor && !hero) return sendJson(res, { error: 'персонаж не найден' }, 404);
+        const textFields = ['appearance', 'character', 'clothes', 'bio', 'history', 'description', 'abilities', 'habits', 'wants', 'note', 'role'] as const;
+        for (const field of textFields) {
+          if (typeof patch[field] !== 'string') continue;
+          const value = String(patch[field]).trim().slice(0, 8000);
+          if (actor) (actor as unknown as Record<string, unknown>)[field] = value;
+          else if (field === 'history') session.state.hero.history = value;
+          else if (field === 'bio') session.state.hero.bio = value;
+          else if (field === 'character') session.state.hero.essence = value;
+          else if (field === 'clothes') session.state.hero.appearance = value;
+          else if (field === 'habits') session.state.hero.quirks = value;
+          else if (field === 'abilities') session.state.hero.abilities = value;
+          else if (field === 'description') session.state.hero.origin = value;
+        }
+        if (patch.skillAffinities && typeof patch.skillAffinities === 'object' && !Array.isArray(patch.skillAffinities)) {
+          const affinities: Record<string, number> = {};
+          for (const [skill, value] of Object.entries(patch.skillAffinities as Record<string, unknown>)) {
+            const number = Number(value);
+            if (Number.isFinite(number)) affinities[skill.slice(0, 40)] = Math.max(-5, Math.min(5, Math.round(number)));
+          }
+          if (actor) actor.skillAffinities = affinities;
+          else session.state.hero.skillAffinities = affinities;
+        }
+        if (typeof patch.attitude === 'number' && actor) actor.attitude = Math.max(-100, Math.min(100, Math.round(patch.attitude)));
+        if (typeof patch.morale === 'number' && actor) actor.morale = Math.max(0, Math.min(100, Math.round(patch.morale)));
+        if (Array.isArray(patch.relations) && actor) {
+          actor.relations = patch.relations
+            .filter((relation) => relation && typeof relation === 'object')
+            .map((relation) => ({
+              with: String((relation as { with?: unknown }).with ?? '').slice(0, 80),
+              feeling: String((relation as { feeling?: unknown }).feeling ?? '').slice(0, 500),
+              attitude: Number((relation as { attitude?: unknown }).attitude ?? 0),
+              note: String((relation as { note?: unknown }).note ?? '').slice(0, 1000),
+            }))
+            .filter((relation) => relation.with);
+        }
+        await persist(id, session);
+        return sendJson(res, { ok: true, actor: actor ?? session.state.hero, state: session.state });
+      }
+
       // Добавить NPC из шаблона в текущую игру.
       if (action === 'npc' && req.method === 'POST') {
         if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
@@ -3608,7 +3790,7 @@ const server = createServer(async (req, res) => {
             abilities: actor.abilities,
             attributes: {},
             skills: actor.skills ?? {},
-            relations: actor.relations ?? [],
+            relations: (actor.relations ?? []).map((relation) => ({ with: relation.with, feeling: relation.feeling ?? '' })),
             equipment: [],
             data: {
               attitude: actor.attitude ?? 0,
@@ -3763,7 +3945,7 @@ const server = createServer(async (req, res) => {
 
         const body = await readBody(req);
         const rawMode = String(body.mode ?? 'scene');
-        const mode = ['scene', 'portrait', 'card', 'sheet', 'item', 'hero'].includes(rawMode) ? rawMode : 'scene';
+        const mode = ['scene', 'portrait', 'card', 'sheet', 'item', 'hero', 'location'].includes(rawMode) ? rawMode : 'scene';
 
         // У каждого вида изображения свой агент: промт сцены не равен промту карточки.
         const artist =
@@ -3777,7 +3959,7 @@ const server = createServer(async (req, res) => {
 
         // Стиль из мастера промтов для этой игры важнее дефолтного промта.
         const artistMeta = (await loadCampaign(DATA_DIR, id))?.meta;
-        const artistKeyName = mode === 'scene' ? 'scene' : mode === 'item' ? 'item' : mode === 'hero' ? 'hero' : 'npc';
+        const artistKeyName = mode === 'scene' || mode === 'location' ? 'scene' : mode === 'item' ? 'item' : mode === 'hero' ? 'hero' : 'npc';
         const style = artistMeta?.prompts?.artists?.[artistKeyName] || artist.prompt;
         // Локальный Qwen-Image через Unsloth Studio, если он настроен.
         const localImage = Boolean(LOCAL_IMAGE_KEY && LOCAL_IMAGE_BASE && LOCAL_IMAGE_MODEL);
@@ -3789,6 +3971,7 @@ const server = createServer(async (req, res) => {
         let prompt = '';
         let actorName = '';
         let itemName = '';
+        let locationName = '';
         let references: string[] = [];
         let sceneTurn = session.state.turn;
 
@@ -3871,6 +4054,18 @@ const server = createServer(async (req, res) => {
           const item = session.state.items.find((i) => i.name.toLowerCase() === itemName.toLowerCase());
           if (!item) return sendJson(res, { error: 'предмет не найден' }, 404);
           prompt = itemCardPrompt({ style, name: item.name, note: item.note });
+        } else if (mode === 'location') {
+          locationName = String(body.name ?? '').trim();
+          const location = session.state.locations.find((item) => item.name === locationName);
+          if (!location) return sendJson(res, { error: 'локация не найдена' }, 404);
+          prompt = locationPrompt({
+            style,
+            name: location.name,
+            description: location.description,
+            note: location.note,
+            time: `день ${session.state.time.day}, ${String(session.state.time.hour).padStart(2, '0')}:00`,
+            weather: session.state.weather,
+          });
         } else {
           // Кадр именно выбранного хода, а не всегда последнего.
           const requestedTurn = Number(body.turn);
@@ -3938,7 +4133,10 @@ const server = createServer(async (req, res) => {
         // Выбранный стиль — в начало промта, иначе модель его почти не слышит.
         if (extra) prompt = `${extra}. ${prompt}`;
         if (avoid) prompt += ` Не изображать: ${avoid}.`;
-        const imageSize = localImage ? '512x768' : undefined;
+        const imageSize = localImage
+          ? imageProfile.format === 'square' ? '768x768' : imageProfile.format === 'landscape' ? '768x512' : '512x768'
+          : undefined;
+        const imageAspect = imageProfile.format === 'square' ? '1:1' : imageProfile.format === 'landscape' ? '16:9' : '9:16';
         const imageController = new AbortController();
         imageAbortControllers.add(imageController);
         if (features.imageProfiles) {
@@ -3949,6 +4147,17 @@ const server = createServer(async (req, res) => {
             prompt = `${prompt} Кинематографичный свет, естественные пропорции, единый стиль.`;
           }
           if (imageProfile.modelAware && localImage) prompt += ' Локальная Qwen: без текста и панелей.';
+          if (imageProfile.stylePreset && imageProfile.stylePreset !== 'auto') {
+            const preset = {
+              fantasy: 'Фэнтези-стиль: живописный, мифические детали, средневековые фактуры.',
+              anime: 'Аниме-стиль: чистые линии, выразительные лица, мягкий свет.',
+              realistic: 'Реалистичный стиль: естественная анатомия, честный свет, без стилизации.',
+              dark: 'Тёмное фэнтези: приглушённые цвета, тяжёлые тени, тревожная атмосфера.',
+            }[imageProfile.stylePreset];
+            if (preset) prompt += ` ${preset}`;
+          } else if (/(фэнтези|маг(ия|ический)|дракон|меч|замок|эльф|гном|колдун|ритуал)/i.test(`${session.text.world} ${session.text.tone}`)) {
+            prompt += ' Фэнтези-стиль: живописный, мифические детали, средневековые фактуры.';
+          }
           if (imageProfile.negative) prompt += ` Не изображать: ${imageProfile.negative}.`;
           if (imageProfile.references === 'off') references = [];
           // Первый кадр без мастер-листа героя даёт «другого человека».
@@ -3965,6 +4174,7 @@ const server = createServer(async (req, res) => {
               });
               const heroResult = await withImageQueue(() => generateImage({
                 apiKey, baseUrl, model, prompt: heroPrompt, references: [], size: imageSize,
+                aspectRatio: imageAspect, temperature: imageProfile.temperature,
                 signal: imageController.signal,
               }));
               const heroFile = await saveImage(id, 'sheet', heroResult.buffer, heroResult.mime);
@@ -3989,6 +4199,8 @@ const server = createServer(async (req, res) => {
           prompt,
           references,
           size: imageSize,
+          aspectRatio: imageAspect,
+          temperature: imageProfile.temperature,
           signal: imageController.signal,
         }).catch(async (err: Error) => {
           if (localImage || model === IMAGE_FALLBACK_MODEL) throw err;
@@ -4000,6 +4212,8 @@ const server = createServer(async (req, res) => {
             model: IMAGE_FALLBACK_MODEL,
             prompt,
             references,
+            aspectRatio: imageAspect,
+            temperature: imageProfile.temperature,
             signal: imageController.signal,
           });
         }));
@@ -4029,6 +4243,9 @@ const server = createServer(async (req, res) => {
         } else if (mode === 'item') {
           const item = session.state.items.find((i) => i.name.toLowerCase() === itemName.toLowerCase());
           if (item) item.card = url;
+        } else if (mode === 'location') {
+          const location = session.state.locations.find((item) => item.name === locationName);
+          if (location) location.card = url;
         } else {
           session.state.illustrations.push({ turn: sceneTurn, url, caption: session.state.place });
         }
@@ -4148,6 +4365,11 @@ const server = createServer(async (req, res) => {
         running: imageQueueRunning,
         waiting: imageQueueWaiting,
         cancellable: imageAbortControllers.size,
+        progress: imageQueueRunning
+          ? Math.min(95, Math.round((Date.now() - imageQueueStartedAt) / Math.max(20_000, imageQueueLastMs || 90_000) * 100))
+          : imageQueueWaiting ? 0 : 100,
+        elapsedMs: imageQueueRunning ? Date.now() - imageQueueStartedAt : 0,
+        lastMs: imageQueueLastMs,
       });
     }
 

@@ -605,8 +605,16 @@ async function viewContainer(view, id) {
   const locationGrid = el('div', 'location-grid');
   for (const place of locations) {
     const box = el('div', 'location-card');
-    box.append(el('b', '', place.name));
+    const name = el('button', 'location-link', place.name);
+    name.type = 'button';
+    name.addEventListener('click', () => openLocationCard(place, id));
+    box.append(name);
     if (place.note) box.append(el('span', '', place.note));
+    if (place.card) {
+      const img = el('img', 'item-card');
+      img.src = place.card;
+      box.append(img);
+    }
     box.append(miniBtn('＋', 'сохранить локацию в библиотеку', () => saveToLibrary(id, 'location', place.name)));
     locationGrid.append(box);
   }
@@ -1110,12 +1118,28 @@ async function loreCard() {
       budget.addEventListener('input', () => {
         entry.budget = Number(budget.value) || undefined;
       });
+      const position = el('select');
+      for (const [value, label] of [
+        ['depth', 'в глубине сцены'],
+        ['top', 'в начале промта'],
+        ['history', 'перед историей'],
+        ['after', 'после истории'],
+      ]) {
+        const option = el('option', '', label);
+        option.value = value;
+        position.append(option);
+      }
+      position.value = entry.position ?? 'depth';
+      position.addEventListener('change', () => {
+        entry.position = position.value;
+      });
       advanced.append(
         agentField('Вторичные ключи', secondary),
         agentField('Всегда (constant)', constant),
         agentField('Требует вторичный (selective)', selective),
         agentField('Порядок', order),
         agentField('Бюджет, знаков', budget),
+        agentField('Позиция', position),
       );
 
       roww.append(keys, content, remove, advanced);
@@ -1284,6 +1308,20 @@ const FEATURE_LABELS = {
   shops: 'Магазины и экономика',
 };
 
+const FEATURE_DESCRIPTIONS = {
+  contextInspector: 'Показывает, какие блоки и сколько токенов ушло в модель; хранит последний контекст.',
+  advancedLore: 'Включает ключи, selective, sticky/cooldown, бюджет и точные позиции записей World Info.',
+  branches: 'Сохраняет полное состояние и позволяет откатить ход или вернуться к чекпоинту.',
+  groupScenes: 'Добавляет в промт групповую сцену и выбранный фокус, чтобы NPC реагировали по отдельности.',
+  npcMinds: 'Ведёт у NPC цели, секреты, знания, планы и настроение; отправляет их в контекст.',
+  vectorMemory: 'Ищет прошлые сцены по векторному индексу и подмешивает релевантные; при сбое — лексический fallback.',
+  storyDirector: 'Перед ходом зовёт агента-режиссёра: темп, фокус, границы знания и анти-повторы.',
+  imageQueue: 'Одна локальная GPU-очередь: статус, отмена и окно очереди.',
+  imageProfiles: 'Стиль natural/danbooru, negative, референсы и model-aware поправки для Qwen.',
+  antiSlop: 'Убирает буквальные повторы предложений и часть типовых фраз, не занимаясь цензурой.',
+  shops: 'Формула цен, рынок с покупкой/продажей и валюты мира.',
+};
+
 async function adminFeaturesTab(container) {
   const page = el('div');
   page.append(el('p', 'page-sub', 'Динамические выключатели механик. Сохраняются сразу.'));
@@ -1296,7 +1334,9 @@ async function adminFeaturesTab(container) {
     input.type = 'checkbox';
     input.checked = Boolean(features[key]);
     inputs[key] = input;
-    row.append(input, el('span', '', label));
+    const text = el('span', 'feature-text');
+    text.append(el('b', '', label), el('small', '', FEATURE_DESCRIPTIONS[key] ?? ''));
+    row.append(input, text);
     page.append(row);
   }
   const profile = box.imageProfile ?? { style: 'natural', negative: '', references: 'auto' };
@@ -1319,12 +1359,40 @@ async function adminFeaturesTab(container) {
   const modelAware = el('input');
   modelAware.type = 'checkbox';
   modelAware.checked = profile.modelAware !== false;
+  const format = el('select');
+  for (const [value, label] of [['portrait', 'Портрет 512×768'], ['square', 'Квадрат 768×768'], ['landscape', 'Пейзаж 768×512']]) {
+    const option = el('option', '', label);
+    option.value = value;
+    format.append(option);
+  }
+  format.value = profile.format ?? 'portrait';
+  const stylePreset = el('select');
+  for (const [value, label] of [['auto', 'Авто (по сцене)'], ['fantasy', 'Фэнтези'], ['dark', 'Тёмное фэнтези'], ['anime', 'Аниме'], ['realistic', 'Реализм']]) {
+    const option = el('option', '', label);
+    option.value = value;
+    stylePreset.append(option);
+  }
+  stylePreset.value = profile.stylePreset ?? 'auto';
+  const temperature = el('input');
+  temperature.type = 'range';
+  temperature.min = '0';
+  temperature.max = '1.5';
+  temperature.step = '0.05';
+  temperature.value = String(profile.temperature ?? 0.7);
+  const temperatureLabel = el('span', 'status', String(profile.temperature ?? 0.7));
+  temperature.addEventListener('input', () => {
+    temperatureLabel.textContent = temperature.value;
+  });
   page.append(
     el('h3', '', 'Картинки'),
     agentField('Стиль промта', style),
     agentField('Negative prompt', negative),
     agentField('Референсы', refs),
     agentField('Учитывать модель (Qwen → natural)', modelAware),
+    agentField('Формат кадра', format),
+    agentField('Стиль', stylePreset),
+    agentField('Температура', temperatureLabel),
+    temperature,
   );
   const save = el('button', 'btn primary', 'Сохранить функции');
   save.type = 'button';
@@ -1337,7 +1405,15 @@ async function adminFeaturesTab(container) {
       await api('/api/admin/features', { method: 'PUT', body: JSON.stringify({ features: payload, imageProfile: profile }) });
       await api('/api/admin/image-profile', {
         method: 'PUT',
-        body: JSON.stringify({ style: style.value, negative: negative.value, references: refs.value, modelAware: modelAware.checked }),
+        body: JSON.stringify({
+          style: style.value,
+          negative: negative.value,
+          references: refs.value,
+          modelAware: modelAware.checked,
+          format: format.value,
+          stylePreset: stylePreset.value,
+          temperature: Number(temperature.value),
+        }),
       });
       status.textContent = 'сохранено';
     } catch (err) {
@@ -3567,13 +3643,21 @@ function actorCard(actor, campaignId) {
     ['Характер', actor.character],
     ['Одет', actor.clothes],
     ['Прошлое', actor.bio],
+    ['История', actor.history],
+    ['Привычки', actor.habits],
+    ['Желания', actor.wants],
+    ['Способности', actor.abilities],
     ['Описание', actor.description],
     ['Заметка', actor.note],
   ].filter(([, value]) => value);
   for (const [key, value] of rows) bodyEl.append(row(key, value));
 
   if (actor.skills && Object.keys(actor.skills).length) bodyEl.append(el('div', 'skills-line', formatSkills(actor.skills)));
-  if (actor.relations?.length) bodyEl.append(row('Отношения', actor.relations.map((r) => `${r.with}: ${r.feeling}`).join('; ')));
+  if (actor.skillAffinities && Object.keys(actor.skillAffinities).length) {
+    bodyEl.append(row('Предрасположенность', Object.entries(actor.skillAffinities).map(([name, value]) => `${name} ${value > 0 ? '+' : ''}${value}`).join(' · ')));
+  }
+  if (typeof actor.morale === 'number') bodyEl.append(row('Дух пати', `${actor.morale}/100`));
+  if (actor.relations?.length) bodyEl.append(row('Отношения', actor.relations.map((r) => `${r.with}: ${r.feeling ?? ''}${typeof r.attitude === 'number' ? ` (${r.attitude > 0 ? '+' : ''}${r.attitude})` : ''}`).join('; ')));
 
   details.append(bodyEl);
   return details;
@@ -3602,6 +3686,195 @@ async function forgetNpc(campaignId, name, action) {  const labels = { archive: 
   }
 }
 
+function openLocationCard(location, campaignId) {
+  const overlay = el('div', 'library-modal');
+  const sheet = el('article', 'library-sheet');
+  const head = el('div', 'library-sheet-head');
+  const titles = el('div');
+  titles.append(el('h2', 'person-name', location.name));
+  titles.append(el('div', 'person-role', 'карточка места'));
+  const close = el('button', 'btn small', '✕');
+  close.type = 'button';
+  head.append(titles, close);
+  const body = el('div', 'library-sheet-body');
+  if (location.card) {
+    const img = el('img', 'library-sheet-img');
+    img.src = location.card;
+    img.alt = location.name;
+    body.append(img);
+  }
+  for (const [label, value] of [
+    ['Что известно', location.note],
+    ['Описание', location.description],
+    ['История', location.history],
+  ]) {
+    if (value) body.append(el('div', 'person-field', `${label}: ${value}`));
+  }
+  const noteInput = el('textarea', 'memory-area');
+  noteInput.rows = 2;
+  noteInput.placeholder = 'Короткая заметка';
+  noteInput.value = location.note ?? '';
+  const descriptionInput = el('textarea', 'memory-area');
+  descriptionInput.rows = 4;
+  descriptionInput.placeholder = 'Полное описание места';
+  descriptionInput.value = location.description ?? '';
+  const historyInput = el('textarea', 'memory-area');
+  historyInput.rows = 4;
+  historyInput.placeholder = 'Что здесь уже было';
+  historyInput.value = location.history ?? '';
+  const save = el('button', 'btn primary', 'Сохранить место');
+  save.type = 'button';
+  save.addEventListener('click', async () => {
+    save.disabled = true;
+    try {
+      await api(`/api/campaign/${encodeURIComponent(campaignId)}/location`, {
+        method: 'POST',
+        body: JSON.stringify({ name: location.name, patch: { note: noteInput.value, description: descriptionInput.value, history: historyInput.value } }),
+      });
+      location.note = noteInput.value;
+      location.description = descriptionInput.value;
+      location.history = historyInput.value;
+      toast('место сохранено');
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      save.disabled = false;
+    }
+  });
+  body.append(
+    agentField('Заметка', noteInput),
+    agentField('Описание', descriptionInput),
+    agentField('История', historyInput),
+    save,
+  );
+  const generate = el('button', 'btn primary', 'Нарисовать место');
+  generate.type = 'button';
+  generate.addEventListener('click', async () => {
+    generate.disabled = true;
+    try {
+      const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/image`, {
+        method: 'POST',
+        body: JSON.stringify({ mode: 'location', name: location.name }),
+      });
+      location.card = res.url;
+      const img = el('img', 'library-sheet-img');
+      img.src = res.url;
+      body.prepend(img);
+      toast(`локация · $${(res.cost ?? 0).toFixed(3)}`);
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      generate.disabled = false;
+    }
+  });
+  body.append(generate);
+  sheet.append(head, body);
+  overlay.append(sheet);
+  close.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  document.body.append(overlay);
+}
+
+function openActorEditor(actor, campaignId) {
+  const overlay = el('div', 'library-modal');
+  const sheet = el('article', 'library-sheet');
+  const head = el('div', 'library-sheet-head');
+  const titles = el('div');
+  titles.append(el('h2', 'person-name', `Карточка: ${actor.name}`));
+  titles.append(el('div', 'person-role', 'статичные сведения, не меняются от хода к ходу'));
+  const close = el('button', 'btn small', '✕');
+  close.type = 'button';
+  head.append(titles, close);
+  const body = el('div', 'library-sheet-body');
+  const fields = [
+    ['role', 'Роль'],
+    ['appearance', 'Внешность'],
+    ['character', 'Характер'],
+    ['clothes', 'Одежда'],
+    ['bio', 'Биография'],
+    ['history', 'История'],
+    ['habits', 'Привычки'],
+    ['wants', 'Желания'],
+    ['abilities', 'Способности'],
+    ['description', 'Краткое описание'],
+    ['note', 'Заметка'],
+  ];
+  const inputs = {};
+  for (const [key, label] of fields) {
+    const input = el('textarea', 'memory-area');
+    input.rows = key === 'bio' || key === 'history' || key === 'description' ? 4 : 2;
+    input.value = actor[key] ?? '';
+    inputs[key] = input;
+    body.append(agentField(label, input));
+  }
+  const affinity = el('input');
+  affinity.value = Object.entries(actor.skillAffinities ?? {}).map(([name, value]) => `${name}:${value}`).join(', ');
+  affinity.placeholder = 'Красноречие:2, Скрытность:1';
+  const relations = el('textarea', 'memory-area');
+  relations.rows = 3;
+  relations.placeholder = 'Имя | чувство | отношение -100..100, по одной строке';
+  relations.value = (actor.relations ?? []).map((relation) => `${relation.with} | ${relation.feeling ?? ''} | ${relation.attitude ?? 0}`).join('\n');
+  const attitude = el('input');
+  attitude.type = 'number';
+  attitude.min = '-100';
+  attitude.max = '100';
+  attitude.value = String(actor.attitude ?? 0);
+  const morale = el('input');
+  morale.type = 'number';
+  morale.min = '0';
+  morale.max = '100';
+  morale.value = String(actor.morale ?? 50);
+  body.append(
+    agentField('Предрасположенность к навыкам', affinity),
+    agentField('Отношения с другими', relations),
+    agentField('Отношение к герою', attitude),
+    agentField('Дух пати', morale),
+  );
+  const save = el('button', 'btn primary', 'Сохранить карточку');
+  save.type = 'button';
+  const status = el('span', 'status');
+  save.addEventListener('click', async () => {
+    save.disabled = true;
+    try {
+      const patch = {};
+      for (const [key, input] of Object.entries(inputs)) patch[key] = input.value;
+      const skillAffinities = {};
+      for (const part of affinity.value.split(',')) {
+        const [name, value] = part.split(':').map((item) => item.trim());
+        if (name && Number.isFinite(Number(value))) skillAffinities[name] = Number(value);
+      }
+      patch.skillAffinities = skillAffinities;
+      patch.relations = relations.value.split('\n').map((line) => {
+        const [withName, feeling, value] = line.split('|').map((part) => part.trim());
+        return { with: withName, feeling, attitude: Number(value) || 0 };
+      }).filter((relation) => relation.with);
+      patch.attitude = Number(attitude.value);
+      patch.morale = Number(morale.value);
+      await api(`/api/campaign/${encodeURIComponent(campaignId)}/actor`, {
+        method: 'POST',
+        body: JSON.stringify({ name: actor.name, patch }),
+      });
+      status.textContent = 'сохранено';
+      overlay.remove();
+      router();
+    } catch (err) {
+      status.textContent = err.message;
+    } finally {
+      save.disabled = false;
+    }
+  });
+  body.append(save, status);
+  sheet.append(head, body);
+  overlay.append(sheet);
+  close.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  document.body.append(overlay);
+}
+
 function personCard(actor, campaignId, isNpc = false) {
   const card = el('article', 'person-card');
   const head = el('div', 'person-head');
@@ -3626,6 +3899,9 @@ function personCard(actor, campaignId, isNpc = false) {
   if (typeof actor.bond === 'number' && actor.bond > 0) {
     chips.append(el('span', 'chip', `связь ${actor.bond}`));
   }
+  if (typeof actor.morale === 'number') {
+    chips.append(el('span', 'chip', `дух ${actor.morale}`));
+  }
   if (actor.present === true) chips.append(el('span', 'chip chip-live', 'в сцене'));
   if (chips.children.length) titles.append(chips);
   titles.append(rankBar(actor));
@@ -3637,6 +3913,7 @@ function personCard(actor, campaignId, isNpc = false) {
     ['Характер', actor.character],
     ['Одет', actor.clothes],
     ['Прошлое', actor.bio],
+    ['История', actor.history],
     ['Привычки', actor.habits],
     ['Желания', actor.wants],
     ['Способности', actor.abilities],
@@ -3656,6 +3933,12 @@ function personCard(actor, campaignId, isNpc = false) {
   if (actor.skills && Object.keys(actor.skills).length) {
     const skills = skillRows(actor.skills, actor.skillMods);
     if (skills) card.append(skills);
+  }
+  if (actor.skillAffinities && Object.keys(actor.skillAffinities).length) {
+    card.append(el('div', 'person-field', `Предрасположенность: ${Object.entries(actor.skillAffinities).map(([name, value]) => `${name} ${value > 0 ? '+' : ''}${value}`).join(' · ')}`));
+  }
+  if (typeof actor.morale === 'number') {
+    card.append(el('div', 'person-field', `Дух пати: ${actor.morale}/100`));
   }
 
   const resources = resourceList(actor.resources);
@@ -3683,13 +3966,14 @@ function personCard(actor, campaignId, isNpc = false) {
     const rel = el('div', 'person-field');
     rel.append(
       el('span', 'person-label', 'Отношения'),
-      el('div', 'person-value', actor.relations.map((r) => `${r.with}: ${r.feeling}`).join('; ')),
+      el('div', 'person-value', actor.relations.map((r) => `${r.with}: ${r.feeling ?? ''}${typeof r.attitude === 'number' ? ` (${r.attitude > 0 ? '+' : ''}${r.attitude})` : ''}`).join('; ')),
     );
     card.append(rel);
   }
 
   if (campaignId) {
     const actions = el('div', 'person-actions');
+    actions.append(miniBtn('✎ правка', 'редактировать статичную карточку', () => openActorEditor(actor, campaignId)));
     actions.append(miniBtn('▣ в полный рост', 'одна фигура в полный рост', async () => {
       const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/image`, {
         method: 'POST',
@@ -3766,6 +4050,7 @@ function openHeroSheet(hero, money, campaignId, currencies = []) {
     ['Внешность', hero.appearance],
     ['Отношение к телу', hero.bodyAttitude],
     ['Прошлое', hero.origin ?? hero.bio],
+    ['История', hero.history],
     ['Привычки', hero.quirks],
     ['Способности', hero.abilities],
     ['Начало истории', hero.start],
@@ -3783,9 +4068,15 @@ function openHeroSheet(hero, money, campaignId, currencies = []) {
     if (skills) wrap.append(skills);
     body.append(wrap);
   }
+  if (hero.skillAffinities && Object.keys(hero.skillAffinities).length) {
+    body.append(el('div', 'person-field', `Предрасположенность: ${Object.entries(hero.skillAffinities).map(([name, value]) => `${name} ${value > 0 ? '+' : ''}${value}`).join(' · ')}`));
+  }
 
   const actions = el('div', 'library-sheet-actions');
   if (campaignId) {
+    const editBtn = el('button', 'btn small', '✎ правка');
+    editBtn.type = 'button';
+    editBtn.addEventListener('click', () => openActorEditor(hero, campaignId));
     const sheetBtn = el('button', 'btn small', '▣ в полный рост');
     sheetBtn.type = 'button';
     sheetBtn.addEventListener('click', async () => {
@@ -3821,7 +4112,7 @@ function openHeroSheet(hero, money, campaignId, currencies = []) {
         saveCard.disabled = false;
       }
     });
-    actions.append(sheetBtn, saveCard);
+    actions.append(editBtn, sheetBtn, saveCard);
   }
   sheet.append(head, top, body, actions);
 
@@ -4298,11 +4589,31 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     await refresh();
   };
 
+  const currentLocation = (state.locations ?? []).find((location) => location.name === state.place);
+  const locationValue = currentLocation ? (() => {
+    const button = el('button', 'location-link', state.place);
+    button.type = 'button';
+    button.addEventListener('click', () => openLocationCard(currentLocation, campaignId));
+    return button;
+  })() : state.place;
   frag.append(section('Место и время', [
     row('Время', worldDate(state.calendar, state.time)),
-    row('Локация', state.place),
+    row('Локация', locationValue),
     row('Погода', state.weather),
   ]));
+
+  if (state.reputation) {
+    const reputationRows = [
+      row('Общество', `${state.reputation.label ?? 'нейтрально'} (${state.reputation.public ?? 0})`),
+    ];
+    if (state.reputation.witnesses?.length) {
+      reputationRows.push(row('Видели', state.reputation.witnesses.join(', ')));
+    }
+    for (const faction of (state.factions ?? []).slice(0, 5)) {
+      reputationRows.push(row(faction.name, `${faction.attitude > 0 ? '+' : ''}${faction.attitude}`));
+    }
+    frag.append(section('Репутация', reputationRows));
+  }
 
   const mem = el('details', 'card');
   mem.append(el('summary', '', 'Память истории'));
@@ -4501,7 +4812,10 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
   if (state.locations?.length) {
     frag.append(section('Места', [itemList(state.locations.slice(-8).map((l) => {
       const li = el('li');
-      li.append(el('span', '', l.name), el('span', 'tag', 'знакомо'));
+      const name = el('button', 'location-link', l.name);
+      name.type = 'button';
+      name.addEventListener('click', () => openLocationCard(l, campaignId));
+      li.append(name, el('span', 'tag', l.card ? 'карточка' : 'знакомо'));
       return li;
     }))]));
   }
@@ -4728,11 +5042,15 @@ function openBranchesDialog(campaignId) {
   close.type = 'button';
   head.append(titles, close);
   const body = el('div', 'library-sheet-body');
+  const turnInput = el('input');
+  turnInput.type = 'number';
+  turnInput.min = '0';
+  turnInput.placeholder = 'ход для чекпоинта (пусто — текущий)';
   const create = el('button', 'btn primary', 'Сохранить текущий ход');
   create.type = 'button';
   const status = el('span', 'status');
   const list = el('div', 'branches-list');
-  body.append(create, status, list);
+  body.append(turnInput, create, status, list);
   sheet.append(head, body);
   overlay.append(sheet);
   close.addEventListener('click', () => overlay.remove());
@@ -4782,7 +5100,7 @@ function openBranchesDialog(campaignId) {
     try {
       const res = await api(`/api/campaign/${encodeURIComponent(campaignId)}/branches`, {
         method: 'POST',
-        body: JSON.stringify({ name: window.prompt('Название ветки', '') || '' }),
+        body: JSON.stringify({ name: window.prompt('Название ветки', '') || '', turn: Number(turnInput.value) || undefined }),
       });
       status.textContent = `сохранено: ${res.branch?.name ?? ''}`;
       await reload();
@@ -5074,8 +5392,29 @@ async function viewPlay(view, id) {
   renderThoughts(data.state);
 
   body.append(log, panel);
-  play.append(head, body, typing, outbox, composer);
+  const imageProgress = el('div', 'image-progress hidden');
+  play.append(head, body, typing, outbox, composer, imageProgress);
   view.append(play);
+
+  const updateImageProgress = async () => {
+    if (!document.body.contains(imageProgress)) return;
+    try {
+      const queue = await api('/api/images/queue');
+      const total = (queue.running ?? 0) + (queue.waiting ?? 0);
+      if (!total) {
+        imageProgress.classList.add('hidden');
+        return;
+      }
+      imageProgress.classList.remove('hidden');
+      imageProgress.textContent = `🖼 ${total} шт · ${queue.progress ?? 0}%`;
+    } catch {
+      imageProgress.classList.add('hidden');
+    }
+  };
+  void updateImageProgress();
+  const imageProgressTimer = window.setInterval(updateImageProgress, 1500);
+  const stopImageProgress = () => window.clearInterval(imageProgressTimer);
+  document.addEventListener('routechange', stopImageProgress, { once: true });
 
   const sideMap = $('side-map');
   if (sideMap) sideMap.classList.add('hidden');
