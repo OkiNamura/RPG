@@ -5582,6 +5582,7 @@ async function viewPlay(view, id) {
         },
         Boolean(dice),
         clientTurnId,
+        sceneFocus,
       );
       clearPending(id, clientTurnId);
       hideOutbox();
@@ -5656,11 +5657,11 @@ async function viewPlay(view, id) {
   }
 }
 
-async function streamTurn(id, input, onText, dice, clientTurnId) {
+async function streamTurn(id, input, onText, dice, clientTurnId, focus = []) {
   const res = await fetch(`/api/campaign/${encodeURIComponent(id)}/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ input, dice, clientTurnId, focus: sceneFocus }),
+    body: JSON.stringify({ input, dice, clientTurnId, focus }),
   });
   if (!res.ok || !res.body) throw new Error(`поток недоступен: ${res.status}`);
 
