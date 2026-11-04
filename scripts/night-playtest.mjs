@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const BASE = 'http://127.0.0.1:7801';
-const ID = 'night-playtest';
+const ID = process.env.NIGHT_ID || 'night-playtest';
 const password = readFileSync('.admin-password', 'utf8').trim();
 
 async function login() {
@@ -71,7 +71,8 @@ const inputs = [
 const rows = [];
 let failed = 0;
 let checkpoint = null;
-for (let index = 0; index < inputs.length; index += 1) {
+const totalTurns = Math.min(inputs.length, Number(process.env.NIGHT_TURNS || inputs.length));
+for (let index = 0; index < totalTurns; index += 1) {
   const started = Date.now();
   const result = await api(`/api/campaign/${ID}/turn`, {
     method: 'POST',
