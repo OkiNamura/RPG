@@ -236,6 +236,8 @@ export interface MarketGood {
 
 export interface Market {
   place: string;
+  /** репутация, при которой сформированы цены */
+  reputation?: number;
   goods: MarketGood[];
 }
 

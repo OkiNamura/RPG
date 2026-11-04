@@ -932,10 +932,14 @@ async function indexVectors(campaignId: string, session: Session): Promise<void>
 /** Простой рынок: ассортимент зависит от места, цена — от формулы. */
 function ensureMarket(state: GameState, seed: number): NonNullable<GameState['market']> {
   const place = state.place || 'неизвестно';
-  if (state.market && state.market.place === place && state.market.goods.length) return state.market;
+  const reputation = state.reputation?.public ?? 0;
+  if (state.market && state.market.place === place && state.market.reputation === reputation && state.market.goods.length) {
+    return state.market;
+  }
   const goodsNames = ['хлеб', 'похлёбка', 'вода', 'зелье', 'плащ', 'верёвка'];
   state.market = {
     place,
+    reputation,
     goods: goodsNames.map((name, index) => {
       const quote = estimatePrice(name, place, state.currencies, seed + index);
       const reputationMultiplier =
