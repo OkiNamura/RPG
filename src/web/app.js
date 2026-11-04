@@ -4854,6 +4854,17 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     row('Погода', state.weather),
   ]));
 
+  const upcoming = (state.events ?? [])
+    .filter((event) => event.status !== 'done' && event.status !== 'missed')
+    .slice()
+    .sort((a, b) => (a.at.day * 1440 + a.at.hour * 60 + a.at.minute) - (b.at.day * 1440 + b.at.hour * 60 + b.at.minute))
+    .slice(0, 3);
+  if (upcoming.length) {
+    frag.append(section('События', upcoming.map((event) =>
+      row(`${event.at.day} день, ${String(event.at.hour).padStart(2, '0')}:${String(event.at.minute).padStart(2, '0')}`, event.title),
+    )));
+  }
+
   if (state.reputation) {
     const reputationRows = [
       row('Общество', `${state.reputation.label ?? 'нейтрально'} (${state.reputation.public ?? 0})`),
