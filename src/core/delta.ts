@@ -5,7 +5,7 @@
  * отбрасывается, ход продолжается — стейт нельзя испортить одним ответом.
  */
 
-import { addHiddenFact, type Actor, type Currency, type GameState, type Item, type Mind, type Quest, type Relation, type Resource, type SkillMod, type Status } from './state.ts';
+import { addHiddenFact, type Actor, type Currency, type GameState, type Item, type Mind, type Quest, type Relation, type Resource, type SkillMod, type StateEvent, type Status } from './state.ts';
 
 /** Изменение валюты мира или карточки. */
 export interface CurrencyPatch {
@@ -96,6 +96,16 @@ export interface Delta {
     steps?: string[];
     deadline?: string;
     turnsLimit?: number;
+  }[];
+  /** события календаря: добавление/обновление по id или названию */
+  events?: {
+    id?: string;
+    at?: { day: number; hour: number; minute: number };
+    title: string;
+    importance?: StateEvent['importance'];
+    wake?: boolean;
+    place?: string;
+    status?: StateEvent['status'];
   }[];
   npcs?: ActorPatch[];
   party?: ActorPatch[];
@@ -665,6 +675,37 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
     }
   }
 
+  for (const event of delta.events ?? []) {
+    if (!event.title) continue;
+    const at = event.at ?? {
+      day: state.time.day,
+      hour: state.time.hour,
+      minute: state.time.minute ?? 0,
+    };
+    const existing = state.events.find(
+      (item) => (event.id && item.id === event.id) || item.title.toLowerCase() === event.title.toLowerCase(),
+    );
+    if (existing) {
+      existing.at = at;
+      existing.title = event.title;
+      if (event.importance) existing.importance = event.importance;
+      if (event.wake != null) existing.wake = event.wake;
+      if (event.place) existing.place = event.place;
+      if (event.status) existing.status = event.status;
+      changes.push(`событие: ${existing.title}`);
+    } else {
+      state.events.push({
+        id: event.id || `ev-${state.turn}-${state.events.length + 1}`,
+        at,
+        title: event.title,
+        importance: event.importance ?? 'meaningful',
+        ...(event.wake != null ? { wake: event.wake } : {}),
+        ...(event.place ? { place: event.place } : {}),
+        status: event.status ?? 'active',
+      });
+      changes.push(`событие: ${event.title}`);
+    }
+  }
   for (const quest of delta.quests ?? []) {
     if (!quest.title) continue;
     const existing = state.quests.find((q) => q.title.toLowerCase() === quest.title.toLowerCase());

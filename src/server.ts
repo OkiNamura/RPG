@@ -71,7 +71,7 @@ import { hashVector, retrieve, retrieveVector, type VectorEntry } from './core/v
 import { rebuildCardsIndex, rebuildSearchIndex, searchIndex, searchTraces, syncCampaignIndex, removeCampaignIndex } from './core/search.ts';
 import { loadSnapshots, removeSnapshots, saveSnapshots, syncSnapshots } from './core/snapshot-db.ts';
 import { backupDatabase, ensureDatabase } from './core/db-maintenance.ts';
-import { maxSceneAdvanceSeconds } from './core/time-budget.ts';
+import { hasTravelIntent, maxSceneAdvanceSeconds } from './core/time-budget.ts';
 import { buildSceneContract, referenceLegend, sceneSeed, type SceneContract, type VisualReference } from './core/visuals.ts';
 import { reviewImage } from './core/vision.ts';
 
@@ -432,7 +432,7 @@ function travelFloorSeconds(
   const text = `${input} ${prose}`.toLowerCase();
   const inputText = input.toLowerCase();
   const moved = before.place !== after.place;
-  const explicitTravel = /(иду|идём|идти|пошёл|пошла|пошли|еду|едем|ехать|дорог|путь|через дворы|до дома|домой|подъезд|вошл|пришл|добрал|бегу|бежит|метро|трамвай|автобус|такси|поезд)/i.test(inputText);
+  const explicitTravel = hasTravelIntent(inputText) || /(иду|идём|идти|пошёл|пошла|пошли|дорог|путь|через дворы|до дома|домой|подъезд|вошл|пришл|добрал|бегу|бежит|метро|трамвай|автобус|такси|поезд)/i.test(inputText);
   if (!moved && !explicitTravel) return 0;
   const context = moved ? text : inputText;
   if (/(метро|трамвай|автобус|поезд|такси|дорог|путь|ехать|ехали)/i.test(context)) return 20 * 60;
@@ -473,7 +473,7 @@ function timeClarification(input: string): TimeClarification | null {
   if (/(до\s+(утра|вечера|рассвета|заката|события|встречи|прибытия|конца|следующего)|пока\s+не|ровно)/.test(text)) return null;
   const sleep = /(сплю|спать|усну|ночую|ложусь спать|засыпаю)/.test(text);
   const wait = /(жду|ожидаю|дожидаюсь)/.test(text);
-  const travel = /(еду|лечу|плыву|отправляюсь|в путь)/.test(text);
+  const travel = hasTravelIntent(text);
   if (!sleep && !wait && !travel) return null;
   // «Еду в Москву» уже имеет цель-место; вопрос не нужен.
   if (travel && /(в|до|на)\s+[а-яё]/i.test(text)) return null;
@@ -503,7 +503,17 @@ function timeTargetNote(target: TimeTarget | null): string {
 
 function applyTimeTarget(session: Session, target: TimeTarget | null, before: NumericSnapshot): void {
   if (!target) return;
-  if (target.kind === 'wake' || target.kind === 'arrival' || target.kind === 'event') return;
+  if (target.kind === 'event') {
+    const current = timeSeconds(before.time);
+    const next = (session.state.events ?? [])
+      .filter((event) => event.status !== 'done' && event.status !== 'missed')
+      .map((event) => ({ event, at: timeSeconds({ ...event.at, second: 0 }) }))
+      .filter((item) => item.at > current)
+      .sort((a, b) => a.at - b.at)[0];
+    if (next) session.state.time = next.event.at;
+    return;
+  }
+  if (target.kind === 'wake' || target.kind === 'arrival') return;
   let seconds = 0;
   if (target.kind === 'hours') seconds = Math.round((target.hours ?? 0) * 3600);
   if (target.kind === 'morning') {

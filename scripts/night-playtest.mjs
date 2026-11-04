@@ -77,6 +77,18 @@ for (let index = 0; index < inputs.length; index += 1) {
     method: 'POST',
     body: JSON.stringify({ input: inputs[index], clientTurnId: `night-${index}-${Date.now()}` }),
   });
+  if (result.status === 200 && result.body?.clarification) {
+    result.body = (
+      await api(`/api/campaign/${ID}/turn`, {
+        method: 'POST',
+        body: JSON.stringify({
+          input: inputs[index],
+          clientTurnId: `night-${index}-${Date.now()}`,
+          timeTarget: { kind: 'morning' },
+        }),
+      })
+    ).body;
+  }
   const ok = result.status === 200 && Boolean(result.body?.prose);
   if (!ok) failed += 1;
   rows.push({

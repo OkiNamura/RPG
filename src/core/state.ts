@@ -167,6 +167,18 @@ export interface Quest {
   turnsLimit?: number;
 }
 
+/** Событие календаря: встреча, дедлайн, будильник, прибытие, поломка. */
+export interface StateEvent {
+  id: string;
+  at: { day: number; hour: number; minute: number };
+  title: string;
+  importance: 'critical' | 'meaningful' | 'ambient' | 'silent';
+  /** может ли событие разбудить героя */
+  wake?: boolean;
+  place?: string;
+  status?: 'active' | 'done' | 'missed';
+}
+
 /**
  * Факт, зафиксированный ДО того, как он стал важен.
  *
@@ -319,6 +331,8 @@ export interface GameState {
   party: Actor[];
   npcs: Actor[];
   quests: Quest[];
+  /** календарь событий: встречи, дедлайны, будильники, прибытие */
+  events: StateEvent[];
   promises: string[];
   /** открытые крючки: вопросы и угрозы, за которые спросят позже */
   hooks: string[];
@@ -382,6 +396,7 @@ export function createState(heroName: string, place: string): GameState {
     party: [],
     npcs: [],
     quests: [],
+    events: [],
     promises: [],
     hooks: [],
     factions: [],
@@ -406,6 +421,7 @@ export function normalizeState(state: GameState): GameState {
   state.party ??= [];
   state.npcs ??= [];
   state.quests ??= [];
+  state.events ??= [];
   state.promises ??= [];
   state.hooks ??= [];
   state.factions ??= [];

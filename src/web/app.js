@@ -5433,8 +5433,6 @@ function openContextInspector(campaignId) {
 
 async function viewPlay(view, id) {
   const data = await api(`/api/campaign/${encodeURIComponent(id)}`);
-  const route = currentRoute();
-  if (route.name !== 'play' || route.arg !== id) return;
 
   const play = el('div', 'play');
   const head = el('div', 'play-head');
@@ -5646,6 +5644,8 @@ async function viewPlay(view, id) {
   body.append(log, panel);
   const imageProgress = el('div', 'image-progress hidden');
   play.append(head, body, typing, outbox, composer, imageProgress);
+  const route = currentRoute();
+  if (route.name !== 'play' || route.arg !== id) return;
   view.append(play);
 
   const updateImageProgress = async () => {

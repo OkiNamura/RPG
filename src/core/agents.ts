@@ -124,6 +124,7 @@ export const DEFAULT_AGENTS: AgentSet = {
   "hiddenFacts": [{"content": "правда, которую нельзя раскрывать сразу"}],
   "promises":    ["..."],
   "quests":      [{"title": "...", "status": "active", "turnsLimit": 3, "steps": ["..."]}],
+  "events":      [{"title": "встреча у пруда", "at": {"day": 2, "hour": 14, "minute": 0}, "importance": "meaningful", "wake": true}],
   "npcs":        [{"name": "Гуннар", "role": "трактирщик", "status": "alive",
                    "present": true, "attitude": 20, "appearance": "...",
                    "character": "...", "clothes": "...", "bio": "...", "history": "если известно прошлое", "description": "короткое описание для карточки", "abilities": "что умеет", "note": "...",
@@ -162,13 +163,11 @@ export const DEFAULT_AGENTS: AgentSet = {
 }
 
 Жёсткие правила:
-- время двигай по сцене: разговор — 0-1 час, дорога — 1-3, сон — скип 6-8;
-  драка, погоня, заговор — минуты, но не больше часа;
-  если игрок сказал «жду», «сплю», «до утра» — перескакивай сразу;
-  если действие занимает секунды (шаг, удар, взгляд, осмотр двери) — используй
-  advanceSeconds; минуты — advanceMinutes; не округляй до часа;
-  переход в другое место — минимум 5 минут; через дворы/до дома/подъезд — 15–30;
-  метро, трамвай, дорога — 20–60; минута на дорогу — ошибка;
+- время: явная цель игрока главнее любых категорий — 15 минут, 4 часа, 9 часов,
+  «до утра», «до события». Не выдумывай жёсткие «сон 6-8» или «дорога 1-3»;
+  если цель не названа, двигай время по сцене и не делай скачок больше нужного;
+- для секунд — advanceSeconds, для минут — advanceMinutes, для часов — advanceHours;
+  не округляй секунды до часа;
 - место меняй, только если герой действительно перешёл в другое место;
 - здоровье меняй только при ранах, лечении, болезни, голоде; 0 — смерть;
 - если рану перевязали, лечили или она заживает — перенеси её место в healWounds;
@@ -215,6 +214,11 @@ export const DEFAULT_AGENTS: AgentSet = {
 - крючков не больше двух за ход; обещания — только явные; задачи — только взятые;
 - если у задачи есть срок, ставь turnsLimit в ходах: срочное — 1-2, обычное — 3-5,
   долгое — 8-10. Без срока не ставь;
+- события календаря добавляй только если в сцене названа встреча, дедлайн, будильник,
+  прибытие или пробуждение. at — абсолютные день/час/минута мира. importance:
+  critical (авария/угроза), meaningful (встреча/выбор), ambient (обычный пит-стоп),
+  silent (шум). wake — только если событие может разбудить героя;
+- не придумывай событие «для интереса» и не дублируй уже существующее;
 - intuition: одна короткая строка о том, что герой чувствует и подозревает.
   Это его внутренний голос, а не действие и не речь. Обновляй почти каждый ход;
 - скиллы: при первом появлении NPC или спутника задай 3-5 скиллов из набора
@@ -421,8 +425,12 @@ export async function loadAgents(dir: string): Promise<AgentSet> {
       result.state.prompt = DEFAULT_AGENTS.state.prompt;
     }
 
-    // v16 → v17: валюты мира, календарь и секунды.
-    if (version < 17) {
+    // v17 → v18: календарь событий; v18 → v19: события в промте состояния.
+    if (version < 19) {
+      result.state.prompt = DEFAULT_AGENTS.state.prompt;
+    }
+    // v19 → v20: время без жёстких категорий.
+    if (version < 20) {
       result.state.prompt = DEFAULT_AGENTS.state.prompt;
     }
 
@@ -439,7 +447,7 @@ export async function saveAgents(dir: string, incoming: Partial<AgentSet>): Prom
     result[id] = merge(current[id], incoming[id] ?? {});
   }
   await mkdir(dir, { recursive: true });
-  await writeFile(agentsPath(dir), `${JSON.stringify({ version: 18, agents: result }, null, 2)}\n`, 'utf8');
+  await writeFile(agentsPath(dir), `${JSON.stringify({ version: 20, agents: result }, null, 2)}\n`, 'utf8');
   return result;
 }
 

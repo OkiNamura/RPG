@@ -36,6 +36,17 @@ function secondsUntil(now: Clock, targetHour: number): number {
   return target - current;
 }
 
+/** Намерение ехать/лететь, а не «покупаю еду». */
+export function hasTravelIntent(text: string): boolean {
+  const value = text.toLowerCase().replace(/ё/g, 'е');
+  if (/(покупаю|куплю|беру|заказываю|готовлю|съел|ем)\s+(еду|пищу|обед|ужин)/.test(value)) return false;
+  return (
+    /(^|\s)(я\s+)?(еду|лечу|плыву)\s*(в|на|к|до|из|через|по|домой|обратно|\d|$)/.test(value) ||
+    /(^|\s)(отправляюсь|отправляюсь в путь|в путь)\b/.test(value) ||
+    /(^|\s)(еду|лечу|плыву)\s*$/.test(value)
+  );
+}
+
 /** Явно названная длительность в секундах; null, если её нет. */
 export function parseDurationSeconds(text: string): number | null {
   const value = text.toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ');
@@ -72,10 +83,11 @@ export function maxSceneAdvanceSeconds(
   now: Clock,
   floor = 0,
 ): number {
-  const spoken = `${input} ${prose}`.toLowerCase().replace(/ё/g, 'е');
-  const explicit = Math.max(parseDurationSeconds(input) ?? 0, parseDurationSeconds(prose) ?? 0);
+  void prose;
+  const spoken = input.toLowerCase().replace(/ё/g, 'е');
+  const explicit = parseDurationSeconds(input) ?? 0;
 
-  // Явно сказанное «4 часа» / «12 часов» / «до утра» важнее любых эвристик.
+  // Явно сказанное игроком «4 часа» / «12 часов» / «до утра» важнее эвристик.
   let explicitWithBuffer = explicit;
   if (!explicit) {
     if (/(до утра|к утру|до рассвета)/.test(spoken)) explicitWithBuffer = secondsUntil(now, 7);
@@ -85,9 +97,7 @@ export function maxSceneAdvanceSeconds(
   if (explicitWithBuffer > 0) return Math.max(floor, explicitWithBuffer + 15 * 60);
 
   const base = 30 * 60;
-  const travel = /(машин|авто|метро|трамвай|автобус|поезд|самолет|такси|дорог|путь|еду|ехать|переезд)/.test(spoken)
-    ? 60 * 60
-    : 0;
+  const travel = hasTravelIntent(spoken) ? 60 * 60 : 0;
   const sleep = /(сплю|спать|усну|ночую|ночлег|ночь)/.test(spoken) ? 8 * 3600 : 0;
   return Math.max(floor, base + travel + sleep + 15 * 60);
 }
