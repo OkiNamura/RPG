@@ -62,3 +62,8 @@ data/inspectors/
 
 # векторы памяти
 data/vectors/
+
+# необязательный SQLite-индекс
+data/search.db
+data/search.db-wal
+data/search.db-shm
