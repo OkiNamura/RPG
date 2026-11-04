@@ -4577,6 +4577,23 @@ const server = createServer(async (req, res) => {
           qa = await reviewImage({ buffer: result.buffer, mime: result.mime, scene: sceneText });
           if (qa?.cost) addUsage(session, 'vision', 0, 0, qa.cost);
         }
+        try {
+          await writeFile(
+            join(IMAGES_DIR, `${file}.json`),
+            `${JSON.stringify({
+              mode,
+              prompt,
+              seed: imageSeed,
+              references: sceneRefs.map((ref) => ({ name: ref.name, role: ref.role })),
+              qa,
+              contract: sceneContract,
+              createdAt: new Date().toISOString(),
+            }, null, 2)}\n`,
+            'utf8',
+          );
+        } catch (error) {
+          console.error('[image-meta]', (error as Error).message);
+        }
 
         if (mode === 'hero') {
           session.state.hero.card = url;
@@ -4769,7 +4786,9 @@ const server = createServer(async (req, res) => {
               ? 'image/jpeg'
               : file.endsWith('.webp')
                 ? 'image/webp'
-                : 'application/octet-stream',
+                : file.endsWith('.json')
+                  ? 'application/json; charset=utf-8'
+                  : 'application/octet-stream',
           'Cache-Control': 'public, max-age=86400',
         });
         return res.end(data);

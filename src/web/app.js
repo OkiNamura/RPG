@@ -3572,7 +3572,27 @@ function openImageModal(url, caption = '') {
   img.src = url;
   img.alt = caption || 'кадр';
   const close = el('button', 'btn small image-modal-close', '✕');
-  overlay.append(img, close);
+  const meta = el('div', 'image-meta hidden');
+  overlay.append(img, meta, close);
+  fetch(`${url}.json`)
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      if (!data) return;
+      meta.classList.remove('hidden');
+      meta.append(el('div', 'image-meta-line', `seed ${data.seed ?? '—'} · refs ${(data.references ?? []).length}`));
+      if (data.references?.length) {
+        meta.append(el('div', 'image-meta-line', data.references.map((ref) => `${ref.name} (${ref.role})`).join(' · ')));
+      }
+      if (data.qa) {
+        meta.append(el('div', 'image-meta-line', `QA ${Math.round((data.qa.score ?? 0) * 100)}% · ${data.qa.note ?? ''}`));
+      }
+      if (data.prompt) {
+        const details = el('details', 'image-prompt');
+        details.append(el('summary', '', 'промт'), el('pre', '', data.prompt));
+        meta.append(details);
+      }
+    })
+    .catch(() => {});
   close.addEventListener('click', () => overlay.remove());
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) overlay.remove();
@@ -4495,6 +4515,11 @@ function actorTile(actor, campaignId, isNpc = false) {
   }
   tile.append(el('span', 'actor-tile-name', actor.name));
   tile.append(el('span', 'actor-tile-role', actor.role || 'знакомый'));
+  const badges = [];
+  if (actor.status && actor.status !== 'alive') badges.push(actor.status === 'dead' ? 'мёртв' : 'ушёл');
+  if (actor.present === false) badges.push('не в сцене');
+  if (typeof actor.attitude === 'number') badges.push(`отн ${actor.attitude > 0 ? '+' : ''}${actor.attitude}`);
+  if (badges.length) tile.append(el('span', 'actor-tile-badges', badges.join(' · ')));
   const res = resourceLine(actor);
   if (res) {
     res.classList.add('actor-tile-res');

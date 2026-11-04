@@ -1,6 +1,6 @@
 ﻿/* Omika: минимальный service worker. API, логин и история не кэшируются. */
 /* global self, caches, fetch, URL */
-const CACHE = 'omika-shell-v23';
+const CACHE = 'omika-shell-v25';
 const STATIC = new Set([
   '/app.js',
   '/style.css',
