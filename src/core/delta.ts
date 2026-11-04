@@ -463,6 +463,7 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
   const changes: string[] = [];
   // Старые кампании могли не иметь лор-книги.
   state.lore ??= [];
+  state.events ??= [];
   state.reputation ??= { public: 0, label: 'нейтрально', witnesses: [] };
   if (delta.heroHistory) state.hero.history = delta.heroHistory;
   if (delta.heroSkillAffinities) {

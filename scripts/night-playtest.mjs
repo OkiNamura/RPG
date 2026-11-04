@@ -71,19 +71,20 @@ const inputs = [
 const rows = [];
 let failed = 0;
 let checkpoint = null;
-const totalTurns = Math.min(inputs.length, Number(process.env.NIGHT_TURNS || inputs.length));
+const totalTurns = Number(process.env.NIGHT_TURNS || inputs.length);
 for (let index = 0; index < totalTurns; index += 1) {
+  const action = inputs[index % inputs.length];
   const started = Date.now();
   const result = await api(`/api/campaign/${ID}/turn`, {
     method: 'POST',
-    body: JSON.stringify({ input: inputs[index], clientTurnId: `night-${index}-${Date.now()}` }),
+    body: JSON.stringify({ input: action, clientTurnId: `night-${index}-${Date.now()}` }),
   });
   if (result.status === 200 && result.body?.clarification) {
     result.body = (
       await api(`/api/campaign/${ID}/turn`, {
         method: 'POST',
         body: JSON.stringify({
-          input: inputs[index],
+          input: action,
           clientTurnId: `night-${index}-${Date.now()}`,
           timeTarget: { kind: 'morning' },
         }),
