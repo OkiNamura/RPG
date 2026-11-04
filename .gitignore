@@ -81,3 +81,6 @@ data/traces.db-shm
 
 # отдельный Cloudflare-токен для Email Routing
 .cloudflare.email.env
+
+# временный Cloudflare-токен с расширенными правами
+.cloudflare.full.env
