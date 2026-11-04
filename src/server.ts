@@ -1342,6 +1342,23 @@ async function imageDataUrl(url: string): Promise<string | null> {
   }
 }
 
+/** Визуальный текст героя: только блок героя, без настроек, рейтингов и тона. */
+function heroVisualText(session: Session): string {
+  const raw = String(session.text.hero ?? '');
+  const heroSection = raw.split(/#\s*НАСТРОЙКИ/i)[0].replace(/^#.*$/gm, ' ').replace(/\s+/g, ' ').trim();
+  return heroSection.slice(0, 500);
+}
+
+function heroGenderLabel(session: Session, id: string): string | undefined {
+  const text = heroVisualText(session).toLowerCase();
+  if (/(девушка|женщина|девочка)/.test(text)) return 'девушка';
+  if (/(парень|мужчина|юноша)/.test(text)) return 'мужчина';
+  const explicit = String(metas.get(id)?.gender ?? session.state.hero.gender ?? '');
+  if (explicit === 'female') return 'девушка';
+  if (explicit === 'male') return 'мужчина';
+  return undefined;
+}
+
 /** Референсы для сцены: мастер-лист героя, присутствующие и место. */
 async function sceneReferences(session: Session): Promise<VisualReference[]> {
   const refs: VisualReference[] = [];
@@ -4257,11 +4274,7 @@ const server = createServer(async (req, res) => {
 
         if (mode === 'hero') {
           // Мастер-лист героя: описание берём из четвёртого блока кампании.
-          const heroBlockText = (session.text.hero || '')
-            .replace(/^#+\s*/gm, '')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .slice(0, 500);
+          const heroBlockText = heroVisualText(session);
           prompt = masterCardPrompt({
             style,
             name: session.state.hero.name,
@@ -4370,11 +4383,7 @@ const server = createServer(async (req, res) => {
             .filter(Boolean)
             .join('; ')
             .slice(0, 320);
-          const heroFallback = String(session.text.hero ?? '')
-            .replace(/#[^\n]*/g, '')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .slice(0, 260);
+          const heroFallback = heroVisualText(session).slice(0, 260);
           sceneRefs = await sceneReferences(session);
           references = sceneRefs.map((ref) => ref.url);
           const location = session.state.locations.find((item) => item.name === session.state.place);
@@ -4400,12 +4409,7 @@ const server = createServer(async (req, res) => {
             weather: contract.weather,
             hero: {
               ...contract.hero,
-              gender:
-                (metas.get(id)?.gender ?? session.state.hero.gender) === 'female'
-                  ? 'девушка'
-                  : (metas.get(id)?.gender ?? session.state.hero.gender) === 'male'
-                    ? 'мужчина'
-                    : undefined,
+              gender: heroGenderLabel(session, id),
             },
             characters: contract.cast.map((actor) => `${actor.name} — ${actor.description}`),
             action: contract.action,
