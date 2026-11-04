@@ -130,7 +130,9 @@ function markActive(name) {
   const links = $$('.nav a');
   links.forEach((a) => a.classList.toggle('active', a.dataset.route === name));
   const active = links.find((a) => a.dataset.route === name);
-  active?.scrollIntoView({ inline: 'center', block: 'nearest' });
+  if (typeof active?.scrollIntoView === 'function') {
+    active.scrollIntoView({ inline: 'center', block: 'nearest' });
+  }
 }
 
 const row = (key, value) => {
