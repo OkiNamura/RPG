@@ -4561,8 +4561,8 @@ const server = createServer(async (req, res) => {
         }));
 
         addUsage(session, 'artist', 0, 0, result.cost);
-        const file = await saveImage(id, mode, result.buffer, result.mime);
-        const url = `/api/images/${file}`;
+        let file = await saveImage(id, mode, result.buffer, result.mime);
+        let url = `/api/images/${file}`;
         imageAbortControllers.delete(imageController);
 
         let qa: Awaited<ReturnType<typeof reviewImage>> = null;
@@ -4578,6 +4578,54 @@ const server = createServer(async (req, res) => {
           ].join('\n');
           qa = await reviewImage({ buffer: result.buffer, mime: result.mime, scene: sceneText });
           if (qa?.cost) addUsage(session, 'vision', 0, 0, qa.cost);
+        }
+
+        // Одна корректирующая попытка, только если QA реально включён.
+        if (
+          mode === 'scene' &&
+          qa &&
+          (qa.score < 0.55 || qa.text || qa.extra.length > 0)
+        ) {
+          const fixes = [
+            qa.text ? 'без текста и подписей' : '',
+            qa.extra.length ? `не изображать: ${qa.extra.join(', ')}` : '',
+            qa.missing.length ? `обязательно показать: ${qa.missing.join(', ')}` : '',
+          ].filter(Boolean).join('; ');
+          try {
+            const retry = await withImageQueue(() => generateImage({
+              apiKey,
+              baseUrl,
+              model,
+              prompt: `${prompt} Исправь кадр: ${fixes}.`,
+              references,
+              size: imageSize,
+              aspectRatio: imageAspect,
+              temperature: imageProfile.temperature,
+              seed: imageSeed + 1,
+              signal: imageController.signal,
+            }));
+            const retryQa = await reviewImage({
+              buffer: retry.buffer,
+              mime: retry.mime,
+              scene: [
+                `Место: ${sceneContract?.place ?? session.state.place}`,
+                `Герой: ${sceneContract?.hero.name ?? session.state.hero.name}`,
+                `В кадре: ${sceneContract?.cast.map((actor) => actor.name).join(', ') || 'только герой'}`,
+                `Действие: ${sceneContract?.action ?? ''}`,
+                `Не должно быть: ${sceneContract?.forbidden.join(', ') ?? ''}`,
+              ].join('\n'),
+            });
+            if ((retryQa?.score ?? 0) > qa.score) {
+              result = retry;
+              qa = retryQa;
+              file = await saveImage(id, `${mode}-retry`, retry.buffer, retry.mime);
+              url = `/api/images/${file}`;
+              addUsage(session, 'artist', 0, 0, retry.cost);
+              if (retryQa?.cost) addUsage(session, 'vision', 0, 0, retryQa.cost);
+            }
+          } catch (error) {
+            console.error('[image-retry]', (error as Error).message);
+          }
         }
         try {
           await writeFile(
