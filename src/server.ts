@@ -452,6 +452,65 @@ function maxAdvanceSeconds(input: string, prose: string): number {
   return 2 * 60 * 60;
 }
 
+/** Если проза открывает сцену в другом месте без перехода — это ошибка ведущего. */
+function sceneLocationMismatch(session: Session, prose: string, input: string): string | null {
+  const opening = prose.slice(0, 300).toLowerCase();
+  const spoken = input.toLowerCase();
+  const current = session.state.place.toLowerCase();
+  const stems = new Set<string>();
+  for (const location of session.state.locations ?? []) {
+    const stem = location.name.split(/[,—–]/)[0].trim().toLowerCase().split(/\s+/)[0];
+    if (stem.length >= 4) stems.add(stem);
+  }
+  for (const stem of ['школ', 'дом', 'квартир', 'улиц', 'двор', 'порт', 'рынок', 'библиотек', 'больниц', 'метро']) {
+    stems.add(stem);
+  }
+  for (const stem of stems) {
+    if (current.includes(stem) || spoken.includes(stem)) continue;
+    if (opening.includes(stem)) return stem;
+  }
+  return null;
+}
+
+async function repairSceneIfNeeded(session: Session, prose: string, input: string): Promise<string> {
+  const mismatch = sceneLocationMismatch(session, prose, input);
+  if (!mismatch) return prose;
+  const prompt =
+    `Сцена должна происходить здесь: ${session.state.place}. Время: ${timeText({
+      day: session.state.time.day,
+      hour: session.state.time.hour,
+      minute: session.state.time.minute ?? 0,
+      second: session.state.time.second ?? 0,
+    })}.\n` +
+    `Игрок: ${input}\n\n` +
+    'Текст ниже ошибочно начинается в другом месте. Перепиши его так, чтобы все события и реплики остались, ' +
+    'но действие происходило в указанном месте. Не добавляй новых событий и не упоминай другие локации как текущие. ' +
+    'Верни только готовый текст сцены.\n\n' +
+    prose.slice(0, 5000);
+  try {
+    const reply = await session.model.complete(
+      [
+        { role: 'system', content: 'Ты редактор сцены. Исправляешь только место действия, сохраняя смысл и реплики.' },
+        { role: 'user', content: prompt },
+      ],
+      1400,
+    );
+    const repaired = reply.text.trim();
+    if (repaired.length < 40) return prose;
+    addUsage(
+      session,
+      'gm-repair',
+      reply.inputTokens ?? 0,
+      reply.outputTokens,
+      costOf(reply.inputTokens ?? 0, reply.outputTokens),
+    );
+    return repaired;
+  } catch (error) {
+    console.error('[scene-repair]', (error as Error).message);
+    return prose;
+  }
+}
+
 function numberChange(label: string, before: string, after: string, delta?: string, reason?: string): NumberChange {
   return { label, before, after, ...(delta ? { delta } : {}), ...(reason ? { reason } : {}) };
 }
@@ -1305,6 +1364,14 @@ function reviveIfAllowed(id: string, session: Session): void {
   clientTurnId?: string,
   beforeNumbers?: NumericSnapshot,
 ): Promise<Record<string, unknown>> {
+  const repairedProse = await repairSceneIfNeeded(session, prose, input);
+  if (repairedProse !== prose) {
+    const gmLog = [...session.state.log]
+      .reverse()
+      .find((entry) => entry.role === 'gm' && entry.turn === stats.turn);
+    if (gmLog) gmLog.text = repairedProse;
+    prose = repairedProse;
+  }
   const [stateResult, summaryResult] = await Promise.allSettled([
     runStateAgent(session, prose),
     session.state.turn - (session.lastSummaryTurn ?? 0) >= 3
