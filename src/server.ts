@@ -72,7 +72,8 @@ import { rebuildCardsIndex, rebuildSearchIndex, searchIndex, searchTraces, syncC
 import { loadSnapshots, removeSnapshots, saveSnapshots, syncSnapshots } from './core/snapshot-db.ts';
 import { backupDatabase, ensureDatabase } from './core/db-maintenance.ts';
 import { maxSceneAdvanceSeconds } from './core/time-budget.ts';
-import { buildSceneContract, referenceLegend, sceneSeed, type VisualReference } from './core/visuals.ts';
+import { buildSceneContract, referenceLegend, sceneSeed, type SceneContract, type VisualReference } from './core/visuals.ts';
+import { reviewImage } from './core/vision.ts';
 
 interface ArtTagField {
   name: string;
@@ -1357,7 +1358,7 @@ async function sceneReferences(session: Session): Promise<VisualReference[]> {
   const hero = session.state.hero;
   await add(hero.name, hero.refs?.main || hero.card, 'hero');
 
-  for (const actor of session.state.party) {
+  for (const actor of session.state.party.filter((npc) => npc.present !== false && npc.status === 'alive')) {
     await add(actor.name, actor.refs?.main || actor.card || actor.portrait, 'party');
   }
   for (const actor of session.state.npcs.filter((npc) => npc.present !== false && npc.status === 'alive')) {
@@ -4251,6 +4252,7 @@ const server = createServer(async (req, res) => {
         let locationName = '';
         let references: string[] = [];
         let sceneRefs: VisualReference[] = [];
+        let sceneContract: SceneContract | null = null;
         let sceneTurn = session.state.turn;
 
         if (mode === 'hero') {
@@ -4389,6 +4391,7 @@ const server = createServer(async (req, res) => {
             action: (lastGm?.text ?? '').replace(/\s+/g, ' ').slice(0, 900),
             references: sceneRefs,
           });
+          sceneContract = contract;
           prompt = scenePrompt({
             style,
             place: contract.place,
@@ -4397,7 +4400,12 @@ const server = createServer(async (req, res) => {
             weather: contract.weather,
             hero: {
               ...contract.hero,
-              gender: metas.get(id)?.gender === 'female' ? 'девушка' : 'мужчина',
+              gender:
+                (metas.get(id)?.gender ?? session.state.hero.gender) === 'female'
+                  ? 'девушка'
+                  : (metas.get(id)?.gender ?? session.state.hero.gender) === 'male'
+                    ? 'мужчина'
+                    : undefined,
             },
             characters: contract.cast.map((actor) => `${actor.name} — ${actor.description}`),
             action: contract.action,
@@ -4476,7 +4484,6 @@ const server = createServer(async (req, res) => {
               if (heroRef) {
                 references = [heroRef, ...references];
                 sceneRefs = [{ name: session.state.hero.name, url: heroRef, role: 'hero' }, ...sceneRefs];
-                prompt += ` ${referenceLegend(sceneRefs)}`;
               }
             } catch (err) {
               console.error('[hero-reference]', (err as Error).message);
@@ -4485,6 +4492,10 @@ const server = createServer(async (req, res) => {
         }
 
         // Seedream может быть недоступен у провайдера — тогда честно откатываемся.
+        if (mode === 'scene' && sceneContract && !prompt.includes('Reference 1:')) {
+          const legend = referenceLegend(sceneRefs);
+          if (legend) prompt += ` ${legend}`;
+        }
         // Локальный Qwen не откатываем в облако: ошибка должна быть видна.
         let usedModel = model;
         const imageSeed = sceneSeed([id, mode, actorName, locationName, sceneTurn, prompt.slice(0, 160)]);
@@ -4520,6 +4531,21 @@ const server = createServer(async (req, res) => {
         const file = await saveImage(id, mode, result.buffer, result.mime);
         const url = `/api/images/${file}`;
         imageAbortControllers.delete(imageController);
+
+        let qa: Awaited<ReturnType<typeof reviewImage>> = null;
+        if (mode === 'scene' && sceneContract) {
+          const sceneText = [
+            `Место: ${sceneContract.place}`,
+            `Время: ${sceneContract.time}`,
+            `Погода: ${sceneContract.weather}`,
+            `Герой: ${sceneContract.hero.name}`,
+            `В кадре: ${sceneContract.cast.map((actor) => actor.name).join(', ') || 'только герой'}`,
+            `Действие: ${sceneContract.action}`,
+            `Не должно быть: ${sceneContract.forbidden.join(', ')}`,
+          ].join('\n');
+          qa = await reviewImage({ buffer: result.buffer, mime: result.mime, scene: sceneText });
+          if (qa?.cost) addUsage(session, 'vision', 0, 0, qa.cost);
+        }
 
         if (mode === 'hero') {
           session.state.hero.card = url;
@@ -4559,6 +4585,8 @@ const server = createServer(async (req, res) => {
           fallback: usedModel !== model,
           prompt,
           references: references.length,
+          seed: imageSeed,
+          qa,
         });
       }
 
