@@ -67,3 +67,11 @@ data/vectors/
 data/search.db
 data/search.db-wal
 data/search.db-shm
+data/snapshots.db
+data/snapshots.db-wal
+data/snapshots.db-shm
+
+# SQLite-индекс трейсов
+data/traces.db
+data/traces.db-wal
+data/traces.db-shm

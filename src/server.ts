@@ -9,7 +9,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, copyFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, extname, join, normalize, sep } from 'node:path';
 import { characterSheetPrompt, generateImage, itemCardPrompt, locationPrompt, masterCardPrompt, portraitPrompt, scenePrompt } from './core/images.ts';
 import { renderMap } from './core/map.ts';
@@ -69,6 +69,7 @@ import { applySocialReaction } from './core/social.ts';
 import { embedTexts } from './core/embeddings.ts';
 import { hashVector, retrieve, retrieveVector, type VectorEntry } from './core/vectors.ts';
 import { rebuildSearchIndex, searchIndex, syncCampaignIndex, removeCampaignIndex } from './core/search.ts';
+import { loadSnapshots, removeSnapshots, saveSnapshots } from './core/snapshot-db.ts';
 
 interface ArtTagField {
   name: string;
@@ -171,6 +172,7 @@ const FEEDBACK_DIR = join(import.meta.dirname, '..', 'data', 'feedback');
 const INSPECTOR_DIR = join(import.meta.dirname, '..', 'data', 'inspectors');
 const VECTOR_DIR = join(import.meta.dirname, '..', 'data', 'vectors');
 const SEARCH_DB = join(import.meta.dirname, '..', 'data', 'search.db');
+const SNAPSHOT_DB = join(import.meta.dirname, '..', 'data', 'snapshots.db');
 const BRANCH_DIR = join(import.meta.dirname, '..', 'data', 'branches');
 const TRACES_DIR = join(import.meta.dirname, '..', 'data', 'traces');
 
@@ -214,6 +216,7 @@ await keyStore.load();
 const sessions = new Map<string, Session>();
 /** Снимки по ходам: перегенерация, редактирование, варианты. */
 const snapshots = new Map<string, TurnSnapshot[]>();
+const snapshotsDirty = new Set<string>();
 const initials = new Map<string, TurnVariant>();
 const metas = new Map<string, CampaignMeta>();
 let prices = { input: 0.0444, output: 0.1333, cachedInput: 0.0014 };
@@ -1607,8 +1610,11 @@ async function getSession(id: string): Promise<Session | null> {
   session.expectDelta = !gameAgents.state.enabled;
   session.antiSlop = features.antiSlop;
   if (saved.meta) metas.set(id, saved.meta);
-  if (saved.turns) {
-    // Старые снимки хранили полный лог и могли копиться сотнями — чистим и режем.
+  const fromDb = loadSnapshots(SNAPSHOT_DB, id);
+  if (fromDb.length) {
+    snapshots.set(id, fromDb.slice(-24));
+  } else if (saved.turns?.length) {
+    // Одноразовая миграция старого JSON-снимка в SQLite.
     const keptTurns = saved.turns.slice(-24);
     if (keptTurns.length !== saved.turns.length) cleanedSnapshots = true;
     for (const snap of keptTurns) {
@@ -1620,6 +1626,16 @@ async function getSession(id: string): Promise<Session | null> {
       }
     }
     snapshots.set(id, keptTurns);
+    try {
+      await mkdir(join(import.meta.dirname, '..', 'data', 'backups'), { recursive: true });
+      await copyFile(
+        join(DATA_DIR, `${id}.json`),
+        join(import.meta.dirname, '..', 'data', 'backups', `${id}-before-snapshots-db.json`),
+      );
+      saveSnapshots(SNAPSHOT_DB, id, keptTurns);
+    } catch (error) {
+      console.error('[snapshots] migrate:', (error as Error).message);
+    }
   }
   if (saved.initial) initials.set(id, saved.initial);
   sessions.set(id, session);
@@ -1646,7 +1662,19 @@ async function persist(id: string, session: Session): Promise<void> {
       /* инспектор не критичен для хода */
     }
   }
-  // Большое ядро в файл кампании не кладём — оно подставляется при загрузке.
+  // Снимки — в SQLite. Если база недоступна, оставляем их в JSON как fallback.
+  let snapshotsPersisted = false;
+  if (snapshotsDirty.has(id)) {
+    try {
+      saveSnapshots(SNAPSHOT_DB, id, snapshots.get(id) ?? []);
+      snapshotsDirty.delete(id);
+      snapshotsPersisted = true;
+    } catch (error) {
+      console.error('[snapshots] save:', (error as Error).message);
+    }
+  } else {
+    snapshotsPersisted = true;
+  }
   const core = session.text.core.length > 50000 ? '' : session.text.core;
   await saveCampaign(DATA_DIR, id, {
     text: { ...session.text, core },
@@ -1659,7 +1687,7 @@ async function persist(id: string, session: Session): Promise<void> {
     usage: session.usage,
     totals: session.totals,
     initial: initials.get(id),
-    turns: snapshots.get(id) ?? [],
+    ...(snapshotsPersisted ? {} : { turns: snapshots.get(id) ?? [] }),
     agents: session.agents as unknown as Record<string, unknown>,
     meta: metas.get(id),
   });
@@ -1730,6 +1758,7 @@ function saveSnapshot(
   list.sort((a, b) => a.turn - b.turn);
   // Держим последние 24 хода: снимки по 20–50 КБ иначе раздувают файл.
   snapshots.set(id, list.slice(-24));
+  snapshotsDirty.add(id);
 }
 
 interface CampaignRow {
@@ -2990,6 +3019,7 @@ const server = createServer(async (req, res) => {
       // Точка полного отката — состояние до первого хода.
       initials.set(id, { prose: '', state: structuredClone(state), summary: '' });
       snapshots.set(id, []);
+      snapshotsDirty.add(id);
       await persist(id, session);
       return sendJson(res, { id, state, history: [], totals: session.totals, meta });
     }
@@ -3086,6 +3116,7 @@ const server = createServer(async (req, res) => {
         });
         try {
           removeCampaignIndex(SEARCH_DB, id);
+          removeSnapshots(SNAPSHOT_DB, id);
         } catch (error) {
           console.error('[search-index] remove:', (error as Error).message);
         }
@@ -3766,6 +3797,7 @@ const server = createServer(async (req, res) => {
         session.memory = '';
         session.conspect.clear();
         snapshots.set(id, []);
+        snapshotsDirty.add(id);
         await persist(id, session);
         return sendJson(res, { ok: true, state: session.state });
       }
