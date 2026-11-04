@@ -1515,6 +1515,10 @@ function reviveIfAllowed(id: string, session: Session): void {
       session.state.time = addTime(beforeNumbers.time, floor);
       reasons.time = 'дорога';
       agentChanges.push(`время: не меньше ${Math.round(floor / 60)} мин (дорога)`);
+    } else if (elapsed < 0) {
+      session.state.time = beforeNumbers.time;
+      reasons.time = 'время не откатывается';
+      agentChanges.push('время: откат назад отменён');
     } else if (elapsed > cap) {
       session.state.time = addTime(beforeNumbers.time, cap);
       reasons.time = 'слишком большой скачок';
