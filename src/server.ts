@@ -3001,7 +3001,8 @@ const server = createServer(async (req, res) => {
           summary: past?.summary ?? session.summary ?? '',
           memory: session.memory ?? '',
           lastSummaryTurn: past?.lastSummaryTurn ?? session.lastSummaryTurn ?? 0,
-          conspect: session.conspect.toJSON(),
+          // У прошлого снимка нет архива арок: не тянем будущий конспект.
+          conspect: past ? [] : session.conspect.toJSON(),
         };
         branches.push(branch);
         await saveBranches(campaignId, branches.slice(-40));

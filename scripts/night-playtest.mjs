@@ -106,13 +106,14 @@ const file = (await api(`/api/campaign/${ID}`)).body;
 let restored = null;
 if (checkpoint) {
   const loaded = await api(`/api/campaign/${ID}/branches/${checkpoint.id}/load`, { method: 'POST' });
+  const afterLoad = await api(`/api/campaign/${ID}`);
   restored = {
     status: loaded.status,
     turn: loaded.body?.state?.turn,
     log: loaded.body?.state?.log?.length,
     reputation: loaded.body?.state?.reputation,
     currencies: loaded.body?.state?.currencies,
-    summary: loaded.body?.state?.summary,
+    summary: afterLoad.body?.summary,
   };
   console.log('restored checkpoint', restored);
 }
