@@ -179,6 +179,8 @@ const SEARCH_DB = join(import.meta.dirname, '..', 'data', 'search.db');
 const SNAPSHOT_DB = join(import.meta.dirname, '..', 'data', 'snapshots.db');
 const TRACE_DB = join(import.meta.dirname, '..', 'data', 'traces.db');
 const BACKUP_DIR = join(import.meta.dirname, '..', 'data', 'backups');
+/** Вопрос о времени выключен по умолчанию: «жду ответа» — это сцена, не скачок. */
+const TIME_CLARIFICATION_ENABLED = process.env.OMIKA_TIME_CLARIFICATION === '1';
 const BRANCH_DIR = join(import.meta.dirname, '..', 'data', 'branches');
 const TRACES_DIR = join(import.meta.dirname, '..', 'data', 'traces');
 
@@ -473,7 +475,9 @@ function timeClarification(input: string, session: Session): TimeClarification |
   if (!eventWord && /(\d+(?:[.,]\d+)?)\s*(час|мин|дн|сут)/.test(text)) return null;
   if (!eventWord && /(до\s+(утра|вечера|рассвета|заката|прибытия|конца|следующего)|пока\s+не|ровно)/.test(text)) return null;
   const sleep = /(сплю|спать|усну|ночую|ложусь спать|засыпаю)/.test(text);
-  const wait = /(жду|ожидаю|дожидаюсь)/.test(text);
+  // «Жду ответа», «жду звонок» — это сцена. Долгим скачком считаем только
+  // явное ожидание с целью: «жду до утра», «жду три часа».
+  const wait = /(жду|ожидаю|дожидаюсь)\s+(до|пока\s+не|\d)/.test(text);
   const travel = hasTravelIntent(text);
   if (!sleep && !wait && !travel && !eventWord) return null;
   // «Еду в Москву» уже имеет цель-место; вопрос не нужен.
@@ -4703,7 +4707,7 @@ const server = createServer(async (req, res) => {
         if (!input) return sendJson(res, { error: 'пустой ход' }, 400);
         if (input.length > 1200) return sendJson(res, { error: 'ход слишком длинный' }, 400);
         let timeTarget = normalizeTimeTarget(body.timeTarget);
-        const clarification = timeClarification(input, session);
+        const clarification = TIME_CLARIFICATION_ENABLED ? timeClarification(input, session) : null;
         if (clarification && !timeTarget) {
           return sendJson(res, { clarification: { ...clarification, input } });
         }

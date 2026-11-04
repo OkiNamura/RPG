@@ -791,6 +791,7 @@ async function viewContainer(view, id) {
     if (place.card) {
       const img = el('img', 'item-card');
       img.src = place.card;
+      makeImageClickable(img, place.name);
       box.append(img);
     }
     box.append(miniBtn('＋', 'сохранить локацию в библиотеку', () => saveToLibrary(id, 'location', place.name)));
@@ -3611,6 +3612,16 @@ document.addEventListener('click', (event) => {
   if (img) openImageModal(img.src, img.alt);
 });
 
+function makeImageClickable(img, caption = '') {
+  img.classList.add('clickable-image');
+  img.title = caption || 'открыть кадр';
+  img.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openImageModal(img.src, caption || img.alt);
+  });
+  return img;
+}
+
 function openMapModal(title, text) {
   const overlay = el('div', 'map-modal');
   const head = el('div', 'map-modal-head');
@@ -4160,6 +4171,7 @@ function personCard(actor, campaignId, isNpc = false) {
     const img = el('img', 'person-avatar');
     img.src = image;
     img.alt = actor.name;
+    makeImageClickable(img, actor.name);
     head.append(img);
   } else {
     head.append(el('div', 'person-avatar person-initial', (actor.name || '?').slice(0, 1)));
@@ -4414,6 +4426,7 @@ function heroCard(hero, money, campaignId, currencies = []) {
     const img = el('img', 'person-avatar');
     img.src = hero.card;
     img.alt = hero.name;
+    makeImageClickable(img, hero.name);
     head.append(img);
   } else {
     head.append(el('div', 'person-avatar person-initial', (hero.name || '?').slice(0, 1)));
@@ -4509,6 +4522,7 @@ function actorTile(actor, campaignId, isNpc = false) {
     img.src = image;
     img.alt = actor.name;
     img.loading = 'lazy';
+    makeImageClickable(img, actor.name);
     tile.append(img);
   } else {
     tile.append(el('div', 'actor-tile-img actor-tile-initial', (actor.name || '?').slice(0, 1)));
@@ -4551,6 +4565,7 @@ function openActorModal(actor, campaignId, isNpc = false) {
     const img = el('img', 'actor-sheet-img');
     img.src = image;
     img.alt = actor.name;
+    makeImageClickable(img, actor.name);
     media.append(img);
   } else {
     media.append(el('div', 'actor-sheet-img actor-tile-initial', (actor.name || '?').slice(0, 1)));
@@ -5002,6 +5017,7 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
         if (i.card) {
           const img = el('img', 'item-card');
           img.src = i.card;
+          makeImageClickable(img, i.name);
           li.append(img);
         } else {
           li.append(miniBtn('◈', 'карточка предмета', async () => {
@@ -5012,6 +5028,7 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
             i.card = res.url;
             const img = el('img', 'item-card');
             img.src = res.url;
+            makeImageClickable(img, i.name);
             li.append(img);
           }));
         }
@@ -5147,6 +5164,7 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
       const img = el('img', 'item-card');
       img.src = ill.url;
       img.title = ill.caption ?? '';
+      makeImageClickable(img, ill.caption ?? '');
       wrap.append(img);
     }
     frag.append(section('Кадры', [wrap]));
@@ -5652,7 +5670,18 @@ async function viewPlay(view, id) {
     });
   });
 
-  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn, contextBtn, branchesBtn, undoBtn, cancelImagesBtn, queueBtn, focusBtn);
+  const eventsBtn = menuItem('🗓', 'События');
+  eventsBtn.title = 'ближайшие события и продолжение времени';
+  eventsBtn.addEventListener('click', () => {
+    closeMenu();
+    document.body.classList.add('panel-open');
+    window.setTimeout(() => {
+      const heading = [...panel.querySelectorAll('*')].find((node) => node.textContent?.trim() === 'События');
+      heading?.scrollIntoView({ block: 'nearest' });
+    }, 80);
+  });
+
+  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn, contextBtn, branchesBtn, undoBtn, cancelImagesBtn, queueBtn, focusBtn, eventsBtn);
   const clockBtn = el('button', 'btn small clock-btn');
   clockBtn.type = 'button';
   clockBtn.title = 'подробнее о времени мира';

@@ -4387,3 +4387,4 @@ select {
 .image-meta { position: absolute; left: 18px; right: 18px; bottom: 14px; max-height: 34vh; overflow: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(10,10,12,0.86); font-size: 11px; color: var(--muted); }
 .image-meta-line { margin-bottom: 4px; }
 .image-prompt pre { max-height: 160px; overflow: auto; white-space: pre-wrap; font-size: 10px; }
+.clickable-image { cursor: zoom-in; }
