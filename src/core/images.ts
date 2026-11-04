@@ -28,6 +28,7 @@ interface ImageOptions {
   size?: string;
   aspectRatio?: string;
   temperature?: number;
+  seed?: number;
   timeoutMs?: number;
   /** отмена текущей генерации */
   signal?: AbortSignal;
@@ -105,6 +106,7 @@ async function generateQwenImage(options: ImageOptions): Promise<ImageResult> {
             height: height || 768,
             steps: 9,
             guidance: 0,
+            seed: options.seed,
             reference_images: options.references.slice(0, 9),
             reference_resolution: 512,
           }),
@@ -269,6 +271,8 @@ export function scenePrompt(params: {
   action: string;
   location?: string;
   hero?: { name: string; gender?: string; description?: string };
+  references?: string;
+  forbidden?: string[];
 }): string {
   const parts = [
     params.style,
@@ -282,7 +286,11 @@ export function scenePrompt(params: {
     params.location ? `Детали места: ${params.location}.` : '',
     `Время: ${params.time}. Погода: ${params.weather}.`,
     params.characters.length ? `Кто ещё в кадре: ${params.characters.join(' | ')}.` : '',
+    params.references ? params.references : '',
     params.action ? `Что происходит (главное): ${params.action}.` : '',
+    params.forbidden?.length
+      ? `Не изображать в этой сцене: ${params.forbidden.join(', ')}. Никаких лишних людей.`
+      : 'Никаких лишних людей, которых нет в списке участников.',
     'Позы и выражения лиц соответствуют действию; одежда и вещи — из описания.',
     'Композиция: широкий кинематографичный кадр, глубина, свет по времени суток.',
     'Без панелей, реплик, подписей, заголовков и водяных знаков поверх изображения. Вывески — только мелкая деталь окружения, без крупного читаемого текста.',

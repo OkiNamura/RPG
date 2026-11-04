@@ -72,6 +72,7 @@ import { rebuildCardsIndex, rebuildSearchIndex, searchIndex, searchTraces, syncC
 import { loadSnapshots, removeSnapshots, saveSnapshots, syncSnapshots } from './core/snapshot-db.ts';
 import { backupDatabase, ensureDatabase } from './core/db-maintenance.ts';
 import { maxSceneAdvanceSeconds } from './core/time-budget.ts';
+import { buildSceneContract, referenceLegend, sceneSeed, type VisualReference } from './core/visuals.ts';
 
 interface ArtTagField {
   name: string;
@@ -1340,24 +1341,33 @@ async function imageDataUrl(url: string): Promise<string | null> {
   }
 }
 
-/** Референсы для сцены: мастер-лист героя и спутников, максимум три. */
-async function sceneReferences(session: Session): Promise<string[]> {
-  const refs: string[] = [];
+/** Референсы для сцены: мастер-лист героя, присутствующие и место. */
+async function sceneReferences(session: Session): Promise<VisualReference[]> {
+  const refs: VisualReference[] = [];
+  const seen = new Set<string>();
 
-  const heroRefUrl = session.state.hero.refs?.main || session.state.hero.card;
-  if (heroRefUrl) {
-    const heroRef = await imageDataUrl(heroRefUrl);
-    if (heroRef) refs.push(heroRef);
-  }
-
-  for (const actor of [...session.state.party, ...session.state.npcs.filter((n) => n.present !== false)]) {
-    const url = actor.refs?.main || actor.card || actor.portrait;
-    if (!url) continue;
+  const add = async (name: string, url: string | undefined, role: VisualReference['role']) => {
+    if (!url || seen.has(url)) return;
     const data = await imageDataUrl(url);
-    if (data) refs.push(data);
-    if (refs.length >= 3) break;
+    if (!data) return;
+    seen.add(url);
+    refs.push({ name, url: data, role });
+  };
+
+  const hero = session.state.hero;
+  await add(hero.name, hero.refs?.main || hero.card, 'hero');
+
+  for (const actor of session.state.party) {
+    await add(actor.name, actor.refs?.main || actor.card || actor.portrait, 'party');
   }
-  return refs;
+  for (const actor of session.state.npcs.filter((npc) => npc.present !== false && npc.status === 'alive')) {
+    await add(actor.name, actor.refs?.main || actor.card || actor.portrait, 'npc');
+  }
+
+  const location = session.state.locations.find((item) => item.name === session.state.place);
+  await add(session.state.place, location?.card, 'location');
+
+  return refs.slice(0, 9);
 }
 
 /** Модель сборки блоков: мастер промтов, если включён, иначе обычная. */
@@ -4240,6 +4250,7 @@ const server = createServer(async (req, res) => {
         let itemName = '';
         let locationName = '';
         let references: string[] = [];
+        let sceneRefs: VisualReference[] = [];
         let sceneTurn = session.state.turn;
 
         if (mode === 'hero') {
@@ -4362,25 +4373,37 @@ const server = createServer(async (req, res) => {
             .replace(/\s+/g, ' ')
             .trim()
             .slice(0, 260);
-          prompt = scenePrompt({
-            style,
+          sceneRefs = await sceneReferences(session);
+          references = sceneRefs.map((ref) => ref.url);
+          const location = session.state.locations.find((item) => item.name === session.state.place);
+          const contract = buildSceneContract({
             place: session.state.place,
-            location:
-              session.state.locations.find((location) => location.name === session.state.place)?.note ?? '',
-            time: `день ${session.state.time.day}, ${String(session.state.time.hour).padStart(2, '0')}:00`,
+            location: [location?.note, location?.description].filter(Boolean).join('; '),
+            time: `день ${session.state.time.day}, ${String(session.state.time.hour).padStart(2, '0')}:${String(session.state.time.minute ?? 0).padStart(2, '0')}`,
             weather: session.state.weather,
             hero: {
               name: hero.name,
-              gender: metas.get(id)?.gender === 'female' ? 'девушка' : 'мужчина',
               description: heroDescription || heroFallback,
             },
-            characters: present.map(
-              (actor) =>
-                `${actor.name} — ${actor.role}; ${actor.appearance ?? 'без описания внешности'}; одет: ${actor.clothes ?? 'не описано'}`,
-            ),
+            actors: present,
             action: (lastGm?.text ?? '').replace(/\s+/g, ' ').slice(0, 900),
+            references: sceneRefs,
           });
-          references = await sceneReferences(session);
+          prompt = scenePrompt({
+            style,
+            place: contract.place,
+            location: contract.location,
+            time: contract.time,
+            weather: contract.weather,
+            hero: {
+              ...contract.hero,
+              gender: metas.get(id)?.gender === 'female' ? 'девушка' : 'мужчина',
+            },
+            characters: contract.cast.map((actor) => `${actor.name} — ${actor.description}`),
+            action: contract.action,
+            references: referenceLegend(contract.references),
+            forbidden: contract.forbidden,
+          });
         }
 
         // Ключ и база — у агента-художника; без своего ключа берём глобальный.
@@ -4442,6 +4465,7 @@ const server = createServer(async (req, res) => {
               const heroResult = await withImageQueue(() => generateImage({
                 apiKey, baseUrl, model, prompt: heroPrompt, references: [], size: imageSize,
                 aspectRatio: imageAspect, temperature: imageProfile.temperature,
+                seed: sceneSeed([id, 'hero-sheet', session.state.hero.name]),
                 signal: imageController.signal,
               }));
               const heroFile = await saveImage(id, 'sheet', heroResult.buffer, heroResult.mime);
@@ -4449,7 +4473,11 @@ const server = createServer(async (req, res) => {
               session.state.hero.card = heroUrl;
               session.state.hero.refs = { ...(session.state.hero.refs ?? {}), main: heroUrl };
               const heroRef = await imageDataUrl(heroUrl);
-              if (heroRef) references = [heroRef, ...references];
+              if (heroRef) {
+                references = [heroRef, ...references];
+                sceneRefs = [{ name: session.state.hero.name, url: heroRef, role: 'hero' }, ...sceneRefs];
+                prompt += ` ${referenceLegend(sceneRefs)}`;
+              }
             } catch (err) {
               console.error('[hero-reference]', (err as Error).message);
             }
@@ -4459,6 +4487,7 @@ const server = createServer(async (req, res) => {
         // Seedream может быть недоступен у провайдера — тогда честно откатываемся.
         // Локальный Qwen не откатываем в облако: ошибка должна быть видна.
         let usedModel = model;
+        const imageSeed = sceneSeed([id, mode, actorName, locationName, sceneTurn, prompt.slice(0, 160)]);
         let result = await withImageQueue(() => generateImage({
           apiKey,
           baseUrl,
@@ -4468,6 +4497,7 @@ const server = createServer(async (req, res) => {
           size: imageSize,
           aspectRatio: imageAspect,
           temperature: imageProfile.temperature,
+          seed: imageSeed,
           signal: imageController.signal,
         }).catch(async (err: Error) => {
           if (localImage || model === IMAGE_FALLBACK_MODEL) throw err;
@@ -4481,6 +4511,7 @@ const server = createServer(async (req, res) => {
             references,
             aspectRatio: imageAspect,
             temperature: imageProfile.temperature,
+            seed: imageSeed,
             signal: imageController.signal,
           });
         }));
