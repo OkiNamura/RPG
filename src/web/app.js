@@ -127,7 +127,10 @@ function currentCampaignId() {
 }
 
 function markActive(name) {
-  $$('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.route === name));
+  const links = $$('.nav a');
+  links.forEach((a) => a.classList.toggle('active', a.dataset.route === name));
+  const active = links.find((a) => a.dataset.route === name);
+  active?.scrollIntoView({ inline: 'center', block: 'nearest' });
 }
 
 const row = (key, value) => {
