@@ -78,3 +78,6 @@ data/traces.db-shm
 
 # Timeweb Cloud API token
 .timeweb.cloud.env
+
+# отдельный Cloudflare-токен для Email Routing
+.cloudflare.email.env
