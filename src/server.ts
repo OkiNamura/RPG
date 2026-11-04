@@ -467,29 +467,47 @@ function normalizeTimeTarget(value: unknown): TimeTarget | null {
   return { kind: kind as TimeTargetKind, ...(kind === 'hours' ? { hours } : {}) };
 }
 
-function timeClarification(input: string): TimeClarification | null {
+function timeClarification(input: string, session: Session): TimeClarification | null {
   const text = input.toLowerCase();
-  if (/(\d+(?:[.,]\d+)?)\s*(час|мин|дн|сут)/.test(text)) return null;
-  if (/(до\s+(утра|вечера|рассвета|заката|события|встречи|прибытия|конца|следующего)|пока\s+не|ровно)/.test(text)) return null;
+  const eventWord = /до\s+(ближайшего\s+)?(события|встречи)/.test(text);
+  if (!eventWord && /(\d+(?:[.,]\d+)?)\s*(час|мин|дн|сут)/.test(text)) return null;
+  if (!eventWord && /(до\s+(утра|вечера|рассвета|заката|прибытия|конца|следующего)|пока\s+не|ровно)/.test(text)) return null;
   const sleep = /(сплю|спать|усну|ночую|ложусь спать|засыпаю)/.test(text);
   const wait = /(жду|ожидаю|дожидаюсь)/.test(text);
   const travel = hasTravelIntent(text);
-  if (!sleep && !wait && !travel) return null;
+  if (!sleep && !wait && !travel && !eventWord) return null;
   // «Еду в Москву» уже имеет цель-место; вопрос не нужен.
   if (travel && /(в|до|на)\s+[а-яё]/i.test(text)) return null;
 
   const options: TimeClarification['options'] = [];
   if (travel) options.push({ id: 'arrival', label: 'До прибытия', target: { kind: 'arrival' } });
+  if (nextStateEvent(session)) {
+    options.push({ id: 'event', label: 'До ближайшего события', target: { kind: 'event' } });
+  }
   options.push(
-    { id: 'event', label: 'До ближайшего события', target: { kind: 'event' } },
     { id: 'morning', label: 'До утра (07:00)', target: { kind: 'morning' } },
     { id: 'hours', label: 'Ровно N часов', target: { kind: 'hours' }, needsHours: true },
     { id: 'wake', label: 'Пока не разбудят', target: { kind: 'wake' } },
   );
   return {
-    question: sleep ? 'Сон до какого момента?' : wait ? 'Ожидание до какого момента?' : 'Поездка до какого момента?',
+    question: sleep ? 'Сон до какого момента?' : wait ? 'Ожидание до какого момента?' : 'До какого момента?',
     options,
   };
+}
+
+function nextStateEvent(session: Session): { event: NonNullable<GameState['events']>[number]; at: number } | null {
+  const current = timeSeconds({
+    day: session.state.time.day,
+    hour: session.state.time.hour,
+    minute: session.state.time.minute ?? 0,
+    second: session.state.time.second ?? 0,
+  });
+  const next = (session.state.events ?? [])
+    .filter((event) => event.status !== 'done' && event.status !== 'missed')
+    .map((event) => ({ event, at: timeSeconds({ ...event.at, second: 0 }) }))
+    .filter((item) => item.at > current)
+    .sort((a, b) => a.at - b.at)[0];
+  return next ?? null;
 }
 
 function timeTargetNote(target: TimeTarget | null): string {
@@ -504,12 +522,7 @@ function timeTargetNote(target: TimeTarget | null): string {
 function applyTimeTarget(session: Session, target: TimeTarget | null, before: NumericSnapshot): void {
   if (!target) return;
   if (target.kind === 'event') {
-    const current = timeSeconds(before.time);
-    const next = (session.state.events ?? [])
-      .filter((event) => event.status !== 'done' && event.status !== 'missed')
-      .map((event) => ({ event, at: timeSeconds({ ...event.at, second: 0 }) }))
-      .filter((item) => item.at > current)
-      .sort((a, b) => a.at - b.at)[0];
+    const next = nextStateEvent(session);
     if (next) session.state.time = next.event.at;
     return;
   }
@@ -4612,10 +4625,14 @@ const server = createServer(async (req, res) => {
         const input = String(body.input ?? '').trim();
         if (!input) return sendJson(res, { error: 'пустой ход' }, 400);
         if (input.length > 1200) return sendJson(res, { error: 'ход слишком длинный' }, 400);
-        const timeTarget = normalizeTimeTarget(body.timeTarget);
-        const clarification = timeClarification(input);
+        let timeTarget = normalizeTimeTarget(body.timeTarget);
+        const clarification = timeClarification(input, session);
         if (clarification && !timeTarget) {
           return sendJson(res, { clarification: { ...clarification, input } });
+        }
+        const eventWord = /до\s+(ближайшего\s+)?(события|встречи)/i.test(input);
+        if (!timeTarget && eventWord && nextStateEvent(session)) {
+          timeTarget = { kind: 'event' } as TimeTarget;
         }
         const clientTurnId = String(body.clientTurnId ?? '').trim().slice(0, 80);
         const dedupe =
