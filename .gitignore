@@ -75,3 +75,6 @@ data/snapshots.db-shm
 data/traces.db
 data/traces.db-wal
 data/traces.db-shm
+
+# Timeweb Cloud API token
+.timeweb.cloud.env
