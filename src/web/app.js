@@ -4882,6 +4882,7 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     row('Время', worldDate(state.calendar, state.time)),
     row('Локация', locationValue),
     row('Погода', state.weather),
+    ...(state.lastTimeSkip ? [row('Переход', `${state.lastTimeSkip.from.day} д ${String(state.lastTimeSkip.from.hour).padStart(2, '0')}:${String(state.lastTimeSkip.from.minute ?? 0).padStart(2, '0')} → ${state.lastTimeSkip.to.day} д ${String(state.lastTimeSkip.to.hour).padStart(2, '0')}:${String(state.lastTimeSkip.to.minute ?? 0).padStart(2, '0')}`)] : []),
   ]));
 
   const upcoming = (state.events ?? [])

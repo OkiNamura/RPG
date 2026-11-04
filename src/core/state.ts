@@ -333,6 +333,13 @@ export interface GameState {
   quests: Quest[];
   /** календарь событий: встречи, дедлайны, будильники, прибытие */
   events: StateEvent[];
+  /** последний явный скачок времени: нужен для отчёта и продолжения */
+  lastTimeSkip?: {
+    from: { day: number; hour: number; minute: number; second?: number };
+    to: { day: number; hour: number; minute: number; second?: number };
+    target: string;
+    atTurn: number;
+  };
   promises: string[];
   /** открытые крючки: вопросы и угрозы, за которые спросят позже */
   hooks: string[];

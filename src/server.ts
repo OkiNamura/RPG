@@ -538,6 +538,12 @@ function applyTimeTarget(session: Session, target: TimeTarget | null, before: Nu
   const wanted = addTime(before.time, seconds);
   // Явно выбранная цель главнее фантазии ведущего: ставим ровно её.
   session.state.time = wanted;
+  session.state.lastTimeSkip = {
+    from: { ...before.time },
+    to: { ...wanted },
+    target: target.kind,
+    atTurn: session.state.turn,
+  };
 }
 /** Если проза открывает сцену в другом месте без перехода — это ошибка ведущего. */
 function sceneLocationMismatch(session: Session, prose: string, input: string): string | null {
