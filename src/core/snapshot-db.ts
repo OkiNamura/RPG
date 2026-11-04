@@ -23,8 +23,9 @@ function open(path: string): DatabaseSync {
 }
 
 export function loadSnapshots(path: string, campaignId: string): TurnSnapshot[] {
-  const database = open(path);
+  let database: DatabaseSync | null = null;
   try {
+    database = open(path);
     const rows = database
       .prepare('SELECT json FROM snapshots WHERE campaign_id=? ORDER BY turn')
       .all(campaignId) as { json: string }[];
@@ -37,8 +38,11 @@ export function loadSnapshots(path: string, campaignId: string): TurnSnapshot[] 
       }
     }
     return result;
+  } catch {
+    // Битый snapshots.db не должен мешать открыть саму кампанию.
+    return [];
   } finally {
-    database.close();
+    database?.close();
   }
 }
 
@@ -51,6 +55,41 @@ export function saveSnapshots(path: string, campaignId: string, snapshots: TurnS
       const insert = database.prepare('INSERT INTO snapshots VALUES (?,?,?)');
       for (const snapshot of snapshots) {
         insert.run(campaignId, snapshot.turn, JSON.stringify(snapshot));
+      }
+      database.exec('COMMIT');
+    } catch (error) {
+      database.exec('ROLLBACK');
+      throw error;
+    }
+  } finally {
+    database.close();
+  }
+}
+
+/** Инкрементально обновить только изменившиеся снимки и убрать вытесненные. */
+export function syncSnapshots(path: string, campaignId: string, snapshots: TurnSnapshot[]): void {
+  const database = open(path);
+  try {
+    const existing = new Map<number, string>();
+    for (const row of database.prepare('SELECT turn, json FROM snapshots WHERE campaign_id=?').all(campaignId) as {
+      turn: number;
+      json: string;
+    }[]) {
+      existing.set(Number(row.turn), row.json);
+    }
+    const current = new Map<number, string>();
+    for (const snapshot of snapshots) current.set(snapshot.turn, JSON.stringify(snapshot));
+    database.exec('BEGIN');
+    try {
+      const upsert = database.prepare(
+        'INSERT INTO snapshots (campaign_id,turn,json) VALUES (?,?,?) ON CONFLICT(campaign_id,turn) DO UPDATE SET json=excluded.json',
+      );
+      for (const [turn, json] of current) {
+        if (existing.get(turn) !== json) upsert.run(campaignId, turn, json);
+      }
+      const remove = database.prepare('DELETE FROM snapshots WHERE campaign_id=? AND turn=?');
+      for (const turn of existing.keys()) {
+        if (!current.has(turn)) remove.run(campaignId, turn);
       }
       database.exec('COMMIT');
     } catch (error) {

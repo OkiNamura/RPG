@@ -112,8 +112,13 @@ function safeDecode(value) {
 
 function currentRoute() {
   const raw = location.hash.replace(/^#\/?/, '');
-  const [name, arg] = raw.split('/');
-  return { name: name || 'profile', arg: arg ? safeDecode(arg) : arg };
+  const [path, queryString = ''] = raw.split('?');
+  const [name, arg] = path.split('/');
+  return {
+    name: name || 'profile',
+    arg: arg ? safeDecode(arg) : arg,
+    query: new URLSearchParams(queryString),
+  };
 }
 
 function currentCampaignId() {
@@ -271,9 +276,42 @@ async function viewProfile(view) {
 
 /* ================= поиск ================= */
 
+async function openSearchActor(campaignId, name) {
+  try {
+    const data = await api(`/api/campaign/${encodeURIComponent(campaignId)}`);
+    const state = data.state;
+    if (state.hero?.name?.toLowerCase() === name.toLowerCase()) {
+      openHeroSheet(state.hero, state.money, campaignId, state.currencies ?? []);
+      return;
+    }
+    const actor = [...(state.party ?? []), ...(state.npcs ?? [])].find((item) => item.name === name);
+    if (!actor) {
+      toast('персонаж уже не в кампании');
+      return;
+    }
+    openActorEditor(actor, campaignId);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+async function openSearchLocation(campaignId, name) {
+  try {
+    const data = await api(`/api/campaign/${encodeURIComponent(campaignId)}`);
+    const location = (data.state.locations ?? []).find((item) => item.name === name);
+    if (!location) {
+      toast('локация не найдена');
+      return;
+    }
+    openLocationCard(location, campaignId);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
 async function viewSearch(view) {
   const page = el('div', 'page');
-  page.append(pageHead('SQLite · индекс', 'Поиск', 'Лог, персонажи, локации, предметы и кампании.'));
+  page.append(pageHead('SQLite · индекс', 'Поиск', 'Лог, конспект, персонажи, локации, карточки, фракции и трейсы.'));
 
   const box = el('div', 'search-panel');
   const input = el('input', 'search-input');
@@ -314,8 +352,8 @@ async function viewSearch(view) {
         const row = el('div', 'search-hit');
         row.append(el('span', 'tag', `${hit.campaign} · ход ${hit.turn}`));
         row.append(el('div', 'search-snippet', hit.text.replace(/\s+/g, ' ').slice(0, 420)));
-        const open = miniBtn('Открыть', 'открыть историю', () => {
-          window.location.hash = `#/play/${encodeURIComponent(hit.campaign)}`;
+        const open = miniBtn('Открыть', 'открыть этот ход', () => {
+          window.location.hash = `#/play/${encodeURIComponent(hit.campaign)}?turn=${hit.turn}`;
         });
         row.append(open);
         return row;
@@ -323,13 +361,19 @@ async function viewSearch(view) {
       results.append(logList);
       const actorList = renderGroup('Персонажи', data.actors, (hit) => {
         const row = el('div', 'search-hit');
-        row.append(el('b', '', hit.name), el('span', 'tag', hit.campaign));
+        const name = el('button', 'location-link', hit.name);
+        name.type = 'button';
+        name.addEventListener('click', () => openSearchActor(hit.campaign, hit.name));
+        row.append(name, el('span', 'tag', hit.campaign));
         return row;
       });
       results.append(actorList);
       const locationList = renderGroup('Локации', data.locations, (hit) => {
         const row = el('div', 'search-hit');
-        row.append(el('b', '', hit.name), el('span', 'tag', hit.campaign));
+        const name = el('button', 'location-link', hit.name);
+        name.type = 'button';
+        name.addEventListener('click', () => openSearchLocation(hit.campaign, hit.name));
+        row.append(name, el('span', 'tag', hit.campaign));
         return row;
       });
       results.append(locationList);
@@ -339,7 +383,36 @@ async function viewSearch(view) {
         return row;
       });
       results.append(itemListResult);
-      const total = (data.logs?.length ?? 0) + (data.actors?.length ?? 0) + (data.locations?.length ?? 0) + (data.items?.length ?? 0) + (data.campaigns?.length ?? 0);
+      results.append(renderGroup('Конспект', data.summaries, (hit) => {
+        const row = el('div', 'search-hit');
+        row.append(el('span', 'tag', hit.campaign), el('div', 'search-snippet', hit.text.slice(0, 700)));
+        const open = miniBtn('Открыть', 'открыть историю', () => {
+          window.location.hash = `#/play/${encodeURIComponent(hit.campaign)}`;
+        });
+        row.append(open);
+        return row;
+      }));
+      results.append(renderGroup('Фракции', data.factions, (hit) => {
+        const row = el('div', 'search-hit');
+        row.append(el('b', '', hit.name), el('span', 'tag', hit.campaign));
+        return row;
+      }));
+      results.append(renderGroup('Карточки', data.cards, (hit) => {
+        const row = el('div', 'search-hit');
+        row.append(el('b', '', hit.name), el('span', 'tag', hit.detail || 'карточка'));
+        return row;
+      }));
+      results.append(renderGroup('Трейсы', data.traces, (hit) => {
+        const row = el('div', 'search-hit');
+        row.append(el('span', 'tag', `${hit.campaign} · ход ${hit.turn}`));
+        row.append(el('div', 'search-snippet', hit.text.replace(/\s+/g, ' ').slice(0, 420)));
+        const open = miniBtn('Открыть', 'открыть этот ход', () => {
+          window.location.hash = `#/play/${encodeURIComponent(hit.campaign)}?turn=${hit.turn}`;
+        });
+        row.append(open);
+        return row;
+      }));
+      const total = (data.logs?.length ?? 0) + (data.actors?.length ?? 0) + (data.locations?.length ?? 0) + (data.items?.length ?? 0) + (data.campaigns?.length ?? 0) + (data.summaries?.length ?? 0) + (data.factions?.length ?? 0) + (data.cards?.length ?? 0) + (data.traces?.length ?? 0);
       status.textContent = `${total} результатов`;
       if (!total) results.append(el('p', 'page-sub', 'Ничего не нашлось.'));
     } catch (err) {
@@ -3312,8 +3385,9 @@ function addSystem(log, text) {
   scrollDown(log);
 }
 
-function addPlayer(log, text) {
+function addPlayer(log, text, turn = null) {
   const wrap = el('div', 'msg player');
+  if (turn != null) wrap.dataset.turn = String(turn);
   wrap.append(el('div', 'bubble', text));
   log.append(wrap);
   scrollDown(log);
@@ -3514,6 +3588,7 @@ function openMapModal(title, text) {
 
 function addGm(log, payload, turnData, imageUrl, entryTurn = null) {
   const wrap = el('div', 'msg gm');
+  if (entryTurn != null) wrap.dataset.turn = String(entryTurn);
   wrap.append(el('div', 'prose', payload.prose));
 
   if (imageUrl) {
@@ -5523,7 +5598,7 @@ async function viewPlay(view, id) {
   const turnsById = new Map((data.turns ?? []).map((t) => [t.turn, t]));
   const imagesByTurn = new Map((data.state.illustrations ?? []).map((ill) => [ill.turn, ill.url]));
   for (const entry of data.history) {
-    if (entry.role === 'player') addPlayer(log, entry.text);
+    if (entry.role === 'player') addPlayer(log, entry.text, entry.turn);
     else if (entry.role === 'gm') {
       // Кнопки действий — только у последних десяти ходов, иначе лента тормозит.
       const recent = entry.turn > data.state.turn - 10;
@@ -5537,6 +5612,19 @@ async function viewPlay(view, id) {
 
   renderPanel(data.state, panel, id, data.worldMap ?? '', data.map ?? '', data.summary);
   scrollDown(log);
+
+  const jumpTurn = Number(route.query.get('turn') ?? 0);
+  if (jumpTurn > 0) {
+    window.requestAnimationFrame(() => {
+      const target =
+        log.querySelector(`.msg.gm[data-turn="${jumpTurn}"]`) ??
+        log.querySelector(`.msg[data-turn="${jumpTurn}"]`);
+      if (!target) return;
+      target.classList.add('search-highlight');
+      scrollToNode(log, target);
+      window.setTimeout(() => target.classList.remove('search-highlight'), 2600);
+    });
+  }
 
   // Шапка прячется при чтении вниз и возвращается при прокрутке вверх.
   let lastLogScroll = log.scrollTop;

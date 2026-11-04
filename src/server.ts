@@ -68,8 +68,9 @@ import { directorNote, recallLog } from './core/recall.ts';
 import { applySocialReaction } from './core/social.ts';
 import { embedTexts } from './core/embeddings.ts';
 import { hashVector, retrieve, retrieveVector, type VectorEntry } from './core/vectors.ts';
-import { rebuildSearchIndex, searchIndex, syncCampaignIndex, removeCampaignIndex } from './core/search.ts';
-import { loadSnapshots, removeSnapshots, saveSnapshots } from './core/snapshot-db.ts';
+import { rebuildCardsIndex, rebuildSearchIndex, searchIndex, searchTraces, syncCampaignIndex, removeCampaignIndex } from './core/search.ts';
+import { loadSnapshots, removeSnapshots, saveSnapshots, syncSnapshots } from './core/snapshot-db.ts';
+import { backupDatabase, ensureDatabase } from './core/db-maintenance.ts';
 
 interface ArtTagField {
   name: string;
@@ -173,6 +174,8 @@ const INSPECTOR_DIR = join(import.meta.dirname, '..', 'data', 'inspectors');
 const VECTOR_DIR = join(import.meta.dirname, '..', 'data', 'vectors');
 const SEARCH_DB = join(import.meta.dirname, '..', 'data', 'search.db');
 const SNAPSHOT_DB = join(import.meta.dirname, '..', 'data', 'snapshots.db');
+const TRACE_DB = join(import.meta.dirname, '..', 'data', 'traces.db');
+const BACKUP_DIR = join(import.meta.dirname, '..', 'data', 'backups');
 const BRANCH_DIR = join(import.meta.dirname, '..', 'data', 'branches');
 const TRACES_DIR = join(import.meta.dirname, '..', 'data', 'traces');
 
@@ -1666,7 +1669,7 @@ async function persist(id: string, session: Session): Promise<void> {
   let snapshotsPersisted = false;
   if (snapshotsDirty.has(id)) {
     try {
-      saveSnapshots(SNAPSHOT_DB, id, snapshots.get(id) ?? []);
+      syncSnapshots(SNAPSHOT_DB, id, snapshots.get(id) ?? []);
       snapshotsDirty.delete(id);
       snapshotsPersisted = true;
     } catch (error) {
@@ -1935,7 +1938,22 @@ async function serveStatic(pathname: string, res: ServerResponse): Promise<void>
 // Индекс не является источником истины: при ошибке просто работаем без него.
 try {
   await mkdir(join(import.meta.dirname, '..', 'data'), { recursive: true });
+  for (const [path, prefix] of [
+    [SNAPSHOT_DB, 'snapshots'],
+    [SEARCH_DB, 'search'],
+    [TRACE_DB, 'traces'],
+  ] as const) {
+    const result = ensureDatabase(path, BACKUP_DIR, prefix, 7);
+    if (!result.ok || result.restoredFrom) console.log(`[db] ${prefix}: ${result.detail}${result.restoredFrom ? ` (${result.restoredFrom})` : ''}`);
+  }
   rebuildSearchIndex(DATA_DIR, SEARCH_DB);
+  rebuildCardsIndex(CARDS_DIR, SEARCH_DB);
+  // Автобэкап не должен держать процесс живым.
+  setInterval(() => {
+    backupDatabase(SNAPSHOT_DB, BACKUP_DIR, 'snapshots', 7);
+    backupDatabase(SEARCH_DB, BACKUP_DIR, 'search', 7);
+    backupDatabase(TRACE_DB, BACKUP_DIR, 'traces', 7);
+  }, 6 * 60 * 60 * 1000).unref();
 } catch (error) {
   console.error('[search-index] init:', (error as Error).message);
 }
@@ -2034,10 +2052,15 @@ const server = createServer(async (req, res) => {
       const campaign = String(url.searchParams.get('campaign') ?? '').trim().slice(0, 80);
       const limit = Math.max(3, Math.min(30, Number(url.searchParams.get('limit') ?? 8)));
       if (!query) {
-        return sendJson(res, { query, logs: [], actors: [], locations: [], items: [], campaigns: [] });
+        return sendJson(res, {
+          query, logs: [], actors: [], locations: [], items: [], campaigns: [],
+          summaries: [], factions: [], cards: [], traces: [],
+        });
       }
       try {
-        return sendJson(res, { query, ...searchIndex(SEARCH_DB, query, campaign, limit) });
+        const results = searchIndex(SEARCH_DB, query, campaign, limit);
+        results.traces = searchTraces(TRACE_DB, query, campaign, Math.min(limit, 8));
+        return sendJson(res, { query, ...results });
       } catch (error) {
         return sendJson(res, { error: `поиск недоступен: ${(error as Error).message}` }, 500);
       }
@@ -3953,6 +3976,11 @@ const server = createServer(async (req, res) => {
           };
         }
         const saved = await saveCard(CARDS_DIR, card);
+        try {
+          rebuildCardsIndex(CARDS_DIR, SEARCH_DB);
+        } catch (error) {
+          console.error('[search-index] cards:', (error as Error).message);
+        }
         return sendJson(res, { ok: true, card: saved });
       }
 
