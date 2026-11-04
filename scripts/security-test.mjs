@@ -20,6 +20,7 @@ const expect = async (name, path, status, headers = {}) => {
 };
 await expect('нет входа: кампании', '/api/campaigns', 401);
 await expect('нет входа: админ-флаги', '/api/admin/features', 401);
+await expect('нет входа: поиск', '/api/search?q=test', 401);
 await expect('битая cookie', '/api/campaigns', 401, { Cookie: 'omika_session=bad' });
 const features = await fetch(`${BASE}/api/features`, { headers: { Cookie: cookie } });
 checks.push({ name: 'флаги с входом', ok: features.status === 200, status: features.status });

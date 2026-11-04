@@ -4372,3 +4372,8 @@ select {
 .feature-text small { opacity: 0.62; font-size: 11px; line-height: 1.3; max-width: 520px; }
 .location-link { background: none; border: 0; padding: 0; color: var(--gold, #d9b46a); font: inherit; text-align: left; cursor: pointer; }
 .location-link:hover { text-decoration: underline; }
+.search-panel { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+.search-input { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line, #2a2a31); background: var(--panel, #141417); color: var(--text, #e8e8ee); font: inherit; }
+.search-results h3 { margin-top: 18px; }
+.search-hit { display: flex; flex-direction: column; gap: 5px; padding: 9px 0; border-bottom: 1px solid var(--line, #2a2a31); }
+.search-snippet { color: var(--muted, #a0a0aa); font-size: 13px; line-height: 1.45; }

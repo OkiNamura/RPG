@@ -68,6 +68,7 @@ import { directorNote, recallLog } from './core/recall.ts';
 import { applySocialReaction } from './core/social.ts';
 import { embedTexts } from './core/embeddings.ts';
 import { hashVector, retrieve, retrieveVector, type VectorEntry } from './core/vectors.ts';
+import { rebuildSearchIndex, searchIndex, syncCampaignIndex, removeCampaignIndex } from './core/search.ts';
 
 interface ArtTagField {
   name: string;
@@ -169,6 +170,7 @@ const TRASH_DIR = join(import.meta.dirname, '..', 'data', 'trash');
 const FEEDBACK_DIR = join(import.meta.dirname, '..', 'data', 'feedback');
 const INSPECTOR_DIR = join(import.meta.dirname, '..', 'data', 'inspectors');
 const VECTOR_DIR = join(import.meta.dirname, '..', 'data', 'vectors');
+const SEARCH_DB = join(import.meta.dirname, '..', 'data', 'search.db');
 const BRANCH_DIR = join(import.meta.dirname, '..', 'data', 'branches');
 const TRACES_DIR = join(import.meta.dirname, '..', 'data', 'traces');
 
@@ -1661,6 +1663,16 @@ async function persist(id: string, session: Session): Promise<void> {
     agents: session.agents as unknown as Record<string, unknown>,
     meta: metas.get(id),
   });
+  // Поисковый индекс — вторичен: его падение не должно ломать сейв.
+  try {
+    syncCampaignIndex(SEARCH_DB, id, {
+      state: session.state,
+      summary: session.summary,
+      meta: metas.get(id),
+    });
+  } catch (error) {
+    console.error('[search-index]', (error as Error).message);
+  }
 }
 
 /**
@@ -1891,6 +1903,14 @@ async function serveStatic(pathname: string, res: ServerResponse): Promise<void>
   }
 }
 
+// Индекс не является источником истины: при ошибке просто работаем без него.
+try {
+  await mkdir(join(import.meta.dirname, '..', 'data'), { recursive: true });
+  rebuildSearchIndex(DATA_DIR, SEARCH_DB);
+} catch (error) {
+  console.error('[search-index] init:', (error as Error).message);
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const path = url.pathname;
@@ -1978,6 +1998,20 @@ const server = createServer(async (req, res) => {
 
     if (path === '/api/features' && req.method === 'GET') {
       return sendJson(res, { features });
+    }
+
+    if (path === '/api/search' && req.method === 'GET') {
+      const query = String(url.searchParams.get('q') ?? '').trim().slice(0, 120);
+      const campaign = String(url.searchParams.get('campaign') ?? '').trim().slice(0, 80);
+      const limit = Math.max(3, Math.min(30, Number(url.searchParams.get('limit') ?? 8)));
+      if (!query) {
+        return sendJson(res, { query, logs: [], actors: [], locations: [], items: [], campaigns: [] });
+      }
+      try {
+        return sendJson(res, { query, ...searchIndex(SEARCH_DB, query, campaign, limit) });
+      } catch (error) {
+        return sendJson(res, { error: `поиск недоступен: ${(error as Error).message}` }, 500);
+      }
     }
 
     if (path === '/api/admin/features' && (req.method === 'GET' || req.method === 'PUT')) {
@@ -3050,6 +3084,11 @@ const server = createServer(async (req, res) => {
         await rename(file, join(TRASH_DIR, `${id}-${Date.now()}.json`)).catch(async () => {
           await unlink(file).catch(() => undefined);
         });
+        try {
+          removeCampaignIndex(SEARCH_DB, id);
+        } catch (error) {
+          console.error('[search-index] remove:', (error as Error).message);
+        }
         return sendJson(res, { ok: true });
       }
 

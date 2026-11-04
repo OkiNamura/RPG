@@ -200,6 +200,7 @@ async function router() {
 
   try {
     if (name === 'stories') await viewStories(view);
+    else if (name === 'search') await viewSearch(view);
     else if (name === 'agents') await viewAgents(view);
     else if (name === 'templates') await viewTemplates(view);
     else if (name === 'core') await viewCore(view);
@@ -266,6 +267,105 @@ async function viewProfile(view) {
   const route = currentRoute();
   if (route.name !== 'profile' || route.arg) return;
   view.append(page);
+}
+
+/* ================= поиск ================= */
+
+async function viewSearch(view) {
+  const page = el('div', 'page');
+  page.append(pageHead('SQLite · индекс', 'Поиск', 'Лог, персонажи, локации, предметы и кампании.'));
+
+  const box = el('div', 'search-panel');
+  const input = el('input', 'search-input');
+  input.type = 'search';
+  input.placeholder = 'рынок, Соня, библиотека…';
+  input.autocomplete = 'off';
+  const status = el('span', 'status');
+  const results = el('div', 'search-results');
+  box.append(input, status);
+  page.append(box, results);
+  view.append(page);
+
+  let timer = 0;
+  let requestId = 0;
+  const renderGroup = (title, items, render) => {
+    const fragment = document.createDocumentFragment();
+    if (!items?.length) return fragment;
+    fragment.append(el('h3', './', title));
+    for (const item of items) fragment.append(render(item));
+    return fragment;
+  };
+
+  const run = async () => {
+    const q = input.value.trim();
+    requestId += 1;
+    const current = requestId;
+    if (q.length < 2) {
+      results.replaceChildren(el('p', 'page-sub', 'Введи хотя бы два символа.'));
+      status.textContent = '';
+      return;
+    }
+    status.textContent = 'ищу…';
+    try {
+      const data = await api(`/api/search?q=${encodeURIComponent(q)}&limit=12`);
+      if (current !== requestId) return;
+      results.replaceChildren();
+      const logList = renderGroup('Лог', data.logs, (hit) => {
+        const row = el('div', 'search-hit');
+        row.append(el('span', 'tag', `${hit.campaign} · ход ${hit.turn}`));
+        row.append(el('div', 'search-snippet', hit.text.replace(/\s+/g, ' ').slice(0, 420)));
+        const open = miniBtn('Открыть', 'открыть историю', () => {
+          window.location.hash = `#/play/${encodeURIComponent(hit.campaign)}`;
+        });
+        row.append(open);
+        return row;
+      });
+      results.append(logList);
+      const actorList = renderGroup('Персонажи', data.actors, (hit) => {
+        const row = el('div', 'search-hit');
+        row.append(el('b', '', hit.name), el('span', 'tag', hit.campaign));
+        return row;
+      });
+      results.append(actorList);
+      const locationList = renderGroup('Локации', data.locations, (hit) => {
+        const row = el('div', 'search-hit');
+        row.append(el('b', '', hit.name), el('span', 'tag', hit.campaign));
+        return row;
+      });
+      results.append(locationList);
+      const itemListResult = renderGroup('Предметы', data.items, (hit) => {
+        const row = el('div', 'search-hit');
+        row.append(el('b', '', hit.name), el('span', 'tag', hit.campaign));
+        return row;
+      });
+      results.append(itemListResult);
+      const total = (data.logs?.length ?? 0) + (data.actors?.length ?? 0) + (data.locations?.length ?? 0) + (data.items?.length ?? 0) + (data.campaigns?.length ?? 0);
+      status.textContent = `${total} результатов`;
+      if (!total) results.append(el('p', 'page-sub', 'Ничего не нашлось.'));
+    } catch (err) {
+      if (current !== requestId) return;
+      status.textContent = err.message;
+    }
+  };
+
+  input.addEventListener('input', () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(run, 250);
+  });
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      window.clearTimeout(timer);
+      run();
+    }
+  });
+  input.focus();
+  const routeQuery = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('q');
+  if (routeQuery) {
+    input.value = routeQuery;
+    run();
+  } else {
+    results.append(el('p', 'page-sub', 'Начни вводить имя или место. Индекс обновляется после каждого хода.'));
+  }
 }
 
 /* ================= истории ================= */
@@ -6290,3 +6390,9 @@ router();
 if ('serviceWorker' in navigator && window.isSecureContext) {
   navigator.serviceWorker.register('/sw.js').catch(() => undefined);
 }
+document.addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    window.location.hash = '#/search';
+  }
+});
