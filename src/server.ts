@@ -1504,6 +1504,8 @@ function reviveIfAllowed(id: string, session: Session): void {
   const social = applySocialReaction(session.state, input);
   agentChanges.push(...social.changed);
   reviveIfAllowed(id, session);
+  // Цель времени ставим после агента состояния: он не должен её переписать.
+  if (beforeNumbers && timeTarget) applyTimeTarget(session, timeTarget, beforeNumbers);
 
   const reasons = stateResult.status === 'fulfilled' ? { ...stateResult.value.reasons } : {};
   if (beforeNumbers && !timeTarget) {
@@ -4713,7 +4715,6 @@ const server = createServer(async (req, res) => {
               const stats = await runTurn(session, input, (delta) =>
                 send('delta', { type: 'delta', text: delta }),
               );
-              applyTimeTarget(session, timeTarget, beforeNumbers);
               const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
               const payload = await afterTurn(session, id, input, prose, stats, started, undefined, clientTurnId, beforeNumbers, timeTarget);
               send('done', { type: 'done', payload });
@@ -4736,7 +4737,6 @@ const server = createServer(async (req, res) => {
           session.lastRoll = notes.roll;
           const beforeNumbers = numericSnapshot(session.state);
           const stats = await runTurn(session, input);
-          applyTimeTarget(session, timeTarget, beforeNumbers);
           const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
           const payload = await afterTurn(session, id, input, prose, stats, started, undefined, clientTurnId, beforeNumbers, timeTarget);
           return sendJson(res, payload);
