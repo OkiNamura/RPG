@@ -4896,6 +4896,25 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     )));
   }
 
+  if (state.lastTimeSkip?.target === 'event' && upcoming.length) {
+    const resume = miniBtn('До следующего события', 'продолжить скачок времени', async () => {
+      try {
+        await api(`/api/campaign/${encodeURIComponent(campaignId)}/turn`, {
+          method: 'POST',
+          body: JSON.stringify({
+            input: 'Продолжаю до следующего события.',
+            timeTarget: { kind: 'event' },
+          }),
+        });
+        toast('скачок продолжен');
+        router();
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+    frag.append(section('Скачок времени', [resume]));
+  }
+
   if (state.reputation) {
     const reputationRows = [
       row('Общество', `${state.reputation.label ?? 'нейтрально'} (${state.reputation.public ?? 0})`),
