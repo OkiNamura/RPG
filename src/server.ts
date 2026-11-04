@@ -1056,7 +1056,10 @@ function pickNotes(
   if (dice) {
     const result = rollD36(`${id}-${session.state.turn}-dice`);
     const skillName = skillForAction(input, skills);
-    const skillValue = skills[skillName] ?? 8;
+    const skillValue = Math.max(
+      0,
+      Math.min(20, (skills[skillName] ?? 8) + (session.state.hero.skillAffinities?.[skillName] ?? 0)),
+    );
     const outcome = resolveRoll(result.face, skillName, skillValue);
     roll = { ...result, ...outcome };
     if (outcome.fatal) {
