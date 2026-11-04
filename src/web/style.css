@@ -4378,3 +4378,8 @@ select {
 .search-hit { display: flex; flex-direction: column; gap: 5px; padding: 9px 0; border-bottom: 1px solid var(--line, #2a2a31); }
 .search-snippet { color: var(--muted, #a0a0aa); font-size: 13px; line-height: 1.45; }
 .msg.search-highlight { outline: 2px solid var(--gold, #d9b46a); outline-offset: 6px; border-radius: 8px; transition: outline-color 0.3s; }
+.time-clarify { max-width: 520px; }
+.time-clarify-options { display: grid; gap: 8px; margin: 14px 0; }
+.time-clarify-options .btn { justify-content: flex-start; text-align: left; }
+.time-clarify-hours { display: flex; gap: 8px; }
+.time-clarify-hours .field { max-width: 130px; }

@@ -3391,6 +3391,83 @@ function addPlayer(log, text, turn = null) {
   wrap.append(el('div', 'bubble', text));
   log.append(wrap);
   scrollDown(log);
+  return wrap;
+}
+
+function showTimeClarification(clarification, onChoose, onCancel) {
+  const overlay = el('div', 'actor-modal');
+  const sheet = el('article', 'actor-sheet time-clarify');
+  const head = el('div', 'actor-sheet-head');
+  const title = el('div');
+  title.append(el('b', '', 'Уточнение времени'), el('div', 'page-sub', clarification.question || 'До какого момента?'));
+  const close = el('button', 'btn small', '✕');
+  close.type = 'button';
+  head.append(title, close);
+
+  const options = el('div', 'time-clarify-options');
+  const dismiss = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (event) => {
+    if (event.key === 'Escape') {
+      dismiss();
+      onCancel?.();
+    }
+  };
+  const choose = (target) => {
+    dismiss();
+    onChoose(target);
+  };
+
+  for (const option of clarification.options ?? []) {
+    if (option.needsHours) {
+      const row = el('div', 'time-clarify-hours');
+      const input = el('input', 'field');
+      input.type = 'number';
+      input.min = '0.1';
+      input.step = '0.5';
+      input.placeholder = 'N часов';
+      const go = el('button', 'btn small', 'Продолжить');
+      go.type = 'button';
+      go.addEventListener('click', () => {
+        const hours = Number(input.value);
+        if (!Number.isFinite(hours) || hours <= 0) {
+          toast('укажи положительное число часов');
+          return;
+        }
+        choose({ ...option.target, hours });
+      });
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') go.click();
+      });
+      row.append(input, go);
+      options.append(row);
+      continue;
+    }
+    const button = el('button', 'btn small', option.label);
+    button.type = 'button';
+    button.addEventListener('click', () => choose(option.target));
+    options.append(button);
+  }
+
+  const cancel = el('button', 'btn small ghost', 'Отмена');
+  cancel.type = 'button';
+  cancel.addEventListener('click', () => {
+    dismiss();
+    onCancel?.();
+  });
+  sheet.append(head, options, cancel);
+  overlay.append(sheet);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) {
+      dismiss();
+      onCancel?.();
+    }
+  });
+  document.addEventListener('keydown', onKey);
+  document.body.append(overlay);
+  window.setTimeout(() => sheet.querySelector('input,button')?.focus(), 30);
 }
 
 function metaLine(payload) {
@@ -5707,7 +5784,7 @@ async function viewPlay(view, id) {
     };
   };
 
-  async function runTurn(text, dice, clientTurnId, fromPending = false) {
+  async function runTurn(text, dice, clientTurnId, fromPending = false, timeTarget = null, skipPlayer = false) {
     if (!text || app.game.busy) return;
     app.game.busy = true;
     if (!fromPending) {
@@ -5721,7 +5798,7 @@ async function viewPlay(view, id) {
       input.style.height = 'auto';
     }
     hideOutbox();
-    addPlayer(log, text);
+    if (!skipPlayer) addPlayer(log, text);
     scrollDown(log);
     typing.classList.remove('hidden');
 
@@ -5771,7 +5848,23 @@ async function viewPlay(view, id) {
         Boolean(dice),
         clientTurnId,
         sceneFocus,
+        timeTarget,
       );
+      if (result?.clarification) {
+        wrap.remove();
+        typing.classList.add('hidden');
+        app.game.busy = false;
+        showTimeClarification(
+          result.clarification,
+          (target) => runTurn(text, dice, clientTurnId, true, target, true),
+          () => {
+            clearPending(id, clientTurnId);
+            hideOutbox();
+            toast('ход отменён');
+          },
+        );
+        return;
+      }
       clearPending(id, clientTurnId);
       hideOutbox();
       if (result.duplicate) {
@@ -5793,10 +5886,22 @@ async function viewPlay(view, id) {
         try {
           const res = await api(`/api/campaign/${encodeURIComponent(id)}/turn`, {
             method: 'POST',
-            body: JSON.stringify({ input: text, dice: Boolean(dice), clientTurnId, focus: sceneFocus }),
+            body: JSON.stringify({ input: text, dice: Boolean(dice), clientTurnId, focus: sceneFocus, timeTarget }),
           });
           clearPending(id, clientTurnId);
           hideOutbox();
+          if (res.clarification) {
+            app.game.busy = false;
+            showTimeClarification(
+              res.clarification,
+              (nextTarget) => runTurn(text, dice, clientTurnId, true, nextTarget, true),
+              () => {
+                clearPending(id, clientTurnId);
+                toast('ход отменён');
+              },
+            );
+            return;
+          }
           if (res.duplicate) {
             toast('Этот ход уже сохранён — обновляю ленту');
             router();
@@ -5845,13 +5950,16 @@ async function viewPlay(view, id) {
   }
 }
 
-async function streamTurn(id, input, onText, dice, clientTurnId, focus = []) {
+async function streamTurn(id, input, onText, dice, clientTurnId, focus = [], timeTarget = null) {
   const res = await fetch(`/api/campaign/${encodeURIComponent(id)}/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ input, dice, clientTurnId, focus }),
+    body: JSON.stringify({ input, dice, clientTurnId, focus, timeTarget }),
   });
   if (!res.ok || !res.body) throw new Error(`поток недоступен: ${res.status}`);
+  if ((res.headers.get('content-type') || '').includes('application/json')) {
+    return res.json();
+  }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

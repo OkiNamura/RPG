@@ -442,6 +442,78 @@ function travelFloorSeconds(
  * Верхний предел скачка времени для обычного действия.
  * Формула живёт в core/time-budget.ts.
  */
+
+type TimeTargetKind = 'morning' | 'hours' | 'wake' | 'arrival' | 'event';
+
+interface TimeTarget {
+  kind: TimeTargetKind;
+  hours?: number;
+}
+
+interface TimeClarification {
+  question: string;
+  options: { id: string; label: string; target: TimeTarget; needsHours?: boolean }[];
+}
+
+function normalizeTimeTarget(value: unknown): TimeTarget | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as { kind?: unknown; hours?: unknown };
+  const kind = String(raw.kind ?? '');
+  if (!['morning', 'hours', 'wake', 'arrival', 'event'].includes(kind)) return null;
+  const hours = Number(raw.hours ?? 0);
+  if (kind === 'hours' && (!Number.isFinite(hours) || hours <= 0 || hours > 24 * 30)) return null;
+  return { kind: kind as TimeTargetKind, ...(kind === 'hours' ? { hours } : {}) };
+}
+
+function timeClarification(input: string): TimeClarification | null {
+  const text = input.toLowerCase();
+  if (/(\d+(?:[.,]\d+)?)\s*(час|мин|дн|сут)/.test(text)) return null;
+  if (/(до\s+(утра|вечера|рассвета|заката|события|встречи|прибытия|конца|следующего)|пока\s+не|ровно)/.test(text)) return null;
+  const sleep = /(сплю|спать|усну|ночую|ложусь спать|засыпаю)/.test(text);
+  const wait = /(жду|ожидаю|дожидаюсь)/.test(text);
+  const travel = /(еду|лечу|плыву|отправляюсь|в путь)/.test(text);
+  if (!sleep && !wait && !travel) return null;
+  // «Еду в Москву» уже имеет цель-место; вопрос не нужен.
+  if (travel && /(в|до|на)\s+[а-яё]/i.test(text)) return null;
+
+  const options: TimeClarification['options'] = [];
+  if (travel) options.push({ id: 'arrival', label: 'До прибытия', target: { kind: 'arrival' } });
+  options.push(
+    { id: 'event', label: 'До ближайшего события', target: { kind: 'event' } },
+    { id: 'morning', label: 'До утра (07:00)', target: { kind: 'morning' } },
+    { id: 'hours', label: 'Ровно N часов', target: { kind: 'hours' }, needsHours: true },
+    { id: 'wake', label: 'Пока не разбудят', target: { kind: 'wake' } },
+  );
+  return {
+    question: sleep ? 'Сон до какого момента?' : wait ? 'Ожидание до какого момента?' : 'Поездка до какого момента?',
+    options,
+  };
+}
+
+function timeTargetNote(target: TimeTarget | null): string {
+  if (!target) return '';
+  if (target.kind === 'morning') return '[Цель скачка] Игрок выбрал: до утра, 07:00.';
+  if (target.kind === 'hours') return `[Цель скачка] Игрок выбрал: ровно ${target.hours} ч.`;
+  if (target.kind === 'arrival') return '[Цель скачка] Игрок выбрал: до прибытия в место назначения.';
+  if (target.kind === 'wake') return '[Цель скачка] Игрок выбрал: пока его не разбудят.';
+  return '[Цель скачка] Игрок выбрал: до ближайшего события.';
+}
+
+function applyTimeTarget(session: Session, target: TimeTarget | null, before: NumericSnapshot): void {
+  if (!target) return;
+  if (target.kind === 'wake' || target.kind === 'arrival' || target.kind === 'event') return;
+  let seconds = 0;
+  if (target.kind === 'hours') seconds = Math.round((target.hours ?? 0) * 3600);
+  if (target.kind === 'morning') {
+    const current = before.time.hour * 3600 + before.time.minute * 60 + (before.time.second ?? 0);
+    seconds = (7 * 3600 - current + 24 * 3600) % (24 * 3600);
+    if (seconds === 0) seconds = 24 * 3600;
+  }
+  if (seconds <= 0) return;
+  const wanted = addTime(before.time, seconds);
+  // Явно выбранная цель главнее фантазии ведущего: ставим ровно её.
+  session.state.time = wanted;
+}
 /** Если проза открывает сцену в другом месте без перехода — это ошибка ведущего. */
 function sceneLocationMismatch(session: Session, prose: string, input: string): string | null {
   const opening = prose.slice(0, 300).toLowerCase();
@@ -1354,6 +1426,7 @@ function reviveIfAllowed(id: string, session: Session): void {
   variantFrom?: TurnSnapshot,
   clientTurnId?: string,
   beforeNumbers?: NumericSnapshot,
+  timeTarget?: TimeTarget | null,
 ): Promise<Record<string, unknown>> {
   const repairedProse = await repairSceneIfNeeded(session, prose, input);
   if (repairedProse !== prose) {
@@ -1382,7 +1455,7 @@ function reviveIfAllowed(id: string, session: Session): void {
   reviveIfAllowed(id, session);
 
   const reasons = stateResult.status === 'fulfilled' ? { ...stateResult.value.reasons } : {};
-  if (beforeNumbers) {
+  if (beforeNumbers && !timeTarget) {
     const afterNow = numericSnapshot(session.state);
     const floor = travelFloorSeconds(input, prose, beforeNumbers, afterNow);
     const cap = maxSceneAdvanceSeconds(input, prose, beforeNumbers.time, floor);
@@ -4466,6 +4539,11 @@ const server = createServer(async (req, res) => {
         const input = String(body.input ?? '').trim();
         if (!input) return sendJson(res, { error: 'пустой ход' }, 400);
         if (input.length > 1200) return sendJson(res, { error: 'ход слишком длинный' }, 400);
+        const timeTarget = normalizeTimeTarget(body.timeTarget);
+        const clarification = timeClarification(input);
+        if (clarification && !timeTarget) {
+          return sendJson(res, { clarification: { ...clarification, input } });
+        }
         const clientTurnId = String(body.clientTurnId ?? '').trim().slice(0, 80);
         const dedupe =
           /^[A-Za-z0-9_-]{8,80}$/.test(clientTurnId) &&
@@ -4518,13 +4596,15 @@ const server = createServer(async (req, res) => {
               const notes = pickNotes(id, session, Boolean(body.dice), input);
               session.extraNotes = notes.text;
               await augmentFeatureNotes(session, input, id);
+              if (timeTargetNote(timeTarget)) session.extraNotes += `\n\n${timeTargetNote(timeTarget)}`;
               session.lastRoll = notes.roll;
               const beforeNumbers = numericSnapshot(session.state);
               const stats = await runTurn(session, input, (delta) =>
                 send('delta', { type: 'delta', text: delta }),
               );
+              applyTimeTarget(session, timeTarget, beforeNumbers);
               const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
-              const payload = await afterTurn(session, id, input, prose, stats, started, undefined, clientTurnId, beforeNumbers);
+              const payload = await afterTurn(session, id, input, prose, stats, started, undefined, clientTurnId, beforeNumbers, timeTarget);
               send('done', { type: 'done', payload });
             } catch (err) {
               send('error', {
@@ -4541,11 +4621,13 @@ const server = createServer(async (req, res) => {
           const notes = pickNotes(id, session, Boolean(body.dice), input);
           session.extraNotes = notes.text;
           await augmentFeatureNotes(session, input, id);
+          if (timeTargetNote(timeTarget)) session.extraNotes += `\n\n${timeTargetNote(timeTarget)}`;
           session.lastRoll = notes.roll;
           const beforeNumbers = numericSnapshot(session.state);
           const stats = await runTurn(session, input);
+          applyTimeTarget(session, timeTarget, beforeNumbers);
           const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
-          const payload = await afterTurn(session, id, input, prose, stats, started, undefined, clientTurnId, beforeNumbers);
+          const payload = await afterTurn(session, id, input, prose, stats, started, undefined, clientTurnId, beforeNumbers, timeTarget);
           return sendJson(res, payload);
         } finally {
           session.busy = false;
