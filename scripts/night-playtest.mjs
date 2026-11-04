@@ -20,11 +20,15 @@ async function login() {
 
 const cookie = await login();
 const api = async (path, options = {}) => {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', Cookie: cookie },
-    ...options,
-  });
-  return { status: res.status, body: await res.json().catch(() => ({})) };
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      ...options,
+    });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  } catch (error) {
+    return { status: 0, body: { error: error instanceof Error ? error.message : String(error) } };
+  }
 };
 
 await api(`/api/campaign/${ID}`, { method: 'DELETE' });
@@ -75,17 +79,25 @@ const totalTurns = Number(process.env.NIGHT_TURNS || inputs.length);
 for (let index = 0; index < totalTurns; index += 1) {
   const action = inputs[index % inputs.length];
   const started = Date.now();
-  const result = await api(`/api/campaign/${ID}/turn`, {
+  const clientTurnId = `night-${index}-${Date.now()}`;
+  let result = await api(`/api/campaign/${ID}/turn`, {
     method: 'POST',
-    body: JSON.stringify({ input: action, clientTurnId: `night-${index}-${Date.now()}` }),
+    body: JSON.stringify({ input: action, clientTurnId }),
   });
+  for (let attempt = 0; attempt < 3 && (result.status >= 500 || result.status === 0); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
+    result = await api(`/api/campaign/${ID}/turn`, {
+      method: 'POST',
+      body: JSON.stringify({ input: action, clientTurnId }),
+    });
+  }
   if (result.status === 200 && result.body?.clarification) {
     result.body = (
       await api(`/api/campaign/${ID}/turn`, {
         method: 'POST',
         body: JSON.stringify({
           input: action,
-          clientTurnId: `night-${index}-${Date.now()}`,
+          clientTurnId: `${clientTurnId}-target`,
           timeTarget: { kind: 'morning' },
         }),
       })
