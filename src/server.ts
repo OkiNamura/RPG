@@ -437,6 +437,21 @@ function travelFloorSeconds(
   return 5 * 60;
 }
 
+/**
+ * Верхний предел скачка времени для обычного действия.
+ * Без этого модель иногда «перескакивает» с 20:00 на 23:00 в одном разговоре.
+ */
+function maxAdvanceSeconds(input: string, prose: string): number {
+  const text = `${input} ${prose}`.toLowerCase();
+  if (/(сплю|спать|усну|ночую|до утра|весь день|до вечера|отдыхаю|жду|пережду)/i.test(text)) {
+    return 12 * 60 * 60;
+  }
+  if (/(метро|трамвай|автобус|поезд|самолёт|такси|дорог|путь|еду|ехать|переезд)/i.test(text)) {
+    return 4 * 60 * 60;
+  }
+  return 2 * 60 * 60;
+}
+
 function numberChange(label: string, before: string, after: string, delta?: string, reason?: string): NumberChange {
   return { label, before, after, ...(delta ? { delta } : {}), ...(reason ? { reason } : {}) };
 }
@@ -1181,6 +1196,15 @@ async function augmentFeatureNotes(session: Session, input: string, id: string):
       );
     }
   }
+  parts.push(
+    `[ЖЁСТКАЯ СЦЕНА] Место: ${session.state.place}. Время: ${timeText({
+      day: session.state.time.day,
+      hour: session.state.time.hour,
+      minute: session.state.time.minute ?? 0,
+      second: session.state.time.second ?? 0,
+    })}. ` +
+      'Не переноси героя в другую локацию и не называй другое время, если игрок явно не совершил переход или не прошло время в действии.',
+  );
   session.extraNotes = parts.filter(Boolean).join('\n\n');
 }
 
@@ -1303,11 +1327,16 @@ function reviveIfAllowed(id: string, session: Session): void {
   if (beforeNumbers) {
     const afterNow = numericSnapshot(session.state);
     const floor = travelFloorSeconds(input, prose, beforeNumbers, afterNow);
+    const cap = Math.max(floor, maxAdvanceSeconds(input, prose));
     const elapsed = timeSeconds(afterNow.time) - timeSeconds(beforeNumbers.time);
     if (floor > 0 && elapsed < floor) {
       session.state.time = addTime(beforeNumbers.time, floor);
       reasons.time = 'дорога';
       agentChanges.push(`время: не меньше ${Math.round(floor / 60)} мин (дорога)`);
+    } else if (elapsed > cap) {
+      session.state.time = addTime(beforeNumbers.time, cap);
+      reasons.time = 'слишком большой скачок';
+      agentChanges.push(`время: не больше ${Math.round(cap / 60)} мин за действие`);
     }
   }
   const numbers = beforeNumbers
