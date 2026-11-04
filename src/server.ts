@@ -71,6 +71,7 @@ import { hashVector, retrieve, retrieveVector, type VectorEntry } from './core/v
 import { rebuildCardsIndex, rebuildSearchIndex, searchIndex, searchTraces, syncCampaignIndex, removeCampaignIndex } from './core/search.ts';
 import { loadSnapshots, removeSnapshots, saveSnapshots, syncSnapshots } from './core/snapshot-db.ts';
 import { backupDatabase, ensureDatabase } from './core/db-maintenance.ts';
+import { maxSceneAdvanceSeconds } from './core/time-budget.ts';
 
 interface ArtTagField {
   name: string;
@@ -439,19 +440,8 @@ function travelFloorSeconds(
 
 /**
  * Верхний предел скачка времени для обычного действия.
- * Без этого модель иногда «перескакивает» с 20:00 на 23:00 в одном разговоре.
+ * Формула живёт в core/time-budget.ts.
  */
-function maxAdvanceSeconds(input: string, prose: string): number {
-  const text = `${input} ${prose}`.toLowerCase();
-  if (/(сплю|спать|усну|ночую|до утра|весь день|до вечера|отдыхаю|жду|пережду)/i.test(text)) {
-    return 12 * 60 * 60;
-  }
-  if (/(метро|трамвай|автобус|поезд|самолёт|такси|дорог|путь|еду|ехать|переезд)/i.test(text)) {
-    return 4 * 60 * 60;
-  }
-  return 2 * 60 * 60;
-}
-
 /** Если проза открывает сцену в другом месте без перехода — это ошибка ведущего. */
 function sceneLocationMismatch(session: Session, prose: string, input: string): string | null {
   const opening = prose.slice(0, 300).toLowerCase();
@@ -1395,7 +1385,7 @@ function reviveIfAllowed(id: string, session: Session): void {
   if (beforeNumbers) {
     const afterNow = numericSnapshot(session.state);
     const floor = travelFloorSeconds(input, prose, beforeNumbers, afterNow);
-    const cap = Math.max(floor, maxAdvanceSeconds(input, prose));
+    const cap = maxSceneAdvanceSeconds(input, prose, beforeNumbers.time, floor);
     const elapsed = timeSeconds(afterNow.time) - timeSeconds(beforeNumbers.time);
     if (floor > 0 && elapsed < floor) {
       session.state.time = addTime(beforeNumbers.time, floor);
