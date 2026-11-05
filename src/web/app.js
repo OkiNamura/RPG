@@ -6132,7 +6132,7 @@ async function viewPlay(view, id, useCache = true) {
     outbox.classList.remove('hidden');
     outboxRetry.onclick = () => {
       const current = readPending(id);
-      if (current) runTurn(current.input, Boolean(current.dice), current.clientTurnId, true);
+      if (current) runTurn(current.input, Boolean(current.dice), current.clientTurnId, true, current.timeTarget ?? null, false);
     };
     outboxDiscard.onclick = () => {
       const current = readPending(id);
@@ -6153,6 +6153,7 @@ async function viewPlay(view, id, useCache = true) {
         clientTurnId,
         input: text,
         dice: Boolean(dice),
+        timeTarget,
         createdAt: new Date().toISOString(),
       });
       input.value = '';
@@ -6217,7 +6218,10 @@ async function viewPlay(view, id, useCache = true) {
         app.game.busy = false;
         showTimeClarification(
           result.clarification,
-          (target) => runTurn(text, dice, clientTurnId, true, target, true),
+          (target) => {
+            writePending(id, { clientTurnId, input: text, dice: Boolean(dice), timeTarget: target, createdAt: new Date().toISOString() });
+            runTurn(text, dice, clientTurnId, true, target, true);
+          },
           () => {
             clearPending(id, clientTurnId);
             hideOutbox();
@@ -6255,7 +6259,10 @@ async function viewPlay(view, id, useCache = true) {
             app.game.busy = false;
             showTimeClarification(
               res.clarification,
-              (nextTarget) => runTurn(text, dice, clientTurnId, true, nextTarget, true),
+              (nextTarget) => {
+                writePending(id, { clientTurnId, input: text, dice: Boolean(dice), timeTarget: nextTarget, createdAt: new Date().toISOString() });
+                runTurn(text, dice, clientTurnId, true, nextTarget, true);
+              },
               () => {
                 clearPending(id, clientTurnId);
                 toast('ход отменён');
