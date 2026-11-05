@@ -7150,7 +7150,12 @@ router();
 
 const modalStack = [];
 let suppressModalPop = 0;
+let lastPointerTarget = null;
 const MODAL_SELECTOR = '.library-modal, .actor-modal, .history-modal, .image-modal, .map-modal, .modal';
+
+document.addEventListener('pointerdown', (event) => {
+  if (event.target instanceof HTMLElement) lastPointerTarget = event.target.closest('button, [role="button"], a') ?? event.target;
+}, { passive: true, capture: true });
 
 function modalNode(node) {
   if (!(node instanceof Element)) return null;
@@ -7158,16 +7163,46 @@ function modalNode(node) {
   return node.querySelector?.(MODAL_SELECTOR) ?? null;
 }
 
+function modalSheet(overlay) {
+  return overlay.querySelector('.library-sheet, .actor-sheet, .history-modal > .map-modal-head, .map-modal > .map-modal-body, .map-modal') ?? overlay;
+}
+
+function modalFocusables(overlay) {
+  return [...overlay.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+    .filter((node) => node.offsetParent !== null || node === document.activeElement);
+}
+
+function animateModalClose(overlay, fromPop = false) {
+  if (!overlay || overlay.__omikaClosing) return;
+  overlay.__omikaClosing = true;
+  if (fromPop) overlay.__omikaPopClose = true;
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  overlay.classList.add('modal-closing');
+  window.setTimeout(() => overlay.remove(), reduced ? 0 : 180);
+}
+
 function trackModalOpen(overlay) {
   if (!overlay || overlay.__omikaModal) return;
   overlay.__omikaModal = true;
+  const active = document.activeElement;
+  overlay.__omikaOpener = lastPointerTarget instanceof HTMLElement && lastPointerTarget.isConnected
+    ? lastPointerTarget
+    : active instanceof HTMLElement
+      ? active
+      : null;
   modalStack.push(overlay);
+  overlay.classList.add('modal-open');
   try {
     history.pushState({ ...(history.state ?? {}), omikaModal: true }, '', location.href);
     overlay.__omikaHistory = true;
   } catch {
     overlay.__omikaHistory = false;
   }
+  window.requestAnimationFrame(() => {
+    const sheet = modalSheet(overlay);
+    if (!sheet.hasAttribute('tabindex')) sheet.setAttribute('tabindex', '-1');
+    sheet.focus({ preventScroll: true });
+  });
 }
 
 function trackModalClose(overlay) {
@@ -7175,6 +7210,11 @@ function trackModalClose(overlay) {
   overlay.__omikaModal = false;
   const index = modalStack.indexOf(overlay);
   if (index >= 0) modalStack.splice(index, 1);
+  const opener = overlay.__omikaOpener;
+  if (opener?.isConnected) {
+    const target = opener.offsetParent ? opener : document.querySelector('.menu-btn') ?? document.querySelector('.panel-btn');
+    window.setTimeout(() => target?.focus({ preventScroll: true }), 0);
+  }
   if (overlay.__omikaHistory && !overlay.__omikaPopClose) {
     overlay.__omikaPopClose = true;
     suppressModalPop += 1;
@@ -7203,14 +7243,51 @@ window.addEventListener('popstate', () => {
   }
   const top = modalStack.pop();
   if (!top) return;
-  top.__omikaPopClose = true;
-  top.remove();
+  animateModalClose(top, true);
 });
 
+// Close by backdrop or the header ✕, with a slide-down animation.
+document.addEventListener('click', (event) => {
+  const top = modalStack[modalStack.length - 1];
+  if (!top) return;
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const closeBtn = target.closest('.library-sheet-head > .btn, .map-modal-head > .btn, .actor-sheet-head > .btn');
+  if (target === top || (closeBtn && top.contains(closeBtn))) {
+    event.preventDefault();
+    event.stopPropagation();
+    animateModalClose(top);
+  }
+}, true);
+
 document.addEventListener('keydown', (event) => {
-  if (event.key !== 'Escape' || !modalStack.length) return;
-  event.preventDefault();
-  modalStack[modalStack.length - 1].remove();
+  if (!modalStack.length) return;
+  const top = modalStack[modalStack.length - 1];
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    animateModalClose(top);
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusables = modalFocusables(top);
+  if (!focusables.length) {
+    event.preventDefault();
+    modalSheet(top).focus({ preventScroll: true });
+    return;
+  }
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  const active = document.activeElement;
+  if (!top.contains(active)) {
+    event.preventDefault();
+    first.focus({ preventScroll: true });
+  } else if (event.shiftKey && (active === first || active === modalSheet(top))) {
+    event.preventDefault();
+    last.focus({ preventScroll: true });
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus({ preventScroll: true });
+  }
 });
 
 let modalTouch = null;
@@ -7232,8 +7309,86 @@ document.addEventListener('touchend', (event) => {
   if (target instanceof Element && target.closest('input, textarea, select, [contenteditable="true"]')) return;
   const header = target instanceof Element && target.closest('.library-sheet-head, .map-modal-head, .actor-sheet-head');
   if (!header && target !== gesture.overlay) return;
-  gesture.overlay.remove();
+  animateModalClose(gesture.overlay);
 }, { passive: true });
+
+/* ================= список: свайп вправо = назад ================= */
+
+const backSwipePages = new Set(['stories', 'search', 'templates', 'admin', 'stats', 'keys', 'agents', 'core']);
+let listSwipe = null;
+document.addEventListener('touchstart', (event) => {
+  if (modalStack.length) return;
+  const route = currentRoute();
+  if (!backSwipePages.has(route.name) || !event.touches[0]) return;
+  const touch = event.touches[0];
+  if (touch.clientX > 60) return;
+  listSwipe = { x: touch.clientX, y: touch.clientY };
+}, { passive: true });
+document.addEventListener('touchend', (event) => {
+  const gesture = listSwipe;
+  listSwipe = null;
+  if (!gesture || !event.changedTouches[0] || modalStack.length) return;
+  const touch = event.changedTouches[0];
+  const dx = touch.clientX - gesture.x;
+  const dy = touch.clientY - gesture.y;
+  if (dx > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    history.back();
+  }
+}, { passive: true });
+
+/* ================= потянуть вниз: обновить ================= */
+
+const pullRefresh = el('div', 'pull-refresh hidden', 'Потяни вниз');
+document.body.append(pullRefresh);
+let pullStart = null;
+document.addEventListener('touchstart', (event) => {
+  if (modalStack.length || !event.touches[0]) return;
+  const target = event.target;
+  if (target instanceof Element && target.closest('input, textarea, select, [contenteditable="true"]')) return;
+  const scrollTop = Math.max(
+    document.scrollingElement?.scrollTop ?? 0,
+    document.querySelector('.log')?.scrollTop ?? 0,
+  );
+  if (scrollTop > 0) return;
+  const touch = event.touches[0];
+  pullStart = { x: touch.clientX, y: touch.clientY, active: true };
+}, { passive: true });
+document.addEventListener('touchmove', (event) => {
+  if (!pullStart?.active || modalStack.length || !event.touches[0]) return;
+  const touch = event.touches[0];
+  const dx = touch.clientX - pullStart.x;
+  const dy = touch.clientY - pullStart.y;
+  if (dy <= 0 || Math.abs(dx) > Math.abs(dy)) return;
+  event.preventDefault();
+  pullRefresh.classList.remove('hidden');
+  pullRefresh.classList.add('pulling');
+  pullRefresh.textContent = dy > 80 ? 'Отпусти, чтобы обновить' : 'Потяни вниз';
+  pullRefresh.style.transform = `translate(-50%, ${Math.min(28, dy / 3)}px)`;
+}, { passive: false });
+document.addEventListener('touchend', (event) => {
+  const gesture = pullStart;
+  pullStart = null;
+  if (!gesture?.active) return;
+  const touch = event.changedTouches[0];
+  const dy = touch ? touch.clientY - gesture.y : 0;
+  const shouldRefresh = dy > 80 && !modalStack.length;
+  if (!shouldRefresh) {
+    pullRefresh.classList.add('hidden');
+    pullRefresh.classList.remove('pulling');
+    pullRefresh.style.transform = '';
+    return;
+  }
+  pullRefresh.textContent = 'Обновляю…';
+  pullRefresh.style.transform = 'translate(-50%, 18px)';
+  Promise.resolve(router()).finally(() => {
+    window.setTimeout(() => {
+      pullRefresh.classList.add('hidden');
+      pullRefresh.classList.remove('pulling');
+      pullRefresh.style.transform = '';
+    }, 250);
+  });
+}, { passive: true });
+
 
 
 if ('serviceWorker' in navigator && window.isSecureContext) {
