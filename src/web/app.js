@@ -126,6 +126,27 @@ function currentCampaignId() {
   return match ? safeDecode(match[1]) : null;
 }
 
+function readCampaignCache(id) {
+  try {
+    const raw = localStorage.getItem(`omika:campaign:v1:${id}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.data ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCampaignCache(id, data) {
+  try {
+    const raw = JSON.stringify({ at: Date.now(), data });
+    // Не забиваем localStorage гигантскими кампаниями.
+    if (raw.length < 1_800_000) localStorage.setItem(`omika:campaign:v1:${id}`, raw);
+  } catch {
+    /* приватный режим/квота — просто без кэша */
+  }
+}
+
 function markActive(name) {
   const links = $$('.nav a');
   links.forEach((a) => a.classList.toggle('active', a.dataset.route === name));
@@ -5570,8 +5591,10 @@ function openContextInspector(campaignId) {
     .catch((err) => body.replaceChildren(el('p', 'page-sub', err.message)));
 }
 
-async function viewPlay(view, id) {
-  const data = await api(`/api/campaign/${encodeURIComponent(id)}`);
+async function viewPlay(view, id, useCache = true) {
+  const cached = useCache ? readCampaignCache(id) : null;
+  let data = cached?.data;
+  if (!data) data = await api(`/api/campaign/${encodeURIComponent(id)}`);
 
   const play = el('div', 'play');
   const head = el('div', 'play-head');
@@ -5797,6 +5820,24 @@ async function viewPlay(view, id) {
   const route = currentRoute();
   if (route.name !== 'play' || route.arg !== id) return;
   view.append(play);
+
+  if (useCache) {
+    void api(`/api/campaign/${encodeURIComponent(id)}`)
+      .then((fresh) => {
+        writeCampaignCache(id, fresh);
+        if (app.game?.busy) return;
+        const routeNow = currentRoute();
+        if (routeNow.name !== 'play' || routeNow.arg !== id) return;
+        const changed =
+          fresh.state?.turn !== data.state?.turn ||
+          (fresh.history?.length ?? 0) !== (data.history?.length ?? 0);
+        if (changed) {
+          view.replaceChildren();
+          void viewPlay(view, id, false);
+        }
+      })
+      .catch(() => undefined);
+  }
 
   const updateImageProgress = async () => {
     if (!document.body.contains(imageProgress)) return;
