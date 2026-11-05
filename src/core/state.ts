@@ -85,6 +85,18 @@ export interface WorldFront {
   progress: number;
   status: 'active' | 'resolved' | 'failed';
   updatedTurn: number;
+  /** квест, созданный при усилении фронта */
+  quest?: string;
+}
+
+/** Часы мира: долгий прогресс, который виден игроку. */
+export interface WorldClock {
+  id: string;
+  name: string;
+  value: number;
+  max: number;
+  status: 'active' | 'done';
+  updatedTurn: number;
 }
 
 /** Обновить чекпоинт сцены после хода. Не задаёт расписание и таймеры. */
@@ -436,6 +448,8 @@ export interface GameState {
   scene?: SceneState;
   /** долгие фронты мира, которые двигаются между ходами */
   fronts: WorldFront[];
+  /** видимые часы мира */
+  clocks: WorldClock[];
   /** что герой видел и запомнил о местах */
   locations: LocationCard[];
   /** закрытые страницы: выполнено, брошено, потеряно */
@@ -512,6 +526,7 @@ export function createState(heroName: string, place: string): GameState {
     factions: [],
     norms: DEFAULT_NORMS.map((norm) => ({ ...norm })),
     fronts: [],
+    clocks: [],
     locations: [],
     archive: [],
     reputation: { public: 0, label: 'нейтрально', witnesses: [] },
@@ -539,6 +554,7 @@ export function normalizeState(state: GameState): GameState {
   state.factions ??= [];
   state.norms ??= DEFAULT_NORMS.map((norm) => ({ ...norm }));
   state.fronts ??= [];
+  state.clocks ??= [];
   state.worldStory ??= undefined;
   state.locations ??= [];
   for (const location of state.locations) {

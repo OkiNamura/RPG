@@ -4427,3 +4427,9 @@ select {
 .event-field-wide { flex: 1 1 220px; }
 .event-field-wide .field { max-width: none; }
 .library-sheet-body h3 { text-align: left; font-size: 13px; font-weight: 500; color: var(--muted); margin: 14px 0 6px; }
+.relations-svg { width: 100%; height: auto; display: block; background: #0b0b0e; border: 1px solid var(--line); border-radius: 10px; }
+.relation-edge { stroke: #7d8f7e; stroke-width: 1.4; opacity: 0.8; }
+.relation-edge.negative { stroke: #b46b62; }
+.relation-node { fill: #17161a; stroke: var(--gold-dim); stroke-width: 1.2; }
+.relation-name { fill: var(--text); font-size: 11px; text-anchor: middle; }
+.relation-label { fill: var(--muted); font-size: 10px; text-anchor: middle; }

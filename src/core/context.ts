@@ -123,6 +123,9 @@ export function renderState(s: GameState): string {
   if (s.fronts?.length) {
     lines.push(`Фронты мира: ${s.fronts.map((front) => `${front.name} ${front.progress}% (${front.status})`).join('; ')}`);
   }
+  if (s.clocks?.length) {
+    lines.push(`Часы мира: ${s.clocks.map((clock) => `${clock.name} ${clock.value}/${clock.max}`).join('; ')}`);
+  }
   if (s.worldStory?.premise) {
     lines.push(`Сюжет мира: ${s.worldStory.premise}${s.worldStory.centralQuestion ? ` Вопрос: ${s.worldStory.centralQuestion}` : ''}`);
     if (s.worldStory.factions?.length) {

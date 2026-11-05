@@ -5018,6 +5018,12 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     if (state.scene.goal) sceneRows.push(row('Статус', state.scene.goal));
     frag.append(section('Сцена', sceneRows));
   }
+  if (state.clocks?.length) {
+    const clockRows = state.clocks.slice(0, 8).map((clock) =>
+      row(clock.name, `${clock.value}/${clock.max} · ${clock.status === 'done' ? 'заполнены' : 'идут'}`),
+    );
+    frag.append(section('Часы мира', clockRows));
+  }
   if (state.fronts?.length) {
     const frontRows = state.fronts.slice(0, 8).map((front) =>
       row(
@@ -5611,6 +5617,85 @@ function openEventsDialog(state, campaignId) {
   document.body.append(overlay);
 }
 
+function openRelationsGraph(state) {
+  const overlay = el('div', 'library-modal');
+  const sheet = el('article', 'library-sheet');
+  const head = el('div', 'library-sheet-head');
+  const titles = el('div');
+  titles.append(el('h2', 'person-name', 'Связи'));
+  titles.append(el('div', 'person-role', 'направленные отношения персонажей'));
+  const close = el('button', 'btn small', '✕');
+  close.type = 'button';
+  head.append(titles, close);
+  const body = el('div', 'library-sheet-body');
+  const people = [state.hero.name, ...(state.party ?? []).map((a) => a.name), ...(state.npcs ?? []).map((a) => a.name)];
+  const names = [...new Set(people)].slice(0, 12);
+  const actors = [...(state.party ?? []), ...(state.npcs ?? [])];
+  const edges = [];
+  for (const actor of actors) {
+    for (const relation of actor.relations ?? []) {
+      if (!names.includes(actor.name) || !names.includes(relation.with)) continue;
+      edges.push({ from: actor.name, to: relation.with, attitude: relation.attitude ?? 0, feeling: relation.feeling ?? '' });
+    }
+  }
+  if (!edges.length) {
+    body.append(el('p', 'page-sub', 'Связей пока нет. Они появятся из отношений NPC и пати.'));
+  } else {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 640 440');
+    svg.setAttribute('class', 'relations-svg');
+    const centerX = 320;
+    const centerY = 220;
+    const radius = Math.min(160, 60 + names.length * 9);
+    const positions = new Map();
+    names.forEach((name, index) => {
+      const angle = (Math.PI * 2 * index) / names.length - Math.PI / 2;
+      positions.set(name, { x: centerX + Math.cos(angle) * radius, y: centerY + Math.sin(angle) * radius });
+    });
+    for (const edge of edges) {
+      const from = positions.get(edge.from);
+      const to = positions.get(edge.to);
+      if (!from || !to) continue;
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', String(from.x));
+      line.setAttribute('y1', String(from.y));
+      line.setAttribute('x2', String(to.x));
+      line.setAttribute('y2', String(to.y));
+      line.setAttribute('class', `relation-edge ${edge.attitude < 0 ? 'negative' : 'positive'}`);
+      svg.append(line);
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.setAttribute('x', String((from.x + to.x) / 2));
+      label.setAttribute('y', String((from.y + to.y) / 2 - 4));
+      label.setAttribute('class', 'relation-label');
+      label.textContent = `${edge.attitude > 0 ? '+' : ''}${edge.attitude}`;
+      svg.append(label);
+    }
+    for (const name of names) {
+      const point = positions.get(name);
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', String(point.x));
+      circle.setAttribute('cy', String(point.y));
+      circle.setAttribute('r', '22');
+      circle.setAttribute('class', 'relation-node');
+      svg.append(circle);
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.setAttribute('x', String(point.x));
+      label.setAttribute('y', String(point.y + 4));
+      label.setAttribute('class', 'relation-name');
+      label.textContent = name.slice(0, 14);
+      svg.append(label);
+    }
+    body.append(svg);
+  }
+  sheet.append(head, body);
+  overlay.append(sheet);
+  close.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  document.body.append(overlay);
+}
+
 function openBranchesDialog(campaignId) {
   const overlay = el('div', 'library-modal');
   const sheet = el('article', 'library-sheet');
@@ -5937,8 +6022,14 @@ async function viewPlay(view, id, useCache = true) {
     closeMenu();
     openEventsDialog(data.state, id);
   });
+  const relationsBtn = menuItem('🕸', 'Связи');
+  relationsBtn.title = 'граф отношений персонажей';
+  relationsBtn.addEventListener('click', () => {
+    closeMenu();
+    openRelationsGraph(data.state);
+  });
 
-  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn, contextBtn, branchesBtn, undoBtn, continueBtn, cancelImagesBtn, queueBtn, focusBtn, eventsBtn);
+  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn, contextBtn, branchesBtn, undoBtn, continueBtn, cancelImagesBtn, queueBtn, focusBtn, eventsBtn, relationsBtn);
   const clockBtn = el('button', 'btn small clock-btn');
   clockBtn.type = 'button';
   clockBtn.title = 'подробнее о времени мира';

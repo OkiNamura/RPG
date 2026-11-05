@@ -13,11 +13,15 @@ state.worldStory = normalizeWorldStory({
 });
 state.fronts = makeFrontsFromStory(state);
 if (state.fronts.length !== 2) throw new Error('фронты не созданы');
+if (state.clocks.length !== 2) throw new Error('часы мира не созданы');
 
 const before = state.fronts[0].progress;
 state.turn = 9;
 const changes = advanceWorld(state);
 if (state.fronts[0].progress <= before) throw new Error('фронт не двинулся');
+for (let i = 0; i < 20; i += 1) { state.turn += 1; advanceWorld(state); }
+if (!state.fronts[0].quest) throw new Error('квест фронта не создан');
+if (state.clocks[0].value <= 0) throw new Error('часы мира не двинулись');
 
 state.place = 'Кухня дома';
 const first = updateSceneCheckpoint(state, 'Мама ставит ложку.', false);
