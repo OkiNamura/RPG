@@ -146,6 +146,7 @@ export const DEFAULT_AGENTS: AgentSet = {
                    "skills": {"Скрытность": 14, "Ловкость": 11},
                    "relations": [{"with": "Морайла", "feeling": "ревнует", "attitude": -20}]}],
   "factions":    [{"name": "Городской совет", "attitude": -10, "note": "...",
+                   "norms": {"honesty": 2, "law": 4, "freedom": -1},
                    "leader": "бургомистр Хальд",
                    "shadow": "серый кардинал — писарь Верн",
                    "roster": [{"name": "Хальд", "role": "бургомистр"},
@@ -445,6 +446,10 @@ export async function loadAgents(dir: string): Promise<AgentSet> {
     if (version < 21) {
       result.state.prompt = DEFAULT_AGENTS.state.prompt;
     }
+    // v21 → v22: нормы фракций.
+    if (version < 22) {
+      result.state.prompt = DEFAULT_AGENTS.state.prompt;
+    }
 
     return result;
   } catch {
@@ -459,7 +464,7 @@ export async function saveAgents(dir: string, incoming: Partial<AgentSet>): Prom
     result[id] = merge(current[id], incoming[id] ?? {});
   }
   await mkdir(dir, { recursive: true });
-  await writeFile(agentsPath(dir), `${JSON.stringify({ version: 21, agents: result }, null, 2)}\n`, 'utf8');
+  await writeFile(agentsPath(dir), `${JSON.stringify({ version: 22, agents: result }, null, 2)}\n`, 'utf8');
   return result;
 }
 
