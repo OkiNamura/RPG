@@ -125,6 +125,8 @@ export const DEFAULT_AGENTS: AgentSet = {
   "promises":    ["..."],
   "quests":      [{"title": "...", "status": "active", "turnsLimit": 3, "steps": ["..."]}],
   "events":      [{"title": "встреча у пруда", "at": {"day": 2, "hour": 14, "minute": 0}, "importance": "meaningful", "wake": true}],
+  "norms":       [{"id": "honesty", "label": "Честность", "weight": 3, "internalized": true}],
+  "normViolations": [{"normId": "honesty", "severity": 2, "public": true, "witnesses": ["Ася"], "evidence": "ложь раскрыта"}],
   "npcs":        [{"name": "Гуннар", "role": "трактирщик", "status": "alive",
                    "present": true, "attitude": 20, "appearance": "...",
                    "character": "...", "clothes": "...", "bio": "...", "history": "если известно прошлое", "description": "короткое описание для карточки", "abilities": "что умеет", "note": "...",
@@ -219,6 +221,12 @@ export const DEFAULT_AGENTS: AgentSet = {
   critical (авария/угроза), meaningful (встреча/выбор), ambient (обычный пит-стоп),
   silent (шум). wake — только если событие может разбудить героя;
 - не придумывай событие «для интереса» и не дублируй уже существующее;
+- нормы — это ценности мира, а не мораль автора: honesty, loyalty, law, piety,
+  purity, courage, mercy, freedom. weight 0..5; internalized — важно ли нарушение
+  без свидетелей. Не добавляй норму, если её нет в мире;
+- normViolations фиксируй только когда поступок реально нарушил норму мира:
+  normId, severity 1..3, public, witnesses, evidence. Не выноси моральную оценку
+  в прозе; последствия репутации, отношений и дебаффы считает движок;
 - intuition: одна короткая строка о том, что герой чувствует и подозревает.
   Это его внутренний голос, а не действие и не речь. Обновляй почти каждый ход;
 - скиллы: при первом появлении NPC или спутника задай 3-5 скиллов из набора
@@ -433,6 +441,10 @@ export async function loadAgents(dir: string): Promise<AgentSet> {
     if (version < 20) {
       result.state.prompt = DEFAULT_AGENTS.state.prompt;
     }
+    // v20 → v21: универсальные нормы и нарушения.
+    if (version < 21) {
+      result.state.prompt = DEFAULT_AGENTS.state.prompt;
+    }
 
     return result;
   } catch {
@@ -447,7 +459,7 @@ export async function saveAgents(dir: string, incoming: Partial<AgentSet>): Prom
     result[id] = merge(current[id], incoming[id] ?? {});
   }
   await mkdir(dir, { recursive: true });
-  await writeFile(agentsPath(dir), `${JSON.stringify({ version: 20, agents: result }, null, 2)}\n`, 'utf8');
+  await writeFile(agentsPath(dir), `${JSON.stringify({ version: 21, agents: result }, null, 2)}\n`, 'utf8');
   return result;
 }
 

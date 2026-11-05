@@ -33,12 +33,35 @@ export interface Relation {
   note?: string;
 }
 
+import type { WorldStory } from './world-story.ts';
+
 export interface Reputation {
   /** -100..100: как героя видят горожане/общество */
   public: number;
   label: string;
   witnesses?: string[];
   note?: string;
+  /** отношение отдельных фракций */
+  byFaction?: Record<string, number>;
+}
+
+/** Универсальная норма мира: не «грех», а ценность с весом. */
+export interface Norm {
+  id: string;
+  label: string;
+  /** 0..5: насколько мир/сторона ценит норму */
+  weight: number;
+  /** важно ли нарушение даже без свидетелей */
+  internalized?: boolean;
+}
+
+export interface NormViolation {
+  normId: string;
+  severity: 1 | 2 | 3;
+  public?: boolean;
+  witnesses?: string[];
+  evidence?: string;
+  reason?: string;
 }
 
 export interface Actor {
@@ -108,6 +131,11 @@ export interface Status {
   name: string;
   kind: 'buff' | 'debuff';
   note?: string;
+  /** источник: норма, фракция, событие */
+  source?: string;
+  severity?: number;
+  witnesses?: string[];
+  until?: string;
 }
 
 export interface Faction {
@@ -121,6 +149,8 @@ export interface Faction {
   shadow?: string;
   /** состав: кто входит */
   roster?: { name: string; role: string; note?: string; hidden?: boolean }[];
+  /** собственные веса норм; отсутствующие берутся из мира */
+  norms?: Record<string, number>;
 }
 
 export interface LocationCard {
@@ -345,6 +375,10 @@ export interface GameState {
   hooks: string[];
   /** отношения с группами: гильдии, культы, знать, город */
   factions: Faction[];
+  /** универсальные нормы мира */
+  norms: Norm[];
+  /** рамка сюжета мира: заполняется мастером промтов */
+  worldStory?: WorldStory;
   /** что герой видел и запомнил о местах */
   locations: LocationCard[];
   /** закрытые страницы: выполнено, брошено, потеряно */
@@ -363,6 +397,18 @@ export interface GameState {
 }
 
 let factCounter = 0;
+
+/** Базовый словарь ценностей. Мир/фракции переопределяют веса. */
+export const DEFAULT_NORMS: Norm[] = [
+  { id: 'honesty', label: 'Честность', weight: 2, internalized: true },
+  { id: 'loyalty', label: 'Верность своим', weight: 3, internalized: true },
+  { id: 'law', label: 'Закон', weight: 2, internalized: false },
+  { id: 'piety', label: 'Почитание богов', weight: 2, internalized: true },
+  { id: 'purity', label: 'Чистота и традиция', weight: 2, internalized: false },
+  { id: 'courage', label: 'Смелость', weight: 2, internalized: true },
+  { id: 'mercy', label: 'Милосердие', weight: 2, internalized: true },
+  { id: 'freedom', label: 'Свобода', weight: 2, internalized: true },
+];
 
 export function addHiddenFact(state: GameState, content: string): HiddenFact {
   factCounter += 1;
@@ -407,6 +453,7 @@ export function createState(heroName: string, place: string): GameState {
     promises: [],
     hooks: [],
     factions: [],
+    norms: DEFAULT_NORMS.map((norm) => ({ ...norm })),
     locations: [],
     archive: [],
     reputation: { public: 0, label: 'нейтрально', witnesses: [] },
@@ -432,6 +479,8 @@ export function normalizeState(state: GameState): GameState {
   state.promises ??= [];
   state.hooks ??= [];
   state.factions ??= [];
+  state.norms ??= DEFAULT_NORMS.map((norm) => ({ ...norm }));
+  state.worldStory ??= undefined;
   state.locations ??= [];
   for (const location of state.locations) {
     location.note ??= '';

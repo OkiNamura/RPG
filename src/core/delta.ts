@@ -5,7 +5,7 @@
  * отбрасывается, ход продолжается — стейт нельзя испортить одним ответом.
  */
 
-import { addHiddenFact, type Actor, type Currency, type GameState, type Item, type Mind, type Quest, type Relation, type Resource, type SkillMod, type StateEvent, type Status } from './state.ts';
+import { addHiddenFact, type Actor, type Currency, type GameState, type Item, type Mind, type Norm, type NormViolation, type Quest, type Relation, type Resource, type SkillMod, type StateEvent, type Status } from './state.ts';
 
 /** Изменение валюты мира или карточки. */
 export interface CurrencyPatch {
@@ -107,6 +107,10 @@ export interface Delta {
     place?: string;
     status?: StateEvent['status'];
   }[];
+  /** профиль норм мира: id/вес/подпись */
+  norms?: Norm[];
+  /** нарушения норм; код сам считает репутацию, отношения и дебаффы */
+  normViolations?: NormViolation[];
   npcs?: ActorPatch[];
   party?: ActorPatch[];
   factions?: {
@@ -116,6 +120,8 @@ export interface Delta {
     leader?: string;
     shadow?: string;
     roster?: { name: string; role: string; note?: string; hidden?: boolean }[];
+    /** собственные веса норм */
+    norms?: Record<string, number>;
   }[];
   places?: { name: string; note?: string; description?: string; history?: string }[];
   lore?: { keys: string[]; content: string }[];
@@ -464,7 +470,95 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
   // Старые кампании могли не иметь лор-книги.
   state.lore ??= [];
   state.events ??= [];
+  state.norms ??= [];
   state.reputation ??= { public: 0, label: 'нейтрально', witnesses: [] };
+  state.reputation.byFaction ??= {};
+  if (delta.norms?.length) {
+    for (const norm of delta.norms) {
+      if (!norm.id?.trim()) continue;
+      const existing = state.norms.find((item) => item.id === norm.id);
+      if (existing) {
+        existing.label = norm.label || existing.label;
+        existing.weight = Math.max(0, Math.min(5, Number(norm.weight ?? existing.weight)));
+        if (norm.internalized != null) existing.internalized = Boolean(norm.internalized);
+      } else {
+        state.norms.push({
+          id: norm.id,
+          label: norm.label || norm.id,
+          weight: Math.max(0, Math.min(5, Number(norm.weight ?? 2))),
+          internalized: Boolean(norm.internalized),
+        });
+      }
+    }
+  }
+  if (delta.normViolations?.length) {
+    const clamp = (value: number): number => Math.max(-100, Math.min(100, Math.round(value)));
+    const reputationLabel = (value: number): string =>
+      value >= 60 ? 'герой общества' :
+      value >= 20 ? 'уважаемый' :
+      value >= 5 ? 'доброжелательный' :
+      value <= -60 ? 'изгой' :
+      value <= -20 ? 'опасный' :
+      value <= -5 ? 'подозрительный' : 'нейтрально';
+    for (const violation of delta.normViolations) {
+      const norm = state.norms.find((item) => item.id === violation.normId);
+      if (!norm) continue;
+      const severity = Math.max(1, Math.min(3, Number(violation.severity) || 1));
+      const witnesses = [...new Set((violation.witnesses ?? []).map(String).filter(Boolean))].slice(0, 20);
+      const isPublic = violation.public !== false && witnesses.length > 0;
+      const visibility = isPublic ? 1 : (norm.internalized ? 0.3 : 0);
+      if (visibility <= 0) continue;
+      const impact = severity * Math.max(0, norm.weight) * 3 * visibility;
+      if (isPublic) {
+        state.reputation.public = clamp(state.reputation.public - impact);
+        state.reputation.label = reputationLabel(state.reputation.public);
+        state.reputation.witnesses = [...new Set([...(state.reputation.witnesses ?? []), ...witnesses])].slice(-20);
+        for (const faction of state.factions ?? []) {
+          const weight = faction.norms?.[norm.id] ?? norm.weight;
+          if (!weight) continue;
+          const delta = -weight * severity * 3 * visibility;
+          faction.attitude = clamp((faction.attitude ?? 0) + delta);
+          state.reputation.byFaction![faction.name] = clamp(
+            (state.reputation.byFaction?.[faction.name] ?? 0) + delta,
+          );
+          changes.push(`${faction.name}: норма «${norm.label}» ${delta < 0 ? 'осуждает' : 'одобряет'}`);
+        }
+        for (const name of witnesses) {
+          const actor = [...(state.party ?? []), ...(state.npcs ?? [])].find((item) => item.name === name);
+          if (!actor) continue;
+          const weight = norm.weight;
+          if (!weight) continue;
+          const delta = -weight * severity * 3 * visibility;
+          actor.attitude = clamp((actor.attitude ?? 0) + delta);
+          if (state.party.includes(actor)) actor.morale = Math.max(0, Math.min(100, (actor.morale ?? 50) + delta));
+          changes.push(`${actor.name}: отношение ${delta < 0 ? 'упало' : 'выросло'} (${norm.label})`);
+        }
+        const statusName = `Тень: ${norm.label}`;
+        const source = `norm:${norm.id}`;
+        const existing = state.hero.statuses.find((status) => status.source === source);
+        if (existing) {
+          existing.severity = Math.max(existing.severity ?? 0, severity);
+          existing.witnesses = [...new Set([...(existing.witnesses ?? []), ...witnesses])].slice(-20);
+          existing.note = violation.evidence || violation.reason || existing.note;
+        } else {
+          state.hero.statuses.push({
+            name: statusName,
+            kind: 'debuff',
+            note: violation.evidence || violation.reason || '',
+            source,
+            severity,
+            witnesses,
+            until: 'искупление или новая сцена',
+          });
+        }
+        changes.push(`дебафф: ${statusName} (${severity})`);
+      } else if (norm.internalized) {
+        addHiddenFact(state, `Скрытое нарушение нормы «${norm.label}»: ${violation.evidence || violation.reason || 'без свидетелей'}`);
+        changes.push(`скрытое нарушение: ${norm.label}`);
+      }
+    }
+  }
+
   if (delta.heroHistory) state.hero.history = delta.heroHistory;
   if (delta.heroSkillAffinities) {
     state.hero.skillAffinities = { ...(state.hero.skillAffinities ?? {}), ...delta.heroSkillAffinities };
@@ -781,6 +875,7 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
       if (faction.leader) existing.leader = faction.leader;
       if (faction.shadow) existing.shadow = faction.shadow;
       if (faction.roster?.length) existing.roster = faction.roster;
+      if (faction.norms) existing.norms = { ...(existing.norms ?? {}), ...faction.norms };
       changes.push(`фракция: ${existing.name} (${attitude})`);
     } else {
       state.factions.push({
@@ -790,6 +885,7 @@ export function applyDelta(state: GameState, delta: Delta): string[] {
         leader: faction.leader,
         shadow: faction.shadow,
         roster: faction.roster,
+        norms: faction.norms,
       });
       // Автолор: организация сама попадает в книгу.
       const parts = [faction.leader ? `глава: ${faction.leader}` : '', faction.shadow ? `тень: ${faction.shadow}` : faction.note ?? ''];

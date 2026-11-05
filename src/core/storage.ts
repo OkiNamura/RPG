@@ -31,6 +31,8 @@ export interface CampaignMeta {
     temperature?: number;
     artists?: { hero?: string; npc?: string; item?: string; scene?: string };
   };
+  /** универсальная сюжетная рамка мира */
+  story?: import('./world-story.ts').WorldStory;
   /** теги иллюстратора, выбранные в этой игре */
   art?: { include: string[]; exclude: string[] };
   /** параметры ИИ, выбранные в иллюстраторе */

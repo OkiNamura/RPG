@@ -4969,9 +4969,29 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     for (const faction of (state.factions ?? []).slice(0, 5)) {
       reputationRows.push(row(faction.name, `${faction.attitude > 0 ? '+' : ''}${faction.attitude}`));
     }
+    if (state.norms?.length) {
+      reputationRows.push(row('Нормы мира', state.norms
+        .filter((norm) => norm.weight > 0)
+        .map((norm) => `${norm.label} ${norm.weight}`)
+        .join(' · ')));
+    }
     frag.append(section('Репутация', reputationRows));
   }
 
+  if (state.worldStory) {
+    const story = el('details', 'card');
+    story.append(el('summary', '', 'Сюжетная рамка мира'));
+    const body = el('div', 'card-body');
+    if (state.worldStory.premise) body.append(el('p', 'page-sub', state.worldStory.premise));
+    if (state.worldStory.centralQuestion) body.append(row('Вопрос', state.worldStory.centralQuestion));
+    if (state.worldStory.stakes) body.append(row('Ставки', state.worldStory.stakes));
+    if (state.worldStory.factions?.length) {
+      body.append(row('Фракции', state.worldStory.factions.map((faction) => faction.name).join(', ')));
+    }
+    if (state.worldStory.taboos?.length) body.append(row('Табу', state.worldStory.taboos.join(', ')));
+    story.append(body);
+    frag.append(section('Мир', [story]));
+  }
   const mem = el('details', 'card');
   mem.append(el('summary', '', 'Память истории'));
   const memBody = el('div', 'card-body');
@@ -5025,6 +5045,10 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     body.push(itemList(state.hero.statuses.map((s) => {
       const li = el('li');
       li.append(el('span', '', s.name), el('span', 'tag', s.kind === 'debuff' ? 'минус' : 'плюс'));
+      const detail = [s.source, s.severity != null ? `сила ${s.severity}` : '', s.witnesses?.length ? `свидетели: ${s.witnesses.join(', ')}` : '', s.note]
+        .filter(Boolean)
+        .join(' · ');
+      if (detail) li.append(el('div', 'person-field', detail));
       return li;
     })));
   }

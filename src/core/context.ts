@@ -100,7 +100,7 @@ export function renderState(s: GameState): string {
   if (s.hero.statuses?.length) {
     lines.push(
       `Эффекты: ${s.hero.statuses
-        .map((x) => `${x.name} (${x.kind === 'debuff' ? 'минус' : 'плюс'}${x.note ? `, ${x.note}` : ''})`)
+        .map((x) => `${x.name} (${x.kind === 'debuff' ? 'минус' : 'плюс'}${x.note ? `, ${x.note}` : ''}${x.source ? `, источник ${x.source}` : ''})`)
         .join('; ')}`,
     );
   }
@@ -108,6 +108,15 @@ export function renderState(s: GameState): string {
   if (s.currencies?.length) lines.push(`Валюты мира: ${s.currencies.map((c) => c.name).join(', ')}`);
   if (s.reputation) {
     lines.push(`Репутация героя: ${s.reputation.public} (${s.reputation.label})${s.reputation.note ? ` — ${s.reputation.note}` : ''}`);
+    if (s.factions?.length) {
+      lines.push(`Фракции: ${s.factions.map((f) => `${f.name} ${f.attitude > 0 ? '+' : ''}${f.attitude}`).join('; ')}`);
+    }
+    if (s.norms?.length) {
+      lines.push(`Нормы мира: ${s.norms.map((n) => `${n.label} ${n.weight}`).join(' · ')}`);
+    }
+  }
+  if (s.worldStory?.premise) {
+    lines.push(`Сюжет мира: ${s.worldStory.premise}${s.worldStory.centralQuestion ? ` Вопрос: ${s.worldStory.centralQuestion}` : ''}`);
   }
   if (s.hero.resources?.length) lines.push(`Ресурсы героя: ${formatResources(s.hero.resources)}`);
 

@@ -13,7 +13,8 @@ import { appendFile, copyFile, mkdir, readFile, readdir, rename, unlink, writeFi
 import { basename, extname, join, normalize, sep } from 'node:path';
 import { characterSheetPrompt, generateImage, itemCardPrompt, locationPrompt, masterCardPrompt, portraitPrompt, scenePrompt } from './core/images.ts';
 import { renderMap } from './core/map.ts';
-import { createState, normalizeState, type Actor, type GameState, type NumberChange, type Resource } from './core/state.ts';
+import { createState, normalizeState, type Actor, type GameState, type Norm, type NumberChange, type Resource } from './core/state.ts';
+import { normalizeWorldStory, type WorldStory } from './core/world-story.ts';
 import { Conspect, type Arc } from './core/conspect.ts';
 import { createSession, runTurn, addUsage, type Session, type TurnStats } from './core/turn.ts';
 import {
@@ -252,7 +253,7 @@ async function composePrompts(input: {
   hero: string;
   level: number;
   temperature?: number;
-}): Promise<{ gm: string; temperature: number; artists: Record<string, string> }> {
+}): Promise<{ gm: string; temperature: number; artists: Record<string, string>; story?: WorldStory; norms?: Norm[] }> {
   const agent = agents.prompter;
   if (!agent?.enabled) throw new Error('мастер промтов выключен');
   const key = keyStore.getSync(agent.keyRef);
@@ -263,12 +264,20 @@ async function composePrompts(input: {
   const model = makeAgentModel(agent, false);
   const task = [
     'Собери промты для этой игры. Верни только JSON:',
-    '{"gmPrompt": "...", "temperature": 0.9, "artists": {"hero": "...", "npc": "...", "item": "...", "scene": "..."}}',
+    '{"gmPrompt": "...", "temperature": 0.9, "artists": {"hero": "...", "npc": "...", "item": "...", "scene": "..."},',
+    ' "story": {"premise": "...", "centralQuestion": "...", "stakes": "...", "tone": "...",',
+    '   "factions": [{"name": "...", "interests": "...", "redLines": "...", "norms": {"honesty": 3}}],',
+    '   "partyRoles": [{"name": "...", "role": "...", "want": "...", "fear": "..."}],',
+    '   "npcLines": [{"name": "...", "faction": "...", "want": "...", "fear": "...", "secret": "...", "arc": "..."}],',
+    '   "locations": [{"name": "...", "role": "..."}], "taboos": ["..."], "beats": ["..."]},',
+    ' "norms": [{"id": "honesty", "label": "Честность", "weight": 3, "internalized": true}]}',
     '',
     'Требования:',
     '- gmPrompt: инструкция ведущему. В ней обязательны тон повествования, уровень жёсткости и температура словами.',
     '- temperature: число 0–2 под этот тон.',
     '- artists: короткие стилевые промты для иллюстраторов. Стиль карточек — один (аниме), сцена — по тону.',
+    '- story: универсальная рамка мира, не одна фиксированная история. Заполни относительно тегов, тона и пожеланий. У фракций могут быть свои веса норм.',
+    '- norms: ценности мира с весами 0–5; не выдумывай мораль, которой нет в мире.',
     '',
     `Уровень: ${level.value}/11 — ${level.name}. ${level.directive}`,
     `Тон: ${String(input.tone ?? '').slice(0, 4000) || 'не задан'}`,
@@ -290,6 +299,15 @@ async function composePrompts(input: {
     gm: String(parsed.gmPrompt),
     temperature: Number(parsed.temperature ?? temperature),
     artists: (parsed.artists ?? {}) as Record<string, string>,
+    story: normalizeWorldStory(parsed.story) ?? undefined,
+    norms: Array.isArray(parsed.norms)
+      ? (parsed.norms as Norm[]).map((norm) => ({
+          id: String(norm.id ?? '').trim(),
+          label: String(norm.label ?? norm.id ?? '').trim(),
+          weight: Math.max(0, Math.min(5, Number(norm.weight ?? 2))),
+          internalized: Boolean(norm.internalized),
+        })).filter((norm) => norm.id)
+      : undefined,
   };
 }
 
@@ -3152,6 +3170,8 @@ const server = createServer(async (req, res) => {
       const gmRole = gameAgents.gm.enabled ? gameAgents.gm.prompt : DEFAULT_AGENTS.gm.prompt;
       const toneSection = toneText.replace(/^\s*#\s*ТОН\s*/i, '').trim();
       const gmSection = `# ВЕДУЩИЙ\n${gmRole}\n\n# ТОН\n${toneSection}${levelBlock}`;
+      let composedStory: WorldStory | undefined;
+      let composedNorms: Norm[] | undefined;
 
       // Каждая новая игра получает своих ведущего и иллюстратора под тон и мир.
       if (body.generatePrompts !== false && agents.prompter?.enabled) {
@@ -3163,6 +3183,8 @@ const server = createServer(async (req, res) => {
             level: level?.value ?? 5,
             temperature: requestedTemperature,
           });
+          composedStory = composed.story;
+          composedNorms = composed.norms;
           // Тон не переписываем: он уже лежит в gmSection отдельной секцией.
           // Мастер промтов отвечает только за промты иллюстратора.
           gameAgents.gm.prompt = gmRole;
@@ -3200,6 +3222,9 @@ const server = createServer(async (req, res) => {
       const place = 'неизвестно';
 
       const state = createState(heroName, place);
+      state.worldStory = composedStory;
+      if (composedNorms?.length) state.norms = composedNorms;
+      if (composedStory) meta.story = composedStory;
       // Стартовый ранг — случайно FFF/FF/F, развитие идёт через rankPoints.
       state.hero.rank = randomStartRank();
       state.hero.rankPoints = 0;
