@@ -6315,6 +6315,34 @@ async function viewPlay(view, id, useCache = true) {
         } catch (err2) {
           toast(err2.message);
         }
+      } else {
+        // Поток оборвался уже после первых слов. Один автоматический
+        // повтор через обычный POST с тем же clientTurnId: сервер либо
+        // отдаст сохранённый ход, либо завершит его без дубля.
+        const retryKey = `omika:stream-retry:${id}:${clientTurnId}`;
+        let alreadyTried = false;
+        try {
+          alreadyTried = sessionStorage.getItem(retryKey) === '1';
+          if (!alreadyTried) sessionStorage.setItem(retryKey, '1');
+        } catch {
+          /* приватный режим */
+        }
+        if (!alreadyTried) {
+          started = false;
+          if (log.contains(wrap)) wrap.remove();
+          try {
+            const res = await api(`/api/campaign/${encodeURIComponent(id)}/turn`, {
+              method: 'POST',
+              body: JSON.stringify({ input: text, dice: Boolean(dice), clientTurnId, focus: sceneFocus, timeTarget }),
+            });
+            clearPending(id, clientTurnId);
+            hideOutbox();
+            applyResult(res);
+            return;
+          } catch (err2) {
+            toast(err2.message);
+          }
+        }
       }
       const current = readPending(id);
       if (current) showOutbox(current);
