@@ -39,7 +39,8 @@ const session = {
   lastSegments: [],
 };
 
-await runTurn(session, 'Я договорилась, мне сделали бесплатно.');
+const stats = await runTurn(session, 'Я договорилась, мне сделали бесплатно.');
+if (!stats.timings || typeof stats.timings.gmMs !== 'number') throw new Error('нет замеров этапов');
 const last = state.log.at(-1)?.text ?? '';
 if (calls !== 2) throw new Error(`ожидался один повтор, вызовов: ${calls}`);
 if (/И это ты сделала сама/.test(last)) throw new Error('повтор сцены остался');

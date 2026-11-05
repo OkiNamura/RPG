@@ -129,6 +129,12 @@ export interface TurnStats {
   problems: string[];
   changes: string[];
   segments: SegmentReport[];
+  /** сцена топталась: повтор действия или повтор ответа */
+  stalled?: boolean;
+  /** максимальное совпадение с недавними действиями игрока */
+  actionRepeat?: number;
+  /** миллисекунды по этапам */
+  timings?: Record<string, number>;
 }
 
 export function createSession(params: {
@@ -181,7 +187,23 @@ export async function runTurn(
   onDelta?: (text: string) => void,
 ): Promise<TurnStats> {
   const state = session.state;
+  const previousGm = [...state.log].reverse().find((entry) => entry.role === 'gm')?.text ?? '';
+  const recentPlayerActions = state.log
+    .filter((entry) => entry.role === 'player')
+    .slice(-6)
+    .map((entry) => entry.text);
+  const actionRepeat = recentPlayerActions.reduce(
+    (max, previous) => Math.max(max, proseSimilarity(previous, playerInput)),
+    0,
+  );
+  if (actionRepeat > 0.72) {
+    session.extraNotes = [
+      session.extraNotes,
+      'СЦЕНА ТОПЧЕТСЯ: игрок повторяет то же действие. Не повторяй прошлый ответ. Введи новый факт, реакцию или реплику, которые реально меняют сцену.',
+    ].filter(Boolean).join('\n');
+  }
 
+  const contextStarted = Date.now();
   const ctx = buildContext({
     core: session.text.core,
     world: session.text.world,
@@ -201,6 +223,7 @@ export async function runTurn(
     memory: session.memory,
   });
 
+  const contextMs = Date.now() - contextStarted;
   const prev = session.lastSegments;
   const prefixCached = cachedPrefix(prev, ctx.segments);
   session.lastSegments = ctx.segments;
@@ -220,6 +243,7 @@ export async function runTurn(
   let reply = canStream
     ? await session.model.stream!(ctx.messages, onDelta!)
     : await session.model.complete(ctx.messages);
+  const gmMs = Date.now() - contextStarted - contextMs;
   // Провайдер знает точнее — берём его цифры, если они есть.
   let tokensIn = reply.inputTokens ?? ctx.totalTokens;
   let cachedTokens = reply.cachedTokens ?? prefixCached;
@@ -254,11 +278,10 @@ export async function runTurn(
 
   // Защита от зацикливания: модель иногда повторяет предыдущий ответ
   // дословно, хотя игрок уже сказал новое. Один повтор с явным запретом.
-  const previousGm = [...state.log].reverse().find((entry) => entry.role === 'gm')?.text ?? '';
   let repeatedResponse = false;
-  if (previousGm && parsed.prose.trim()) {
+  if ((previousGm || actionRepeat > 0.72) && parsed.prose.trim()) {
     const similarity = proseSimilarity(previousGm, parsed.prose);
-    if (similarity > 0.82) {
+    if (similarity > 0.82 || actionRepeat > 0.72) {
       repeatedResponse = true;
       try {
         const retry = await session.model.complete([
@@ -266,7 +289,7 @@ export async function runTurn(
           {
             role: 'user',
             content:
-              'Ты повторяешь предыдущий ответ ведущего. Ответь на новое действие игрока, продвинь сцену новым фактом, реакцией или репликой. Не повторяй прошлый текст.',
+              'Сцена топчется. Ответь на новое действие игрока и введи новый факт: реакцию, реплику, звук или изменение положения. Не повторяй прошлый ответ и не задавай тот же вопрос.',
           },
         ]);
         tokensIn += retry.inputTokens ?? 0;
@@ -335,6 +358,8 @@ export async function runTurn(
 
   const problems = parsed.error ? [...verdict.problems, parsed.error] : verdict.problems;
   if (repeatedResponse) problems.push('повтор сцены');
+  const stalled = repeatedResponse || actionRepeat > 0.72;
+  if (stalled && !problems.includes('повтор сцены')) problems.push('повтор сцены');
 
   let passed = 0;
   for (let i = 0; i < ctx.segments.length && i < prev.length; i += 1) {
@@ -352,5 +377,11 @@ export async function runTurn(
     problems,
     changes,
     segments,
+    stalled,
+    actionRepeat,
+    timings: {
+      contextMs,
+      gmMs,
+    },
   };
 }

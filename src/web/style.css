@@ -661,7 +661,7 @@ body {
 .skills-line {
   margin-top: 6px;
   font-size: 11px;
-  color: var(--dim);
+  color: #a9a296;
   font-family: "Cascadia Mono", Consolas, monospace;
   line-height: 1.4;
 }
@@ -1266,7 +1266,7 @@ body {
 
 .tag {
   font-size: 10px;
-  color: var(--dim);
+  color: #b8b0a3;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   white-space: nowrap;
@@ -3678,7 +3678,7 @@ select {
 }
 
 .hero-card-hint {
-  color: var(--dim);
+  color: #a9a296;
   font-size: 11px;
 }
 

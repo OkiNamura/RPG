@@ -13,8 +13,9 @@ import { appendFile, copyFile, mkdir, readFile, readdir, rename, unlink, writeFi
 import { basename, extname, join, normalize, sep } from 'node:path';
 import { characterSheetPrompt, generateImage, itemCardPrompt, locationPrompt, masterCardPrompt, portraitPrompt, scenePrompt } from './core/images.ts';
 import { renderMap } from './core/map.ts';
-import { createState, normalizeState, type Actor, type GameState, type Norm, type NumberChange, type Resource } from './core/state.ts';
+import { createState, normalizeState, updateSceneCheckpoint, type Actor, type GameState, type Norm, type NumberChange, type Resource } from './core/state.ts';
 import { normalizeWorldStory, type WorldStory } from './core/world-story.ts';
+import { advanceWorld, makeFrontsFromStory } from './core/world.ts';
 import { Conspect, type Arc } from './core/conspect.ts';
 import { createSession, runTurn, addUsage, type Session, type TurnStats } from './core/turn.ts';
 import {
@@ -1507,7 +1508,10 @@ function reviveIfAllowed(id: string, session: Session): void {
   beforeNumbers?: NumericSnapshot,
   timeTarget?: TimeTarget | null,
 ): Promise<Record<string, unknown>> {
+  const afterStarted = Date.now();
+  const repairStarted = Date.now();
   const repairedProse = await repairSceneIfNeeded(session, prose, input);
+  const repairMs = Date.now() - repairStarted;
   if (repairedProse !== prose) {
     const gmLog = [...session.state.log]
       .reverse()
@@ -1521,6 +1525,12 @@ function reviveIfAllowed(id: string, session: Session): void {
       ? runSummary(session, input, prose)
       : Promise.resolve({ ok: false, cost: 0, tokensIn: 0, tokensOut: 0 }),
   ]);
+  stats.timings = {
+    ...(stats.timings ?? {}),
+    repairMs,
+    agentMs: Date.now() - repairStarted - repairMs,
+    afterMs: Date.now() - afterStarted,
+  };
 
   const agentChanges = stateResult.status === 'fulfilled' ? stateResult.value.changes : [];
   if (stateResult.status === 'fulfilled') {
@@ -1534,6 +1544,8 @@ function reviveIfAllowed(id: string, session: Session): void {
   reviveIfAllowed(id, session);
   // Цель времени ставим после агента состояния: он не должен её переписать.
   if (beforeNumbers && timeTarget) applyTimeTarget(session, timeTarget, beforeNumbers);
+  updateSceneCheckpoint(session.state, prose, Boolean(stats.stalled));
+  agentChanges.push(...advanceWorld(session.state));
 
   const reasons = stateResult.status === 'fulfilled' ? { ...stateResult.value.reasons } : {};
   if (beforeNumbers && !timeTarget) {
@@ -3223,6 +3235,7 @@ const server = createServer(async (req, res) => {
 
       const state = createState(heroName, place);
       state.worldStory = composedStory;
+      if (composedStory) state.fronts = makeFrontsFromStory(state);
       if (composedNorms?.length) state.norms = composedNorms;
       if (composedStory) meta.story = composedStory;
       // Стартовый ранг — случайно FFF/FF/F, развитие идёт через rankPoints.

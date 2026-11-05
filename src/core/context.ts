@@ -87,6 +87,11 @@ export function renderState(s: GameState): string {
   lines.push(`ТЕКУЩЕЕ СОСТОЯНИЕ (ход ${s.turn})`);
   lines.push(`Время: ${formatWorldDate(s.calendar, s.time)}`);
   lines.push(`Место: ${s.place}`);
+  if (s.scene) {
+    lines.push(
+      `Сцена: ${s.scene.place}, ход ${s.scene.startedTurn}–${s.scene.updatedTurn}; участники: ${s.scene.participants.join(', ') || 'только герой'}${s.scene.goal ? `; ${s.scene.goal}` : ''}`,
+    );
+  }
   lines.push(`Погода: ${s.weather}`);
 
   const wounds = s.hero.wounds.length
@@ -115,8 +120,17 @@ export function renderState(s: GameState): string {
       lines.push(`Нормы мира: ${s.norms.map((n) => `${n.label} ${n.weight}`).join(' · ')}`);
     }
   }
+  if (s.fronts?.length) {
+    lines.push(`Фронты мира: ${s.fronts.map((front) => `${front.name} ${front.progress}% (${front.status})`).join('; ')}`);
+  }
   if (s.worldStory?.premise) {
     lines.push(`Сюжет мира: ${s.worldStory.premise}${s.worldStory.centralQuestion ? ` Вопрос: ${s.worldStory.centralQuestion}` : ''}`);
+    if (s.worldStory.factions?.length) {
+      lines.push(`Стороны мира: ${s.worldStory.factions.map((faction) => faction.name).join(', ')}`);
+    }
+    if (s.worldStory.npcLines?.length) {
+      lines.push(`Линии NPC: ${s.worldStory.npcLines.map((line) => `${line.name}${line.want ? ` (${line.want})` : ''}`).join('; ')}`);
+    }
   }
   if (s.hero.resources?.length) lines.push(`Ресурсы героя: ${formatResources(s.hero.resources)}`);
 
@@ -142,6 +156,9 @@ export function renderState(s: GameState): string {
             a.money ? formatCoins(a.money) : '',
             typeof a.attitude === 'number' ? `отношение к герою ${a.attitude}` : '',
             typeof a.morale === 'number' ? `дух ${a.morale}` : '',
+            a.relations?.length
+              ? `связи: ${a.relations.map((rel) => `${rel.with}${rel.attitude != null ? ` ${rel.attitude}` : ''}`).join(', ')}`
+              : '',
           ].filter(Boolean).join(', ');
           return `${a.name} (${a.status}, связь ${a.bond}, ранг ${a.rank ?? 'F'}${extras ? `, ${extras}` : ''})`;
         })
@@ -157,6 +174,9 @@ export function renderState(s: GameState): string {
             a.resources?.length ? formatResources(a.resources) : '',
             a.money ? formatCoins(a.money) : '',
             typeof a.attitude === 'number' ? `отношение к герою ${a.attitude}` : '',
+            a.relations?.length
+              ? `связи: ${a.relations.map((rel) => `${rel.with}${rel.attitude != null ? ` ${rel.attitude}` : ''}`).join(', ')}`
+              : '',
             a.mind
               ? [
                   a.mind.goals?.length ? `цели: ${a.mind.goals.join(', ')}` : '',

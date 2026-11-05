@@ -191,6 +191,7 @@ export class OpenRouterModel implements Model {
         'HTTP-Referer': 'https://localhost',
         'X-Title': 'Omika',
       },
+      signal: AbortSignal.timeout(120_000),
       body: JSON.stringify({
         model: this.cfg.model,
         messages,
@@ -267,9 +268,9 @@ export class OpenRouterModel implements Model {
             'HTTP-Referer': 'https://localhost',
             'X-Title': 'Omika',
           },
-          body: this.body(messages, maxTokens, withSchema),
           // Модель может зависнуть: не ждём вечно.
           signal: AbortSignal.timeout(120_000),
+          body: this.body(messages, maxTokens, withSchema),
         });
         last = res;
         if (res.ok) return res;

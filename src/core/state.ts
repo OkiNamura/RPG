@@ -64,6 +64,59 @@ export interface NormViolation {
   reason?: string;
 }
 
+/** Чекпоинт текущей сцены: где, когда и кто, без жёсткого таймера. */
+export interface SceneState {
+  id: string;
+  startedTurn: number;
+  updatedTurn: number;
+  place: string;
+  participants: string[];
+  goal?: string;
+  lastBeat?: string;
+  stalls: number;
+}
+
+/** Долгий фронт мира: не таймер сцены, а давление между ходами. */
+export interface WorldFront {
+  id: string;
+  name: string;
+  goal?: string;
+  faction?: string;
+  progress: number;
+  status: 'active' | 'resolved' | 'failed';
+  updatedTurn: number;
+}
+
+/** Обновить чекпоинт сцены после хода. Не задаёт расписание и таймеры. */
+export function updateSceneCheckpoint(state: GameState, prose: string, stalled = false): SceneState {
+  const participants = [
+    state.hero.name,
+    ...state.party.filter((actor) => actor.status === 'alive').map((actor) => actor.name),
+    ...state.npcs.filter((actor) => actor.present && !actor.archived).map((actor) => actor.name),
+  ].filter(Boolean);
+  const beat = prose.replace(/\s+/g, ' ').trim().slice(0, 180);
+  const previous = state.scene;
+  if (!previous || previous.place !== state.place) {
+    state.scene = {
+      id: `scene-${state.turn}-${state.place.replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 40)}`,
+      startedTurn: state.turn,
+      updatedTurn: state.turn,
+      place: state.place,
+      participants: [...new Set(participants)],
+      lastBeat: beat,
+      stalls: stalled ? 1 : 0,
+    };
+    return state.scene;
+  }
+  previous.updatedTurn = state.turn;
+  previous.participants = [...new Set(participants)];
+  previous.lastBeat = beat;
+  previous.stalls = stalled ? (previous.stalls ?? 0) + 1 : 0;
+  if (previous.stalls >= 2) previous.goal = 'сцена топчется: нужен новый факт';
+  else if (previous.goal === 'сцена топчется: нужен новый факт') previous.goal = undefined;
+  return previous;
+}
+
 export interface Actor {
   name: string;
   role: string;
@@ -379,6 +432,10 @@ export interface GameState {
   norms: Norm[];
   /** рамка сюжета мира: заполняется мастером промтов */
   worldStory?: WorldStory;
+  /** текущая сцена: чекпоинт для resume и защиты от топтания */
+  scene?: SceneState;
+  /** долгие фронты мира, которые двигаются между ходами */
+  fronts: WorldFront[];
   /** что герой видел и запомнил о местах */
   locations: LocationCard[];
   /** закрытые страницы: выполнено, брошено, потеряно */
@@ -454,6 +511,7 @@ export function createState(heroName: string, place: string): GameState {
     hooks: [],
     factions: [],
     norms: DEFAULT_NORMS.map((norm) => ({ ...norm })),
+    fronts: [],
     locations: [],
     archive: [],
     reputation: { public: 0, label: 'нейтрально', witnesses: [] },
@@ -480,6 +538,7 @@ export function normalizeState(state: GameState): GameState {
   state.hooks ??= [];
   state.factions ??= [];
   state.norms ??= DEFAULT_NORMS.map((norm) => ({ ...norm }));
+  state.fronts ??= [];
   state.worldStory ??= undefined;
   state.locations ??= [];
   for (const location of state.locations) {

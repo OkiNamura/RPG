@@ -3539,7 +3539,13 @@ function metaLine(payload) {
   meta.append(el('span', '', `ход ${s.turn ?? '—'}`));
   meta.append(el('span', '', `${s.tokensIn ?? 0} ток · кэш ${s.cachedTokens ?? 0}`));
   meta.append(el('span', '', `$${(s.cost ?? 0).toFixed(6)}`));
-  meta.append(el('span', '', `${((s.ms ?? 0) / 1000).toFixed(1)} с`));
+  const timingSpan = el('span', '', `${((s.ms ?? 0) / 1000).toFixed(1)} с`);
+  if (s.timings) {
+    timingSpan.title = Object.entries(s.timings)
+      .map(([name, value]) => `${name}: ${(Number(value) / 1000).toFixed(1)} с`)
+      .join('\n');
+  }
+  meta.append(timingSpan);
   if (payload.changes?.length) meta.append(el('span', '', payload.changes.join(' · ')));
   if (payload.problems?.length) meta.append(el('span', 'warn', payload.problems.join(' · ')));
   return meta;
@@ -5003,7 +5009,25 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
         .map((norm) => `${norm.label} ${norm.weight}`)
         .join(' · ')));
     }
-    frag.append(section('Репутация', reputationRows));
+    if (state.scene) {
+    const sceneRows = [
+      row('Место', state.scene.place),
+      row('Ходы', `${state.scene.startedTurn}–${state.scene.updatedTurn}`),
+      row('Участники', state.scene.participants.join(', ') || 'только герой'),
+    ];
+    if (state.scene.goal) sceneRows.push(row('Статус', state.scene.goal));
+    frag.append(section('Сцена', sceneRows));
+  }
+  if (state.fronts?.length) {
+    const frontRows = state.fronts.slice(0, 8).map((front) =>
+      row(
+        front.name,
+        `${front.progress}% · ${front.status === 'resolved' ? 'завершён' : front.status === 'failed' ? 'провален' : 'идёт'}`,
+      ),
+    );
+    frag.append(section('Фронты мира', frontRows));
+  }
+  frag.append(section('Репутация', reputationRows));
   }
 
   if (state.worldStory) {
@@ -6331,7 +6355,25 @@ async function viewPlay(view, id, useCache = true) {
       (data.turns ?? []).some((turn) => turn.clientTurnId === pending.clientTurnId) ||
       (data.history ?? []).some((entry) => entry.clientTurnId === pending.clientTurnId);
     if (completed) clearPending(id, pending.clientTurnId);
-    else showOutbox(pending);
+    else {
+      showOutbox(pending);
+      const age = Date.now() - Date.parse(pending.createdAt ?? 0);
+      const autoKey = `omika:auto-resume:${id}:${pending.clientTurnId}`;
+      let alreadyTried = false;
+      try {
+        alreadyTried = sessionStorage.getItem(autoKey) === '1';
+        if (!alreadyTried) sessionStorage.setItem(autoKey, '1');
+      } catch {
+        /* приватный режим */
+      }
+      if (!alreadyTried && age >= 0 && age < 10 * 60 * 1000) {
+        window.setTimeout(() => {
+          if (!app.game?.busy) {
+            runTurn(pending.input, Boolean(pending.dice), pending.clientTurnId, true, pending.timeTarget ?? null, false);
+          }
+        }, 300);
+      }
+    }
   }
 }
 
