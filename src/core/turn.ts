@@ -14,6 +14,25 @@ import type { AgentSet } from './agents.ts';
 import type { GameState } from './state.ts';
 import { cleanProse } from './anti-slop.ts';
 
+/** Насколько новый текст похож на предыдущий ответ ведущего. */
+function proseSimilarity(a: string, b: string): number {
+  const words = (text: string): Set<string> =>
+    new Set(
+      text
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .trim()
+        .split(/\s+/)
+        .filter((word) => word.length > 2),
+    );
+  const left = words(a);
+  const right = words(b);
+  if (!left.size || !right.size) return 0;
+  let common = 0;
+  for (const word of left) if (right.has(word)) common += 1;
+  return common / Math.max(left.size, right.size);
+}
+
 /** Цены за 1M токенов. Пока — заглушка, реальные подставим после M1. */
 export interface Prices {
   input: number;
@@ -233,6 +252,40 @@ export async function runTurn(
     parsed = { ...parsed, prose: session.antiSlop === false ? parsed.prose : cleanProse(parsed.prose) };
   }
 
+  // Защита от зацикливания: модель иногда повторяет предыдущий ответ
+  // дословно, хотя игрок уже сказал новое. Один повтор с явным запретом.
+  const previousGm = [...state.log].reverse().find((entry) => entry.role === 'gm')?.text ?? '';
+  let repeatedResponse = false;
+  if (previousGm && parsed.prose.trim()) {
+    const similarity = proseSimilarity(previousGm, parsed.prose);
+    if (similarity > 0.82) {
+      repeatedResponse = true;
+      try {
+        const retry = await session.model.complete([
+          ...ctx.messages,
+          {
+            role: 'user',
+            content:
+              'Ты повторяешь предыдущий ответ ведущего. Ответь на новое действие игрока, продвинь сцену новым фактом, реакцией или репликой. Не повторяй прошлый текст.',
+          },
+        ]);
+        tokensIn += retry.inputTokens ?? 0;
+        cachedTokens += retry.cachedTokens ?? 0;
+        const retryParsed =
+          retry.delta !== undefined
+            ? { prose: retry.text.trim(), delta: retry.delta }
+            : parseDelta(retry.text);
+        const retryProse = session.antiSlop === false ? retryParsed.prose : cleanProse(retryParsed.prose);
+        if (retryProse.trim() && proseSimilarity(previousGm, retryProse) < similarity) {
+          parsed = { ...parsed, prose: retryProse };
+          repeatedResponse = false;
+        }
+      } catch {
+        /* оставляем первый ответ */
+      }
+    }
+  }
+
   state.turn += 1;
   const changes = parsed.delta ? applyDelta(state, parsed.delta) : [];
 
@@ -281,6 +334,7 @@ export async function runTurn(
   session.totals.cost += cost;
 
   const problems = parsed.error ? [...verdict.problems, parsed.error] : verdict.problems;
+  if (repeatedResponse) problems.push('повтор сцены');
 
   let passed = 0;
   for (let i = 0; i < ctx.segments.length && i < prev.length; i += 1) {
