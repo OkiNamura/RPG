@@ -1336,6 +1336,7 @@ async function augmentFeatureNotes(session: Session, input: string, id: string):
     const director = session.agents?.director ?? agents.director;
     if (director?.enabled) {
       try {
+        const directorStarted = Date.now();
         const model = makeAgentModel(director);
         if (model) {
           const reply = await model.complete([
@@ -1345,6 +1346,7 @@ async function augmentFeatureNotes(session: Session, input: string, id: string):
               content: `СЦЕНА: ${session.state.place}. Игрок: ${input}\nВ сцене: ${present.map((actor) => actor.name).join(', ') || 'только герой'}\nСОСТОЯНИЕ:\n${renderState(session.state).slice(0, 5000)}`,
             },
           ]);
+          session.lastDirectorMs = Date.now() - directorStarted;
           if (reply.text.trim()) parts.push(`[Режиссёр]\n${reply.text.trim().slice(0, 1200)}`);
           const tokensIn = reply.inputTokens ?? 0;
           const tokensOut = reply.outputTokens ?? 0;
@@ -1529,6 +1531,7 @@ function reviveIfAllowed(id: string, session: Session): void {
     ...(stats.timings ?? {}),
     repairMs,
     agentMs: Date.now() - repairStarted - repairMs,
+    directorMs: session.lastDirectorMs ?? 0,
     afterMs: Date.now() - afterStarted,
   };
 

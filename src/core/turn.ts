@@ -118,6 +118,8 @@ export interface Session {
     totalTokens: number;
     segments: { name: string; chars: number; tokens?: number }[];
   };
+  /** время последнего вызова режиссёра */
+  lastDirectorMs?: number;
 }
 
 export interface TurnStats {
