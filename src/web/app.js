@@ -5921,7 +5921,7 @@ async function viewPlay(view, id, useCache = true) {
   const updateClock = (state) => {
     const time = state?.time ?? {};
     clockBtn.textContent = `${clockText(time)} · ${worldDate(state?.calendar, time, false)}`;
-    clockBtn.setAttribute('aria-label', `Время мира: ${worldDate(state?.calendar, time)}`);
+    clockBtn.setAttribute('aria-label', `${clockBtn.textContent} — время мира`);
   };
   clockBtn.addEventListener('click', () => openTimeDetails(data.state));
   updateClock(data.state);
@@ -5939,6 +5939,7 @@ async function viewPlay(view, id, useCache = true) {
   const field = el('div', 'composer-field');
   const input = el('textarea');
   input.placeholder = 'Твой ход…';
+  input.setAttribute('aria-label', 'Действие героя');
 
   const send = el('button', 'send-icon', '↑');
   send.type = 'submit';
