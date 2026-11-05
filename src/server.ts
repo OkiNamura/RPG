@@ -1,4 +1,4 @@
-/**
+﻿/**
  * HTTP-сервер игры: статика и API. Без зависимостей.
  *
  *   node src/server.ts
@@ -74,7 +74,7 @@ import { rebuildCardsIndex, rebuildSearchIndex, searchIndex, searchTraces, syncC
 import { loadSnapshots, removeSnapshots, saveSnapshots, syncSnapshots } from './core/snapshot-db.ts';
 import { backupDatabase, ensureDatabase } from './core/db-maintenance.ts';
 import { hasTravelIntent, maxSceneAdvanceSeconds } from './core/time-budget.ts';
-import { buildSceneContract, referenceLegend, sceneSeed, type SceneContract, type VisualReference } from './core/visuals.ts';
+import { buildSceneContract, identitySeed, referenceLegend, sceneSeed, type SceneContract, type VisualReference } from './core/visuals.ts';
 import { reviewImage } from './core/vision.ts';
 
 interface ArtTagField {
@@ -1429,10 +1429,10 @@ async function sceneReferences(session: Session): Promise<VisualReference[]> {
   const hero = session.state.hero;
   await add(hero.name, hero.refs?.main || hero.card, 'hero');
 
-  for (const actor of session.state.party.filter((npc) => npc.present !== false && npc.status === 'alive')) {
+  for (const actor of session.state.party.filter((npc) => npc.present === true && npc.status === 'alive')) {
     await add(actor.name, actor.refs?.main || actor.card || actor.portrait, 'party');
   }
-  for (const actor of session.state.npcs.filter((npc) => npc.present !== false && npc.status === 'alive')) {
+  for (const actor of session.state.npcs.filter((npc) => npc.present === true && npc.status === 'alive')) {
     await add(actor.name, actor.refs?.main || actor.card || actor.portrait, 'npc');
   }
 
@@ -4391,6 +4391,22 @@ const server = createServer(async (req, res) => {
         const artistMeta = (await loadCampaign(DATA_DIR, id))?.meta;
         const artistKeyName = mode === 'scene' || mode === 'location' ? 'scene' : mode === 'item' ? 'item' : mode === 'hero' ? 'hero' : 'npc';
         const style = artistMeta?.prompts?.artists?.[artistKeyName] || artist.prompt;
+        // Жанр мира сильнее стилевого дефолта: иначе современная сцена
+        // превращается в фэнтези из-за старого промта иллюстратора.
+        const worldTags = (artistMeta?.tags ?? []).map((tag) => tag.value).join(' ');
+        const worldText = `${session.text.world} ${session.text.tone} ${worldTags} ${session.state.place}`;
+        const modernPlace = /(школ|ванн|туалет|квартир|кухн|телефон|метро|офис|магазин|улиц|дом|кафе|студи|салон)/i.test(session.state.place);
+        const modernWorld =
+          modernPlace ||
+          (/(школ|город|квартир|ванн|туалет|телефон|интернет|метро|офис|современ|real|детектив|банк|магазин|улиц|дом|кафе)/i.test(worldText) &&
+            !/(фэнтези|средневеков|дракон|замок|эльф|гном|магия|колдун|ритуал)/i.test(worldText));
+        const effectiveStyle =
+          modernWorld && /(фэнтез|средневеков|маги|дракон|эльф|гном|замок|тёмн[а-я]* манг)/i.test(style)
+            ? 'Современный реалистичный стиль: естественные пропорции, обычная современная одежда, техника и интерьер по сцене.'
+            : style;
+        const worldLock = modernWorld
+          ? 'СОВРЕМЕННЫЙ РЕАЛИСТИЧНЫЙ МИР. Одежда, мебель, техника и улица — современные. Не добавлять фэнтези, магию, мечи, доспехи, замки, эльфов, драконов или средневековые детали.'
+          : '';
         // Локальный Qwen-Image через Unsloth Studio, если он настроен.
         const localImage = Boolean(LOCAL_IMAGE_KEY && LOCAL_IMAGE_BASE && LOCAL_IMAGE_MODEL);
         // Иллюстратор переведён на Seedream 5.0 Flash; env может переопределить.
@@ -4411,9 +4427,9 @@ const server = createServer(async (req, res) => {
           // Мастер-лист героя: описание берём из четвёртого блока кампании.
           const heroBlockText = heroVisualText(session);
           prompt = masterCardPrompt({
-            style,
+            style: effectiveStyle,
             name: session.state.hero.name,
-            appearance: heroBlockText || 'герой в тёмном фэнтези',
+            appearance: heroBlockText || (modernWorld ? 'герой по описанию мира' : 'герой в тёмном фэнтези'),
           });
           if (session.state.hero.card) {
             const ref = await imageDataUrl(session.state.hero.card);
@@ -4426,7 +4442,7 @@ const server = createServer(async (req, res) => {
           if (heroSheet) {
             actorName = session.state.hero.name;
             prompt = characterSheetPrompt({
-              style,
+              style: effectiveStyle,
               name: session.state.hero.name,
               role: 'главный герой',
               appearance: (session.text.hero || '').replace(/^#+\s*/gm, '').replace(/\s+/g, ' ').slice(0, 600),
@@ -4437,14 +4453,14 @@ const server = createServer(async (req, res) => {
             const actor = [...session.state.party, ...session.state.npcs].find((a) => a.name === actorName);
             if (!actor) return sendJson(res, { error: 'персонаж не найден' }, 404);
             prompt = characterSheetPrompt({
-              style,
+              style: effectiveStyle,
               name: actor.name,
               role: actor.role,
               appearance: actor.appearance,
               clothes: actor.clothes,
               character: actor.character,
             });
-            const ref = actor.card ? await imageDataUrl(actor.card) : null;
+            const ref = (actor.card || actor.portrait) ? await imageDataUrl(actor.card || actor.portrait || '') : null;
             if (ref) references = [ref];
           }
         } else if (mode === 'portrait' || mode === 'card') {
@@ -4454,7 +4470,7 @@ const server = createServer(async (req, res) => {
 
           if (mode === 'card') {
             prompt = masterCardPrompt({
-              style,
+              style: effectiveStyle,
               name: actor.name,
               role: actor.role,
               appearance: actor.appearance,
@@ -4462,32 +4478,32 @@ const server = createServer(async (req, res) => {
               character: actor.character,
             });
             // Если уже есть портрет — держим лицо по нему.
-            const ref = actor.portrait ? await imageDataUrl(actor.portrait) : null;
+            const ref = (actor.portrait || actor.card) ? await imageDataUrl(actor.portrait || actor.card || '') : null;
             if (ref) references = [ref];
           } else {
             prompt = portraitPrompt({
-              style,
+              style: effectiveStyle,
               name: actor.name,
               role: actor.role,
               appearance: actor.appearance,
               clothes: actor.clothes,
               character: actor.character,
             });
-            // Портрет рисуем по мастер-листу, чтобы лицо не менялось.
-            const ref = actor.card ? await imageDataUrl(actor.card) : null;
+            // Портрет рисуем по мастер-листу или прошлому портрету, чтобы лицо не менялось.
+            const ref = (actor.card || actor.portrait) ? await imageDataUrl(actor.card || actor.portrait || '') : null;
             if (ref) references = [ref];
           }
         } else if (mode === 'item') {
           itemName = String(body.name ?? '').trim();
           const item = session.state.items.find((i) => i.name.toLowerCase() === itemName.toLowerCase());
           if (!item) return sendJson(res, { error: 'предмет не найден' }, 404);
-          prompt = itemCardPrompt({ style, name: item.name, note: item.note });
+          prompt = itemCardPrompt({ style: effectiveStyle, name: item.name, note: item.note });
         } else if (mode === 'location') {
           locationName = String(body.name ?? '').trim();
           const location = session.state.locations.find((item) => item.name === locationName);
           if (!location) return sendJson(res, { error: 'локация не найдена' }, 404);
           prompt = locationPrompt({
-            style,
+            style: effectiveStyle,
             name: location.name,
             description: location.description,
             note: location.note,
@@ -4504,8 +4520,11 @@ const server = createServer(async (req, res) => {
             .reverse()
             .find((e) => e.role === 'gm' && e.turn === sceneTurn);
           const lastGm = sceneEntry ?? [...session.state.log].reverse().find((e) => e.role === 'gm');
+          const playerEntry = [...session.state.log]
+            .reverse()
+            .find((e) => e.role === 'player' && e.turn === sceneTurn);
           const present = [...session.state.party, ...session.state.npcs].filter(
-            (actor) => actor.present !== false && actor.status === 'alive',
+            (actor) => actor.present === true && actor.status === 'alive',
           );
           const hero = session.state.hero;
           const heroDescription = [
@@ -4532,7 +4551,10 @@ const server = createServer(async (req, res) => {
               description: heroDescription || heroFallback,
             },
             actors: present,
-            action: (lastGm?.text ?? '').replace(/\s+/g, ' ').slice(0, 900),
+            action: [
+              playerEntry?.text ? `Действие игрока: ${playerEntry.text.replace(/\s+/g, ' ').slice(0, 320)}` : '',
+              lastGm?.text ? `Сцена: ${lastGm.text.replace(/\s+/g, ' ').slice(0, 700)}` : '',
+            ].filter(Boolean).join(' ').slice(0, 1000),
             references: sceneRefs,
           });
           sceneContract = contract;
@@ -4568,8 +4590,12 @@ const server = createServer(async (req, res) => {
         const extra = art.include.slice(0, 12).join(', ');
         const avoid = art.exclude.slice(0, 12).join(', ');
         // Выбранный стиль — в начало промта, иначе модель его почти не слышит.
+        // Но жанр мира идёт ещё раньше и не даёт фэнтези протечь в современную сцену.
+        // Жанр мира идёт первым и не даёт фэнтези протечь в современную сцену.
         if (extra) prompt = `${extra}. ${prompt}`;
         if (avoid) prompt += ` Не изображать: ${avoid}.`;
+        if (worldLock) prompt = `${worldLock} ${prompt}`;
+        if (modernWorld) prompt += ' Не фэнтези: без магии, мечей, доспехов, замков, эльфов, драконов и средневековой одежды.';
         const imageSize = localImage
           ? imageProfile.format === 'square' ? '768x768' : imageProfile.format === 'landscape' ? '768x512' : '512x768'
           : undefined;
@@ -4592,7 +4618,7 @@ const server = createServer(async (req, res) => {
               dark: 'Тёмное фэнтези: приглушённые цвета, тяжёлые тени, тревожная атмосфера.',
             }[imageProfile.stylePreset];
             if (preset) prompt += ` ${preset}`;
-          } else if (/(фэнтези|маг(ия|ический)|дракон|меч|замок|эльф|гном|колдун|ритуал)/i.test(`${session.text.world} ${session.text.tone}`)) {
+          } else if (!modernWorld && /(фэнтези|маг(ия|ический)|дракон|меч|замок|эльф|гном|колдун|ритуал)/i.test(`${session.text.world} ${session.text.tone}`)) {
             prompt += ' Фэнтези-стиль: живописный, мифические детали, средневековые фактуры.';
           }
           if (imageProfile.negative) prompt += ` Не изображать: ${imageProfile.negative}.`;
@@ -4637,7 +4663,13 @@ const server = createServer(async (req, res) => {
         }
         // Локальный Qwen не откатываем в облако: ошибка должна быть видна.
         let usedModel = model;
-        const imageSeed = sceneSeed([id, mode, actorName, locationName, sceneTurn, prompt.slice(0, 160)]);
+        const identityName = actorName || (mode === 'hero' || mode === 'sheet' ? session.state.hero.name : '');
+        const imageSeed = mode === 'scene' || mode === 'location' || mode === 'item'
+          ? sceneSeed([id, mode, actorName, locationName, sceneTurn, prompt.slice(0, 160)])
+          : identitySeed(id, identityName);
+        if (references.length && mode !== 'scene') {
+          prompt += ` Reference 1: ${identityName || session.state.hero.name}. Сохраняй те же черты лица, форму глаз, носа, губ и причёску; не меняй лицо между кадрами.`;
+        }
         let result = await withImageQueue(() => generateImage({
           apiKey,
           baseUrl,

@@ -45,7 +45,7 @@ export function buildSceneContract(params: {
   references: VisualReference[];
 }): SceneContract {
   const present = params.actors.filter(
-    (actor) => actor.present !== false && actor.status !== 'dead' && actor.status !== 'gone',
+    (actor) => actor.present === true && actor.status !== 'dead' && actor.status !== 'gone',
   );
   const presentNames = new Set(present.map((actor) => actor.name));
   const cast = present
@@ -94,4 +94,9 @@ export function sceneSeed(parts: (string | number)[]): number {
     }
   }
   return hash >>> 0;
+}
+
+/** Стабильный seed лица: не зависит от сцены, хода, режима и последней прозы. */
+export function identitySeed(campaignId: string, name: string): number {
+  return sceneSeed([campaignId, name || 'identity', 'identity-v4']);
 }

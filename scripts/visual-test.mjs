@@ -1,5 +1,6 @@
-#!/usr/bin/env node
-import { buildSceneContract, referenceLegend, sceneSeed } from '../src/core/visuals.ts';
+﻿#!/usr/bin/env node
+import { buildSceneContract, identitySeed, referenceLegend, sceneSeed } from '../src/core/visuals.ts';
+import { scenePrompt } from '../src/core/images.ts';
 
 const references = [
   { name: 'Аня', url: 'a', role: 'hero' },
@@ -25,5 +26,9 @@ if (!contract.forbidden.includes('Марк') || !contract.forbidden.includes('Л
 if (!referenceLegend(references).includes('Reference 1: Аня')) throw new Error('нет легенды референсов');
 if (sceneSeed(['x']) !== sceneSeed(['x'])) throw new Error('seed нестабилен');
 if (sceneSeed(['x']) === sceneSeed(['y'])) throw new Error('seed не различает сцены');
+if (identitySeed('id', 'Аня') !== identitySeed('id', 'Аня')) throw new Error('seed лица нестабилен');
+if (identitySeed('id', 'Аня') === identitySeed('id', 'Ася')) throw new Error('seed лица не различает персонажей');
+const prompt = scenePrompt({ style: 'modern', place: 'ванная', time: 'день 1, 12:00', weather: 'ясно', characters: [], action: 'герой смотрит в зеркало', forbidden: ['Марк'] });
+if (!prompt.includes('уборщиц') || !prompt.includes('обслуживающий персонал')) throw new Error('нет запрета лишних людей');
 console.log('✓ контракт сцены: только присутствующие, отсутствующие запрещены');
 console.log('✓ референсы и seed детерминированы');
