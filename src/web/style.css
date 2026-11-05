@@ -4388,3 +4388,6 @@ select {
 .image-meta-line { margin-bottom: 4px; }
 .image-prompt pre { max-height: 160px; overflow: auto; white-space: pre-wrap; font-size: 10px; }
 .clickable-image { cursor: zoom-in; }
+.ticket-report { margin-top: 6px; padding: 6px 8px; border-left: 2px solid var(--gold-dim); color: var(--muted); font-size: 12px; }
+.ticket-report-label { display: block; margin-top: 8px; font-size: 10px; letter-spacing: 0.04em; color: var(--dim); }
+.ticket-report-input { width: 100%; box-sizing: border-box; margin-top: 4px; min-height: 46px; resize: vertical; background: #0e0e12; border: 1px solid var(--line); border-radius: 8px; color: var(--text); padding: 8px; font: inherit; font-size: 12px; }

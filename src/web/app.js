@@ -1624,10 +1624,21 @@ async function adminFeedbackTab(container) {
       meta.append(
         el('span', '', dateLabel(ticket.createdAt)),
         el('span', '', ticket.user?.username ? `@${ticket.user.username}` : 'Telegram'),
-        el('span', `chip${ticket.status === 'done' ? ' gold' : ''}`, ticket.status === 'done' ? 'готово' : ticket.status === 'in_progress' ? 'в работе' : 'новое'),
+        el(
+          'span',
+          `chip${ticket.status === 'done' ? ' gold' : ticket.status === 'rework' ? ' warn' : ''}`,
+          ticket.status === 'done'
+            ? 'готово'
+            : ticket.status === 'in_progress'
+              ? 'в работе'
+              : ticket.status === 'rework'
+                ? 'в доработке'
+                : 'новое',
+        ),
       );
       main.append(meta);
       if (ticket.text) main.append(el('div', 'ticket-text', ticket.text));
+      if (ticket.report) main.append(el('div', 'ticket-report', `Отчёт: ${ticket.report}`));
       for (const file of ticket.files ?? []) {
         if (!/\.(png|jpe?g)$/i.test(file.name)) continue;
         const img = el('img', 'ticket-image');
@@ -1636,18 +1647,36 @@ async function adminFeedbackTab(container) {
         img.loading = 'lazy';
         main.append(img);
       }
+      const reportLabel = el('label', 'ticket-report-label', 'Короткий отчёт о выполнении');
+      const reportInput = el('textarea', 'ticket-report-input');
+      reportInput.rows = 2;
+      reportInput.maxLength = 1000;
+      reportInput.value = ticket.report ?? '';
+      reportInput.placeholder = 'Что сделано, что проверить, что осталось';
+      main.append(reportLabel, reportInput);
       const actions = el('div', 'row-actions');
+      const saveReport = el('button', 'btn small', 'Сохранить отчёт');
+      saveReport.type = 'button';
+      saveReport.addEventListener('click', async () => {
+        await api(`/api/feedback/${encodeURIComponent(ticket.id)}`, {
+          method: 'POST',
+          body: JSON.stringify({ status: ticket.status, report: reportInput.value }),
+        });
+        await reload();
+      });
+      actions.append(saveReport);
       for (const [status, label] of [
         ['in_progress', 'В работу'],
+        ['rework', 'В доработку'],
         ['done', 'Готово'],
-        ['new', 'Вернуть в новые'],
+        ['new', 'В новые'],
       ]) {
         const btn = el('button', 'btn small', label);
         btn.type = 'button';
         btn.addEventListener('click', async () => {
           await api(`/api/feedback/${encodeURIComponent(ticket.id)}`, {
             method: 'POST',
-            body: JSON.stringify({ status }),
+            body: JSON.stringify({ status, report: reportInput.value }),
           });
           await reload();
         });

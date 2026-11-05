@@ -2605,6 +2605,8 @@ const server = createServer(async (req, res) => {
           rows.push({
             ...ticket,
             status: meta.status ?? 'new',
+            report: meta.report ?? '',
+            updatedAt: meta.updatedAt ?? '',
             files: (ticket.files ?? []).map((file: string) => ({
               name: file,
               url: `/api/feedback/${encodeURIComponent(dir.name)}/file/${encodeURIComponent(file)}`,
@@ -2645,9 +2647,21 @@ const server = createServer(async (req, res) => {
         return sendJson(res, { error: 'плохой тикет' }, 400);
       }
       const body = await readBody(req);
-      const status = ['new', 'in_progress', 'done'].includes(String(body.status)) ? body.status : 'new';
-      await writeFile(join(FEEDBACK_DIR, id, 'meta.json'), JSON.stringify({ status, updatedAt: new Date().toISOString() }, null, 2));
-      return sendJson(res, { ok: true, status });
+      const status = ['new', 'in_progress', 'done', 'rework'].includes(String(body.status)) ? body.status : 'new';
+      let previous: Record<string, unknown> = {};
+      try {
+        previous = JSON.parse(await readFile(join(FEEDBACK_DIR, id, 'meta.json'), 'utf8')) as Record<string, unknown>;
+      } catch {
+        /* первый статус */
+      }
+      const next = {
+        ...previous,
+        status,
+        updatedAt: new Date().toISOString(),
+        ...(body.report != null ? { report: String(body.report).slice(0, 1000) } : {}),
+      };
+      await writeFile(join(FEEDBACK_DIR, id, 'meta.json'), JSON.stringify(next, null, 2));
+      return sendJson(res, { ok: true, status, report: next.report ?? '' });
     }
 
     // Библиотека карточек: один JSON на карточку в data/cards.
