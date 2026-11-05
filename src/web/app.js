@@ -6059,7 +6059,11 @@ async function viewPlay(view, id, useCache = true) {
   };
 
   async function runTurn(text, dice, clientTurnId, fromPending = false, timeTarget = null, skipPlayer = false) {
-    if (!text || app.game.busy) return;
+    if (!text) return;
+    if (app.game.busy) {
+      toast('ход ещё выполняется — дождись ответа');
+      return;
+    }
     app.game.busy = true;
     if (!fromPending) {
       writePending(id, {
@@ -6191,9 +6195,15 @@ async function viewPlay(view, id, useCache = true) {
       if (current) showOutbox(current);
     } finally {
       app.game.busy = false;
-      // Не возвращаем фокус в textarea: на телефоне это снова открывает
-      // клавиатуру и дёргает ленту после ответа.
-      input.blur();
+      // На телефоне не открываем клавиатуру после ответа. На десктопе
+      // возвращаем фокус, чтобы не было ощущения «кулдауна».
+      if (window.matchMedia?.('(min-width: 900px)').matches) {
+        window.setTimeout(() => {
+          if (document.hasFocus()) input.focus({ preventScroll: true });
+        }, 60);
+      } else {
+        input.blur();
+      }
       if (keepTop) {
         window.requestAnimationFrame(() => {
           suppressAutoHide = true;
