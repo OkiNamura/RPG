@@ -28,6 +28,27 @@ export function makeFrontsFromStory(state: GameState): WorldFront[] {
   }));
 }
 
+export function makeFrontsFromFactions(state: GameState): WorldFront[] {
+  if (!state.factions?.length) return [];
+  state.clocks = state.factions.map((faction, index) => ({
+    id: `clock-${index + 1}-${faction.name.replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 32)}`,
+    name: `Давление: ${faction.name}`,
+    value: 0,
+    max: 6,
+    status: 'active',
+    updatedTurn: state.turn,
+  }));
+  return state.factions.map((faction, index) => ({
+    id: `front-${index + 1}-${faction.name.replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 32)}`,
+    name: faction.name,
+    goal: faction.note || 'усилить влияние',
+    faction: faction.name,
+    progress: 0,
+    status: 'active',
+    updatedTurn: state.turn,
+  }));
+}
+
 export function advanceWorld(state: GameState): string[] {
   if (!state.fronts?.length) return [];
   const changes: string[] = [];

@@ -5458,7 +5458,8 @@ function openImageQueueDialog() {
   const load = async () => {
     try {
       const data = await api('/api/images/queue');
-      status.textContent = `В работе: ${data.running ?? 0} · ждут: ${data.waiting ?? 0} · можно отменить: ${data.cancellable ?? 0}`;
+      const lastFrame = data.lastMs ? ` · последний кадр ${(data.lastMs / 1000).toFixed(1)} с` : '';
+      status.textContent = `В работе: ${data.running ?? 0} · ждут: ${data.waiting ?? 0} · можно отменить: ${data.cancellable ?? 0}${lastFrame}`;
     } catch (err) {
       status.textContent = err.message;
     }

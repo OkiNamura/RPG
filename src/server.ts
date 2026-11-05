@@ -15,7 +15,7 @@ import { characterSheetPrompt, generateImage, itemCardPrompt, locationPrompt, ma
 import { renderMap } from './core/map.ts';
 import { createState, normalizeState, updateSceneCheckpoint, type Actor, type GameState, type Norm, type NumberChange, type Resource } from './core/state.ts';
 import { normalizeWorldStory, type WorldStory } from './core/world-story.ts';
-import { advanceWorld, makeFrontsFromStory } from './core/world.ts';
+import { advanceWorld, makeFrontsFromFactions, makeFrontsFromStory } from './core/world.ts';
 import { Conspect, type Arc } from './core/conspect.ts';
 import { createSession, runTurn, addUsage, type Session, type TurnStats } from './core/turn.ts';
 import {
@@ -1767,6 +1767,9 @@ async function getSession(id: string): Promise<Session | null> {
       legacyProfileSeed,
       { epochYear: saved.meta?.epochYear, altTime: saved.meta?.altTime, eraLabel: saved.meta?.eraLabel, title: saved.meta?.title },
     ).calendar;
+  }
+  if (!saved.state.fronts?.length && saved.state.factions?.length) {
+    saved.state.fronts = makeFrontsFromFactions(saved.state);
   }
   if (!saved.state.currencies?.length) {
     const profile = makeWorldProfile(
