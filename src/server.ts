@@ -3383,7 +3383,7 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|context|container|npc|actor|location|forget|blocks|fill-card|inspector|price|market|undo|branches|branch|reset|restart|save-card))?$/.exec(path);
+    const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|context|container|npc|actor|location|events|forget|blocks|fill-card|inspector|price|market|undo|branches|branch|reset|restart|save-card))?$/.exec(path);
     if (campaignMatch) {
       const id = decodeURIComponent(campaignMatch[1]);
       // Id — это имя файла кампании: никаких слэшей и переходов вверх.
@@ -3930,6 +3930,44 @@ const server = createServer(async (req, res) => {
       }
 
       // Правка карточки локации.
+      if (action === 'events' && req.method === 'POST') {
+        if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
+        const body = await readBody(req);
+        const op = String(body.action ?? 'add');
+        if (op === 'delete') {
+          const eventId = String(body.id ?? '').trim();
+          const before = session.state.events.length;
+          session.state.events = session.state.events.filter((event) => event.id !== eventId);
+          if (session.state.events.length === before) return sendJson(res, { error: 'событие не найдено' }, 404);
+          await persist(id, session);
+          return sendJson(res, { ok: true });
+        }
+        const title = String(body.title ?? '').trim().slice(0, 200);
+        if (!title) return sendJson(res, { error: 'нужно название события' }, 400);
+        const now = session.state.time;
+        const day = Math.max(1, Math.min(9999, Number(body.day ?? now.day) || now.day));
+        const hour = Math.max(0, Math.min(23, Number(body.hour ?? now.hour) || 0));
+        const minute = Math.max(0, Math.min(59, Number(body.minute ?? 0) || 0));
+        const importance = ['critical', 'meaningful', 'ambient', 'silent'].includes(String(body.importance))
+          ? (String(body.importance) as 'critical' | 'meaningful' | 'ambient' | 'silent')
+          : 'meaningful';
+        const eventId = String(body.id ?? '').trim() || `ev-${Date.now()}-${session.state.events.length + 1}`;
+        const existing = session.state.events.find((event) => event.id === eventId);
+        const event = {
+          id: eventId,
+          at: { day, hour, minute },
+          title,
+          importance,
+          wake: Boolean(body.wake),
+          place: String(body.place ?? '').trim().slice(0, 120) || undefined,
+          status: 'active' as const,
+        };
+        if (existing) Object.assign(existing, event);
+        else session.state.events.push(event);
+        await persist(id, session);
+        return sendJson(res, { ok: true, event });
+      }
+
       if (action === 'location' && req.method === 'POST') {
         if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
         const body = await readBody(req);

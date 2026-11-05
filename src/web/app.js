@@ -5473,10 +5473,93 @@ function openEventsDialog(state, campaignId) {
         el('span', `tag ${event.importance === 'critical' ? 'gold' : ''}`, event.title),
         el('span', 'context-reason', event.importance ?? ''),
       );
+      const remove = miniBtn('✕', 'удалить событие', async () => {
+        try {
+          await api(`/api/campaign/${encodeURIComponent(campaignId)}/events`, {
+            method: 'POST',
+            body: JSON.stringify({ action: 'delete', id: event.id }),
+          });
+          overlay.remove();
+          router();
+        } catch (err) {
+          toast(err.message);
+        }
+      });
+      row.append(remove);
       list.append(row);
     }
     body.append(list);
   }
+
+  const form = el('div', 'event-form');
+  const titleInput = el('input', 'field');
+  titleInput.placeholder = 'название события';
+  titleInput.maxLength = 200;
+  const dayInput = el('input', 'field');
+  dayInput.type = 'number';
+  dayInput.min = '1';
+  dayInput.value = String(state.time?.day ?? 1);
+  dayInput.placeholder = 'день';
+  const hourInput = el('input', 'field');
+  hourInput.type = 'number';
+  hourInput.min = '0';
+  hourInput.max = '23';
+  hourInput.value = String(state.time?.hour ?? 8);
+  hourInput.placeholder = 'час';
+  const minuteInput = el('input', 'field');
+  minuteInput.type = 'number';
+  minuteInput.min = '0';
+  minuteInput.max = '59';
+  minuteInput.value = '0';
+  minuteInput.placeholder = 'мин';
+  const importance = el('select', 'field');
+  for (const [value, label] of [['critical', 'критично'], ['meaningful', 'важно'], ['ambient', 'фон'], ['silent', 'шум']]) {
+    const option = el('option', '', label);
+    option.value = value;
+    importance.append(option);
+  }
+  const wake = el('label', 'event-check');
+  const wakeInput = el('input');
+  wakeInput.type = 'checkbox';
+  wake.append(wakeInput, el('span', '', 'может разбудить'));
+  const add = el('button', 'btn primary', 'Добавить');
+  add.type = 'button';
+  add.addEventListener('click', async () => {
+    try {
+      await api(`/api/campaign/${encodeURIComponent(campaignId)}/events`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: titleInput.value,
+          day: Number(dayInput.value),
+          hour: Number(hourInput.value),
+          minute: Number(minuteInput.value),
+          importance: importance.value,
+          wake: wakeInput.checked,
+        }),
+      });
+      overlay.remove();
+      router();
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+  const eventField = (label, node) => {
+    const field = el('label', 'event-field');
+    field.append(el('span', '', label), node);
+    return field;
+  };
+  const titleField = eventField('Название', titleInput);
+  titleField.classList.add('event-field-wide');
+  form.append(
+    titleField,
+    eventField('День', dayInput),
+    eventField('Час', hourInput),
+    eventField('Мин', minuteInput),
+    eventField('Важность', importance),
+    wake,
+    add,
+  );
+  body.append(el('h3', '', 'Добавить событие'), form);
   if (state.lastTimeSkip?.target === 'event' && events.length) {
     const resume = el('button', 'btn primary', 'Продолжить до следующего события');
     resume.type = 'button';

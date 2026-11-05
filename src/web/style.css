@@ -4394,3 +4394,15 @@ select {
 .history-more-wrap { display: flex; justify-content: center; padding: 4px 0 10px; }
 .history-box { display: flex; flex-direction: column; }
 .page-loading { max-width: 720px; margin: 18vh auto; color: var(--muted); font-size: 13px; letter-spacing: 0.04em; text-align: center; }
+.event-form { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.event-form .field { max-width: 110px; }
+.event-form .field:first-child { max-width: none; flex: 1 1 180px; }
+.event-check { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
+.context-lore-row .btn { margin-left: auto; }
+.context-lore-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.event-form { align-items: flex-end; }
+.event-field { display: flex; flex-direction: column; gap: 3px; font-size: 10px; color: var(--dim); }
+.event-field .field { max-width: 90px; }
+.event-field-wide { flex: 1 1 220px; }
+.event-field-wide .field { max-width: none; }
+.library-sheet-body h3 { text-align: left; font-size: 13px; font-weight: 500; color: var(--muted); margin: 14px 0 6px; }
