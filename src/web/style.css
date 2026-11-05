@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --bg: #0a0a0c;
   --bg-soft: #101013;
   --panel: #141417;
@@ -3539,8 +3539,23 @@ button.primary {
   }
 
   .library-card-image {
-    width: 86px;
-    flex-basis: 86px;
+    width: 64px;
+    flex-basis: 64px;
+    aspect-ratio: 1 / 1;
+    align-self: flex-start;
+  }
+
+  .library-card {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .library-card-initial {
+    font-size: 28px;
+  }
+
+  .library-card-body .person-name {
+    font-size: 16px;
   }
 }
 

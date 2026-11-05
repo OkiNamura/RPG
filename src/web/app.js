@@ -5873,6 +5873,16 @@ async function viewPlay(view, id, useCache = true) {
       toast(err.message);
     }
   });
+  const continueBtn = menuItem('▶', 'Продолжить сцену');
+  continueBtn.title = 'продолжить сцену с того же места после паузы или обрыва';
+  continueBtn.addEventListener('click', () => {
+    closeMenu();
+    if (app.game?.busy) {
+      toast('ход ещё выполняется — дождись ответа');
+      return;
+    }
+    runTurn('Продолжай сцену с того же места. Не перескакивай время без причины.', diceOn, newClientTurnId());
+  });
   const cancelImagesBtn = menuItem('⏹', 'Отменить картинки');
   cancelImagesBtn.title = 'остановить текущую и ожидающую генерацию';
   cancelImagesBtn.addEventListener('click', async () => {
@@ -5904,7 +5914,7 @@ async function viewPlay(view, id, useCache = true) {
     openEventsDialog(data.state, id);
   });
 
-  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn, contextBtn, branchesBtn, undoBtn, cancelImagesBtn, queueBtn, focusBtn, eventsBtn);
+  menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn, contextBtn, branchesBtn, undoBtn, continueBtn, cancelImagesBtn, queueBtn, focusBtn, eventsBtn);
   const clockBtn = el('button', 'btn small clock-btn');
   clockBtn.type = 'button';
   clockBtn.title = 'подробнее о времени мира';
