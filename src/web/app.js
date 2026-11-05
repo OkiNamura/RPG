@@ -208,6 +208,11 @@ async function router() {
   const sideMap = $('side-map');
   if (sideMap && name !== 'play') sideMap.classList.add('hidden');
 
+  let loading = null;
+  if (name === 'play' || name === 'view') {
+    loading = el('div', 'page-loading', 'Загружаю хронику…');
+    view.append(loading);
+  }
   try {
     if (name === 'stories') await viewStories(view);
     else if (name === 'search') await viewSearch(view);
@@ -225,6 +230,8 @@ async function router() {
     const box = el('div', 'page');
     box.append(emptyBox('Не загрузилось', err.message));
     view.append(box);
+  } finally {
+    loading?.remove();
   }
 }
 
@@ -5817,23 +5824,49 @@ async function viewPlay(view, id) {
   addSystem(log, `хроника «${id}» · ход ${data.state.turn}`);
   const turnsById = new Map((data.turns ?? []).map((t) => [t.turn, t]));
   const imagesByTurn = new Map((data.state.illustrations ?? []).map((ill) => [ill.turn, ill.url]));
-  for (const entry of data.history) {
-    if (entry.role === 'player') addPlayer(log, entry.text, entry.turn);
-    else if (entry.role === 'gm') {
-      // Кнопки действий — только у последних десяти ходов, иначе лента тормозит.
-      const recent = entry.turn > data.state.turn - 10;
-      addGm(log, { prose: entry.text, stats: {}, numbers: entry.numbers }, recent ? turnsById.get(entry.turn) : null, imagesByTurn.get(entry.turn), entry.turn);
-    }
-  }
+  const history = data.history ?? [];
+  const jumpTurn = Number(route.query.get('turn') ?? 0);
+  const pageSize = 50;
+  const jumpIndex = jumpTurn > 0 ? history.findIndex((entry) => entry.turn >= jumpTurn) : -1;
+  let visibleStart = Math.max(0, history.length - pageSize);
+  if (jumpIndex >= 0) visibleStart = Math.min(visibleStart, Math.max(0, jumpIndex - 5));
 
-  if (!(data.history ?? []).length) {
-    log.append(el('div', 'log-empty', 'История ещё не началась. Напиши первое действие — ведущий откроет сцену.'));
+  const moreWrap = el('div', 'history-more-wrap');
+  const moreBtn = el('button', 'btn small history-more', 'Показать ещё 50');
+  moreBtn.type = 'button';
+  moreWrap.append(moreBtn);
+  const historyBox = el('div', 'history-box');
+  log.append(moreWrap, historyBox);
+
+  const drawHistory = () => {
+    historyBox.replaceChildren();
+    for (let index = visibleStart; index < history.length; index += 1) {
+      const entry = history[index];
+      if (entry.role === 'player') addPlayer(historyBox, entry.text, entry.turn);
+      else if (entry.role === 'gm') {
+        // Кнопки действий — только у последних десяти ходов, иначе лента тормозит.
+        const recent = entry.turn > data.state.turn - 10;
+        addGm(historyBox, { prose: entry.text, stats: {}, numbers: entry.numbers }, recent ? turnsById.get(entry.turn) : null, imagesByTurn.get(entry.turn), entry.turn);
+      }
+    }
+    moreWrap.classList.toggle('hidden', visibleStart <= 0);
+  };
+  moreBtn.addEventListener('click', () => {
+    const oldHeight = log.scrollHeight;
+    const oldTop = log.scrollTop;
+    visibleStart = Math.max(0, visibleStart - pageSize);
+    drawHistory();
+    log.scrollTop = oldTop + (log.scrollHeight - oldHeight);
+  });
+  drawHistory();
+
+  if (!history.length) {
+    historyBox.append(el('div', 'log-empty', 'История ещё не началась. Напиши первое действие — ведущий откроет сцену.'));
   }
 
   renderPanel(data.state, panel, id, data.worldMap ?? '', data.map ?? '', data.summary);
   scrollDown(log);
 
-  const jumpTurn = Number(route.query.get('turn') ?? 0);
   if (jumpTurn > 0) {
     window.requestAnimationFrame(() => {
       const target =
