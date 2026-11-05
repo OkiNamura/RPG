@@ -5443,6 +5443,67 @@ function openImageQueueDialog() {
   });
 }
 
+function openEventsDialog(state, campaignId) {
+  const overlay = el('div', 'library-modal');
+  const sheet = el('article', 'library-sheet');
+  const head = el('div', 'library-sheet-head');
+  const titles = el('div');
+  titles.append(el('h2', 'person-name', 'События'));
+  titles.append(el('div', 'person-role', 'ближайшие события мира и продолжение времени'));
+  const close = el('button', 'btn small', '✕');
+  close.type = 'button';
+  head.append(titles, close);
+  const body = el('div', 'library-sheet-body');
+  const events = (state.events ?? [])
+    .filter((event) => event.status !== 'done' && event.status !== 'missed')
+    .slice()
+    .sort((a, b) => (a.at.day * 1440 + a.at.hour * 60 + a.at.minute) - (b.at.day * 1440 + b.at.hour * 60 + b.at.minute));
+  if (state.lastTimeSkip) {
+    const skip = state.lastTimeSkip;
+    body.append(el('p', 'page-sub', `Последний переход: ${skip.from.day} д ${String(skip.from.hour).padStart(2, '0')}:${String(skip.from.minute ?? 0).padStart(2, '0')} → ${skip.to.day} д ${String(skip.to.hour).padStart(2, '0')}:${String(skip.to.minute ?? 0).padStart(2, '0')}`));
+  }
+  if (!events.length) {
+    body.append(el('p', 'page-sub', 'Событий пока нет. Они появятся из встреч, дедлайнов и сцен.'));
+  } else {
+    const list = el('div', 'context-lore');
+    for (const event of events) {
+      const row = el('div', 'context-lore-row');
+      row.append(
+        el('span', 'context-name', `${event.at.day} д ${String(event.at.hour).padStart(2, '0')}:${String(event.at.minute).padStart(2, '0')}`),
+        el('span', `tag ${event.importance === 'critical' ? 'gold' : ''}`, event.title),
+        el('span', 'context-reason', event.importance ?? ''),
+      );
+      list.append(row);
+    }
+    body.append(list);
+  }
+  if (state.lastTimeSkip?.target === 'event' && events.length) {
+    const resume = el('button', 'btn primary', 'Продолжить до следующего события');
+    resume.type = 'button';
+    resume.addEventListener('click', async () => {
+      try {
+        await api(`/api/campaign/${encodeURIComponent(campaignId)}/turn`, {
+          method: 'POST',
+          body: JSON.stringify({ input: 'Продолжаю до следующего события.', timeTarget: { kind: 'event' } }),
+        });
+        overlay.remove();
+        toast('скачок продолжен');
+        router();
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+    body.append(resume);
+  }
+  sheet.append(head, body);
+  overlay.append(sheet);
+  close.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  document.body.append(overlay);
+}
+
 function openBranchesDialog(campaignId) {
   const overlay = el('div', 'library-modal');
   const sheet = el('article', 'library-sheet');
@@ -5757,11 +5818,7 @@ async function viewPlay(view, id, useCache = true) {
   eventsBtn.title = 'ближайшие события и продолжение времени';
   eventsBtn.addEventListener('click', () => {
     closeMenu();
-    document.body.classList.add('panel-open');
-    window.setTimeout(() => {
-      const heading = [...panel.querySelectorAll('*')].find((node) => node.textContent?.trim() === 'События');
-      heading?.scrollIntoView({ block: 'nearest' });
-    }, 80);
+    openEventsDialog(data.state, id);
   });
 
   menu.append(diceBtn, shotBtn, fontBlock, artBtn, historyBtn, contextBtn, branchesBtn, undoBtn, cancelImagesBtn, queueBtn, focusBtn, eventsBtn);
