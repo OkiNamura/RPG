@@ -794,6 +794,7 @@ async function viewContainer(view, id) {
     head.append(el('b', '', quest.title), el('span', `chip chip-status-${quest.status || 'active'}`, quest.status || 'active'));
     box.append(head);
     if (quest.deadline) box.append(el('div', 'person-label', `Срок: ${quest.deadline}`));
+    if (quest.clock) box.append(el('div', 'person-label', `Часы: ${quest.clock.value}/${quest.clock.max}`));
     if (quest.steps?.length) {
       const list = el('ul', 'quest-steps');
       for (const step of quest.steps) list.append(el('li', '', step));
@@ -5188,6 +5189,7 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     frag.append(section('Задачи', [itemList(state.quests.map((q) => {
       const li = el('li');
       li.append(el('span', '', q.title), el('span', 'tag', q.status));
+      if (q.clock) li.append(el('div', 'person-field', `часы ${q.clock.value}/${q.clock.max}`));
       return li;
     }))]));
   }

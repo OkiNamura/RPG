@@ -198,7 +198,7 @@ export function renderState(s: GameState): string {
   if (s.quests.length) {
     lines.push(
       `Задачи: ${s.quests
-        .map((q) => `${q.title} [${q.status}${q.deadline ? `, срок: ${q.deadline}` : ''}]`)
+        .map((q) => `${q.title} [${q.status}${q.deadline ? `, срок: ${q.deadline}` : ''}${q.clock ? `, часы: ${q.clock.value}/${q.clock.max}` : ''}]`)
         .join('; ')}`,
     );
   }

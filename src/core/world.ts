@@ -32,11 +32,23 @@ export function advanceWorld(state: GameState): string[] {
   if (!state.fronts?.length) return [];
   const changes: string[] = [];
   state.clocks ??= [];
+  const now = state.time.day * 1440 + state.time.hour * 60 + (state.time.minute ?? 0);
+  for (const event of state.events ?? []) {
+    if (event.status && event.status !== 'active') continue;
+    const at = event.at.day * 1440 + event.at.hour * 60 + event.at.minute;
+    if (at > now) continue;
+    event.status = 'done';
+    changes.push(`событие: ${event.title}`);
+    const front = state.fronts.find((item) => event.title.includes(item.name));
+    if (front && front.status === 'active') {
+      front.progress = Math.min(100, front.progress + (event.importance === 'critical' ? 4 : 2));
+    }
+  }
   for (const front of state.fronts) {
     if (front.status !== 'active') continue;
     const faction = state.factions.find((item) => item.name === front.faction);
-    // Враждебная фракция давит быстрее, союзная — медленнее.
-    const pressure = 1 + (state.turn % 3 === 0 ? 1 : 0) + (faction && faction.attitude < -20 ? 1 : 0);
+    // Враждебная фракция и плохая репутация давят быстрее, союзная — медленнее.
+    const pressure = 1 + (state.turn % 3 === 0 ? 1 : 0) + (faction && faction.attitude < -20 ? 1 : 0) + (state.reputation.public < -20 ? 1 : 0);
     front.progress = Math.max(0, Math.min(100, front.progress + pressure));
     front.updatedTurn = state.turn;
     const clock = state.clocks.find((item) => item.name === `Давление: ${front.name}`);
@@ -56,11 +68,14 @@ export function advanceWorld(state: GameState): string[] {
         steps: [front.goal ?? 'не дать фронту завершиться'],
         createdTurn: state.turn,
         turnsLimit: 20,
+        clock: { value: 0, max: 6 },
       });
       changes.push(`квест: ${front.quest}`);
     }
     if (front.progress >= 100) {
       front.status = 'resolved';
+      const quest = state.quests.find((item) => item.title === front.quest);
+      if (quest) quest.status = 'done';
       changes.push(`мир: фронт «${front.name}» завершён`);
       state.events.push({
         id: `front-done-${front.id}-${state.turn}`,
@@ -73,6 +88,14 @@ export function advanceWorld(state: GameState): string[] {
         importance: 'meaningful',
         status: 'active',
       });
+    }
+  }
+  for (const quest of state.quests) {
+    if (quest.status !== 'active' || !quest.clock) continue;
+    quest.clock.value = Math.min(quest.clock.max, quest.clock.value + 1);
+    if (quest.clock.value >= quest.clock.max) {
+      quest.status = 'failed';
+      changes.push(`квест провален по часам: ${quest.title}`);
     }
   }
   return changes;
