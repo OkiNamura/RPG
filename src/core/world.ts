@@ -6,6 +6,45 @@
  */
 import type { GameState, WorldFront } from './state.ts';
 
+/** Свести ценности фракций в отношение: общие нормы сближают, противоположные — ссорят. */
+export function ensureFactionRelations(state: GameState): void {
+  const factions = state.factions ?? [];
+  for (let i = 0; i < factions.length; i += 1) {
+    for (let j = i + 1; j < factions.length; j += 1) {
+      const left = factions[i];
+      const right = factions[j];
+      left.relations ??= [];
+      right.relations ??= [];
+      if (left.relations.some((relation) => relation.with === right.name)) continue;
+      const keys = new Set([...Object.keys(left.norms ?? {}), ...Object.keys(right.norms ?? {})]);
+      let score = 0;
+      for (const key of keys) {
+        score += (left.norms?.[key] ?? 0) * (right.norms?.[key] ?? 0);
+      }
+      const attitude = Math.max(-40, Math.min(40, Math.round(score)));
+      left.relations.push({ with: right.name, attitude });
+      right.relations.push({ with: left.name, attitude });
+    }
+  }
+}
+
+export function advanceFactionRelations(state: GameState): string[] {
+  ensureFactionRelations(state);
+  const changes: string[] = [];
+  for (const faction of state.factions ?? []) {
+    for (const relation of faction.relations ?? []) {
+      if (relation.attitude <= -30 && relation.note !== 'война') {
+        relation.note = 'война';
+        changes.push(`война: ${faction.name} против ${relation.with}`);
+      } else if (relation.attitude >= 30 && relation.note !== 'союз') {
+        relation.note = 'союз';
+        changes.push(`союз: ${faction.name} и ${relation.with}`);
+      }
+    }
+  }
+  return changes;
+}
+
 export function makeFrontsFromStory(state: GameState): WorldFront[] {
   const story = state.worldStory;
   if (!story?.factions?.length) return [];
@@ -50,9 +89,10 @@ export function makeFrontsFromFactions(state: GameState): WorldFront[] {
 }
 
 export function advanceWorld(state: GameState): string[] {
-  if (!state.fronts?.length) return [];
+  if (!state.fronts?.length && !state.factions?.length) return [];
   const changes: string[] = [];
   state.clocks ??= [];
+  for (const change of advanceFactionRelations(state)) changes.push(change);
   const now = state.time.day * 1440 + state.time.hour * 60 + (state.time.minute ?? 0);
   for (const event of state.events ?? []) {
     if (event.status && event.status !== 'active') continue;
@@ -92,6 +132,20 @@ export function advanceWorld(state: GameState): string[] {
         clock: { value: 0, max: 6 },
       });
       changes.push(`квест: ${front.quest}`);
+    }
+    if (front.progress >= 50 && !front.npcEvent && state.worldStory?.npcLines?.length) {
+      const line = state.worldStory.npcLines.find((item) => item.faction === front.faction);
+      if (line) {
+        front.npcEvent = true;
+        state.events.push({
+          id: `front-npc-${front.id}-${state.turn}`,
+          at: { day: state.time.day, hour: Math.min(23, state.time.hour + 2), minute: 0 },
+          title: `${line.name}: ${front.name}`,
+          importance: 'meaningful',
+          status: 'active',
+        });
+        changes.push(`линия NPC: ${line.name}`);
+      }
     }
     if (front.progress >= 100) {
       front.status = 'resolved';

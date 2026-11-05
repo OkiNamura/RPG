@@ -114,7 +114,7 @@ export function renderState(s: GameState): string {
   if (s.reputation) {
     lines.push(`Репутация героя: ${s.reputation.public} (${s.reputation.label})${s.reputation.note ? ` — ${s.reputation.note}` : ''}`);
     if (s.factions?.length) {
-      lines.push(`Фракции: ${s.factions.map((f) => `${f.name} ${f.attitude > 0 ? '+' : ''}${f.attitude}`).join('; ')}`);
+      lines.push(`Фракции: ${s.factions.map((f) => `${f.name} ${f.attitude > 0 ? '+' : ''}${f.attitude}${f.relations?.length ? ` [${f.relations.map((r) => `${r.with} ${r.attitude}${r.note ? ` ${r.note}` : ''}`).join(', ')}]` : ''}`).join('; ')}`);
     }
     if (s.norms?.length) {
       lines.push(`Нормы мира: ${s.norms.map((n) => `${n.label} ${n.weight}`).join(' · ')}`);

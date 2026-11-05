@@ -5034,6 +5034,20 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     );
     frag.append(section('Фронты мира', frontRows));
   }
+  const factionRelations = (state.factions ?? []).flatMap((faction) =>
+    (faction.relations ?? []).map((relation) => ({
+      from: faction.name,
+      to: relation.with,
+      attitude: relation.attitude,
+      note: relation.note,
+    })),
+  ).filter((relation, index, list) => list.findIndex((item) => item.from === relation.from && item.to === relation.to) === index);
+  if (factionRelations.length) {
+    const relationRows = factionRelations.slice(0, 8).map((relation) =>
+      row(`${relation.from} ↔ ${relation.to}`, `${relation.attitude > 0 ? '+' : ''}${relation.attitude}${relation.note ? ` · ${relation.note}` : ''}`),
+    );
+    frag.append(section('Отношения фракций', relationRows));
+  }
   frag.append(section('Репутация', reputationRows));
   }
 

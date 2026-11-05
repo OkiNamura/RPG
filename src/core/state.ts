@@ -87,6 +87,8 @@ export interface WorldFront {
   updatedTurn: number;
   /** квест, созданный при усилении фронта */
   quest?: string;
+  /** событие линии NPC уже создано */
+  npcEvent?: boolean;
 }
 
 /** Часы мира: долгий прогресс, который виден игроку. */
@@ -216,6 +218,8 @@ export interface Faction {
   roster?: { name: string; role: string; note?: string; hidden?: boolean }[];
   /** собственные веса норм; отсутствующие берутся из мира */
   norms?: Record<string, number>;
+  /** отношения с другими фракциями */
+  relations?: { with: string; attitude: number; note?: string }[];
 }
 
 export interface LocationCard {
