@@ -7146,6 +7146,96 @@ window.addEventListener('hashchange', router);
 setupAuthBar();
 router();
 
+/* ================= модальные окна: back, Escape, свайп ================= */
+
+const modalStack = [];
+let suppressModalPop = 0;
+const MODAL_SELECTOR = '.library-modal, .actor-modal, .history-modal, .image-modal, .map-modal, .modal';
+
+function modalNode(node) {
+  if (!(node instanceof Element)) return null;
+  if (node.matches?.(MODAL_SELECTOR)) return node;
+  return node.querySelector?.(MODAL_SELECTOR) ?? null;
+}
+
+function trackModalOpen(overlay) {
+  if (!overlay || overlay.__omikaModal) return;
+  overlay.__omikaModal = true;
+  modalStack.push(overlay);
+  try {
+    history.pushState({ ...(history.state ?? {}), omikaModal: true }, '', location.href);
+    overlay.__omikaHistory = true;
+  } catch {
+    overlay.__omikaHistory = false;
+  }
+}
+
+function trackModalClose(overlay) {
+  if (!overlay?.__omikaModal) return;
+  overlay.__omikaModal = false;
+  const index = modalStack.indexOf(overlay);
+  if (index >= 0) modalStack.splice(index, 1);
+  if (overlay.__omikaHistory && !overlay.__omikaPopClose) {
+    overlay.__omikaPopClose = true;
+    suppressModalPop += 1;
+    history.back();
+  }
+}
+
+const modalObserver = new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    for (const node of mutation.addedNodes) {
+      const overlay = modalNode(node);
+      if (overlay) trackModalOpen(overlay);
+    }
+    for (const node of mutation.removedNodes) {
+      const overlay = modalNode(node);
+      if (overlay && overlay.__omikaModal) trackModalClose(overlay);
+    }
+  }
+});
+modalObserver.observe(document.body, { childList: true });
+
+window.addEventListener('popstate', () => {
+  if (suppressModalPop > 0) {
+    suppressModalPop -= 1;
+    return;
+  }
+  const top = modalStack.pop();
+  if (!top) return;
+  top.__omikaPopClose = true;
+  top.remove();
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || !modalStack.length) return;
+  event.preventDefault();
+  modalStack[modalStack.length - 1].remove();
+});
+
+let modalTouch = null;
+document.addEventListener('touchstart', (event) => {
+  const top = modalStack[modalStack.length - 1];
+  if (!top || !event.touches[0]) return;
+  const touch = event.touches[0];
+  modalTouch = { overlay: top, x: touch.clientX, y: touch.clientY, target: event.target };
+}, { passive: true });
+document.addEventListener('touchend', (event) => {
+  const gesture = modalTouch;
+  modalTouch = null;
+  if (!gesture || !event.changedTouches[0]) return;
+  const touch = event.changedTouches[0];
+  const dx = touch.clientX - gesture.x;
+  const dy = touch.clientY - gesture.y;
+  if (dy < 80 || Math.abs(dx) > Math.abs(dy) * 1.4) return;
+  const target = gesture.target;
+  if (target instanceof Element && target.closest('input, textarea, select, [contenteditable="true"]')) return;
+  const header = target instanceof Element && target.closest('.library-sheet-head, .map-modal-head, .actor-sheet-head');
+  if (!header && target !== gesture.overlay) return;
+  gesture.overlay.remove();
+}, { passive: true });
+
+
 if ('serviceWorker' in navigator && window.isSecureContext) {
   navigator.serviceWorker.register('/sw.js').catch(() => undefined);
 }
