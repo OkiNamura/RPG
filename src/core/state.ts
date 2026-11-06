@@ -105,8 +105,12 @@ export interface WorldClock {
 export function updateSceneCheckpoint(state: GameState, prose: string, stalled = false): SceneState {
   const participants = [
     state.hero.name,
-    ...state.party.filter((actor) => actor.status === 'alive').map((actor) => actor.name),
-    ...state.npcs.filter((actor) => actor.present && !actor.archived).map((actor) => actor.name),
+    ...state.party
+      .filter((actor) => actor.present === true && actor.status === 'alive' && !actor.archived)
+      .map((actor) => actor.name),
+    ...state.npcs
+      .filter((actor) => actor.present === true && actor.status === 'alive' && !actor.archived)
+      .map((actor) => actor.name),
   ].filter(Boolean);
   const beat = prose.replace(/\s+/g, ' ').trim().slice(0, 180);
   const previous = state.scene;

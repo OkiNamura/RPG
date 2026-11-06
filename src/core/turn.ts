@@ -249,6 +249,7 @@ export async function runTurn(
   // Провайдер знает точнее — берём его цифры, если они есть.
   let tokensIn = reply.inputTokens ?? ctx.totalTokens;
   let cachedTokens = reply.cachedTokens ?? prefixCached;
+  let outputTokens = reply.outputTokens;
 
   // Структурный вывод: изменения уже отдельным полем.
   // Текстовый: выковыриваем блок из прозы.
@@ -266,6 +267,7 @@ export async function runTurn(
     reply = retry;
     tokensIn += retry.inputTokens ?? 0;
     cachedTokens += retry.cachedTokens ?? 0;
+    outputTokens += retry.outputTokens ?? 0;
     parsed =
       retry.delta !== undefined
         ? { prose: retry.text.trim(), delta: retry.delta }
@@ -281,9 +283,9 @@ export async function runTurn(
   // Защита от зацикливания: модель иногда повторяет предыдущий ответ
   // дословно, хотя игрок уже сказал новое. Один повтор с явным запретом.
   let repeatedResponse = false;
-  if ((previousGm || actionRepeat > 0.72) && parsed.prose.trim()) {
+  if (previousGm && parsed.prose.trim()) {
     const similarity = proseSimilarity(previousGm, parsed.prose);
-    if (similarity > 0.82 || actionRepeat > 0.72) {
+    if (similarity > 0.82) {
       repeatedResponse = true;
       try {
         const retry = await session.model.complete([
@@ -296,13 +298,14 @@ export async function runTurn(
         ]);
         tokensIn += retry.inputTokens ?? 0;
         cachedTokens += retry.cachedTokens ?? 0;
+        outputTokens += retry.outputTokens ?? 0;
         const retryParsed =
           retry.delta !== undefined
             ? { prose: retry.text.trim(), delta: retry.delta }
             : parseDelta(retry.text);
         const retryProse = session.antiSlop === false ? retryParsed.prose : cleanProse(retryParsed.prose);
         if (retryProse.trim() && proseSimilarity(previousGm, retryProse) < similarity) {
-          parsed = { ...parsed, prose: retryProse };
+          parsed = { ...retryParsed, prose: retryProse };
           repeatedResponse = false;
         }
       } catch {
@@ -351,10 +354,10 @@ export async function runTurn(
   const cost =
     (fresh / 1_000_000) * session.prices.input +
     (cachedTokens / 1_000_000) * session.prices.cachedInput +
-    (reply.outputTokens / 1_000_000) * session.prices.output;
+    (outputTokens / 1_000_000) * session.prices.output;
 
   session.totals.tokensIn += tokensIn;
-  session.totals.tokensOut += reply.outputTokens;
+  session.totals.tokensOut += outputTokens;
   session.totals.cached += cachedTokens;
   session.totals.cost += cost;
 
@@ -373,7 +376,7 @@ export async function runTurn(
   return {
     turn: state.turn,
     tokensIn,
-    tokensOut: reply.outputTokens,
+    tokensOut: outputTokens,
     cachedTokens,
     cost,
     problems,

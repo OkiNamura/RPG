@@ -1331,7 +1331,7 @@ async function augmentFeatureNotes(session: Session, input: string, id: string):
   }
   if (features.storyDirector) {
     const present = [...session.state.party, ...session.state.npcs].filter(
-      (actor) => actor.present !== false && actor.status === 'alive',
+      (actor) => actor.present === true && actor.status === 'alive' && !actor.archived,
     );
     const director = session.agents?.director ?? agents.director;
     if (director?.enabled) {
@@ -1360,7 +1360,7 @@ async function augmentFeatureNotes(session: Session, input: string, id: string):
   }
   if (features.groupScenes) {
     const present = [...session.state.party, ...session.state.npcs].filter(
-      (actor) => actor.present !== false && actor.status === 'alive',
+      (actor) => actor.present === true && actor.status === 'alive' && !actor.archived,
     );
     const focus = (session.groupFocus ?? []).filter((name) => present.some((actor) => actor.name === name));
     if (focus.length) {

@@ -24,6 +24,13 @@ if (!state.fronts[0].quest) throw new Error('квест фронта не соз
 if (state.clocks[0].value <= 0) throw new Error('часы мира не двинулись');
 
 state.place = 'Кухня дома';
+state.party.push({ name: 'Без флага', role: 'спутник', status: 'alive', bond: 10 });
+let scene = updateSceneCheckpoint(state, 'Мама ставит ложку.', false);
+if (scene.participants.includes('Без флага')) throw new Error('NPC без present попал в сцену');
+state.party[0].present = true;
+state.place = 'Кухня у окна';
+scene = updateSceneCheckpoint(state, 'Ты у окна.', false);
+if (!scene.participants.includes('Без флага')) throw new Error('present=true не попал в сцену');
 const first = updateSceneCheckpoint(state, 'Мама ставит ложку.', false);
 if (!first.id.startsWith('scene-')) throw new Error('нет чекпоинта сцены');
 updateSceneCheckpoint(state, 'Мама ставит ложку.', true);

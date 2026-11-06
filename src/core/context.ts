@@ -81,7 +81,13 @@ function formatCurrencies(currencies?: { name: string; amount: number }[]): stri
   return (currencies ?? []).map((currency) => `${currency.amount} ${currency.name}`).join(', ');
 }
 
-export function renderState(s: GameState): string {
+export interface RenderStateOptions {
+  /** gm — компактный контекст ведущего; agent — полная картина для агента состояния */
+  mode?: 'gm' | 'agent';
+}
+
+export function renderState(s: GameState, options: RenderStateOptions = {}): string {
+  const compact = options.mode === 'gm';
   const lines: string[] = [];
 
   lines.push(`ТЕКУЩЕЕ СОСТОЯНИЕ (ход ${s.turn})`);
@@ -113,9 +119,6 @@ export function renderState(s: GameState): string {
   if (s.currencies?.length) lines.push(`Валюты мира: ${s.currencies.map((c) => c.name).join(', ')}`);
   if (s.reputation) {
     lines.push(`Репутация героя: ${s.reputation.public} (${s.reputation.label})${s.reputation.note ? ` — ${s.reputation.note}` : ''}`);
-    if (s.factions?.length) {
-      lines.push(`Фракции: ${s.factions.map((f) => `${f.name} ${f.attitude > 0 ? '+' : ''}${f.attitude}${f.relations?.length ? ` [${f.relations.map((r) => `${r.with} ${r.attitude}${r.note ? ` ${r.note}` : ''}`).join(', ')}]` : ''}`).join('; ')}`);
-    }
     if (s.norms?.length) {
       lines.push(`Нормы мира: ${s.norms.map((n) => `${n.label} ${n.weight}`).join(' · ')}`);
     }
@@ -169,18 +172,22 @@ export function renderState(s: GameState): string {
     );
   }
   const activeNpcs = (s.npcs ?? []).filter((a) => !a.archived);
-  if (activeNpcs.length) {
+  const presentNpcs = activeNpcs.filter((a) => a.present === true);
+  const absentNpcs = activeNpcs.filter((a) => a.present !== true).slice(-8);
+  const shownNpcs = compact ? [...presentNpcs, ...absentNpcs] : activeNpcs;
+  if (shownNpcs.length) {
     lines.push(
-      `NPC: ${activeNpcs
+      `NPC: ${shownNpcs
         .map((a) => {
+          const inScene = !compact || a.present === true;
           const extras = [
-            a.resources?.length ? formatResources(a.resources) : '',
-            a.money ? formatCoins(a.money) : '',
+            inScene && a.resources?.length ? formatResources(a.resources) : '',
+            inScene && a.money ? formatCoins(a.money) : '',
             typeof a.attitude === 'number' ? `отношение к герою ${a.attitude}` : '',
-            a.relations?.length
+            inScene && a.relations?.length
               ? `связи: ${a.relations.map((rel) => `${rel.with}${rel.attitude != null ? ` ${rel.attitude}` : ''}`).join(', ')}`
               : '',
-            a.mind
+            inScene && a.mind
               ? [
                   a.mind.goals?.length ? `цели: ${a.mind.goals.join(', ')}` : '',
                   a.mind.secrets?.length ? `секреты (не раскрывать): ${a.mind.secrets.join(', ')}` : '',
@@ -194,26 +201,37 @@ export function renderState(s: GameState): string {
         })
         .join('; ')}`,
     );
+    if (compact && activeNpcs.length > shownNpcs.length) {
+      lines.push(`Ещё NPC: ${activeNpcs.length - shownNpcs.length}`);
+    }
   }
-  if (s.quests.length) {
+  const shownQuests = compact
+    ? [
+        ...s.quests.filter((q) => q.status === 'active' || q.status === 'frozen'),
+        ...s.quests.filter((q) => q.status === 'done' || q.status === 'failed').slice(-3),
+      ]
+    : s.quests;
+  if (shownQuests.length) {
     lines.push(
-      `Задачи: ${s.quests
+      `Задачи: ${shownQuests
         .map((q) => `${q.title} [${q.status}${q.deadline ? `, срок: ${q.deadline}` : ''}${q.clock ? `, часы: ${q.clock.value}/${q.clock.max}` : ''}]`)
         .join('; ')}`,
     );
   }
   if (s.promises.length) {
-    lines.push(`Обещания: ${s.promises.join('; ')}`);
+    const shown = compact ? s.promises.slice(-8) : s.promises;
+    lines.push(`Обещания: ${shown.join('; ')}${compact && s.promises.length > shown.length ? `; ещё ${s.promises.length - shown.length}` : ''}`);
   }
   if (s.hooks?.length) {
     // В контекст — только свежие: полный список живёт в панели.
     lines.push(`Открытые крючки: ${s.hooks.slice(-12).join('; ')}`);
   }
   if (s.hiddenFacts?.length) {
+    const shown = compact ? s.hiddenFacts.slice(-12) : s.hiddenFacts;
     lines.push(
-      `Скрытые факты (знать, но не раскрывать без повода): ${s.hiddenFacts
+      `Скрытые факты (знать, но не раскрывать без повода): ${shown
         .map((f) => f.content)
-        .join('; ')}`,
+        .join('; ')}${compact && s.hiddenFacts.length > shown.length ? `; ещё ${s.hiddenFacts.length - shown.length} скрытых фактов` : ''}`,
     );
   }
   if (s.factions?.length) {
@@ -222,7 +240,8 @@ export function renderState(s: GameState): string {
         .map((f) => {
           const head = f.leader ? `, глава: ${f.leader}` : '';
           const shadow = f.shadow ? `, тень: ${f.shadow}` : '';
-          const roster = f.roster?.length
+          const inScene = f.roster?.some((r) => s.npcs.some((a) => a.name === r.name && a.present === true)) ?? false;
+          const roster = inScene && f.roster?.length
             ? `, состав: ${f.roster
                 .slice(0, 6)
                 .map((r) => `${r.name}${r.hidden ? ' (скрыт)' : ''} — ${r.role}`)
@@ -325,7 +344,7 @@ export function buildContext(input: ContextInput): BuiltContext {
 
   // 4. Цифры этого хода. Маленький и меняется всегда — поэтому в самом конце,
   //    перед ходом игрока, а не перед историей.
-  const stateBlock = renderState(input.state);
+  const stateBlock = renderState(input.state, { mode: 'gm' });
   messages.push({ role: 'system', content: stateBlock });
   segments.push(seg('state', stateBlock));
 

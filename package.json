@@ -16,6 +16,8 @@
     "test:repeat": "node scripts/repetition-test.mjs",
     "test:world": "node scripts/world-test.mjs",
     "test:tone": "node scripts/tone-test.mjs",
+    "test:context": "node scripts/context-test.mjs",
+    "test:action-repeat": "node scripts/action-repeat-test.mjs",
     "shot": "node scripts/shot.mjs",
     "playtest": "node scripts/playtest.mjs"
   },

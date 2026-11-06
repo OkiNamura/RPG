@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 import { createState } from '../src/core/state.ts';
 import { Conspect } from '../src/core/conspect.ts';
 import { runTurn } from '../src/core/turn.ts';
