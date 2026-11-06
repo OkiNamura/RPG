@@ -24,6 +24,7 @@ state.factions.push({
   name: 'Гильдия',
   attitude: 0,
   roster: [{ name: 'Член гильдии', role: 'вор' }],
+  relations: Array.from({ length: 10 }, (_, index) => ({ with: `Фракция${index}`, attitude: 30, note: 'союз' })),
 });
 
 const gm = renderState(state, { mode: 'gm' });
@@ -39,6 +40,7 @@ if (!gm.includes('ещё 8 скрытых фактов')) throw new Error('не�
 if (!agent.includes('секретная цель')) throw new Error('агент состояния потерял секреты NPC');
 if (!agent.includes('состав:')) throw new Error('агент состояния потерял состав фракции');
 if (gm.includes('состав:')) throw new Error('GM state показал состав отсутствующей фракции');
+if (!gm.includes('ещё 6')) throw new Error('связи фракции не ограничены');
 console.log('✓ компактный state для ведущего');
 console.log('✓ полный state для агента состояния');
 console.log('✓ фракции без дублей');

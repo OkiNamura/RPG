@@ -258,8 +258,11 @@ export function renderState(s: GameState, options: RenderStateOptions = {}): str
           const inScene = f.roster?.some((r) =>
             [...s.npcs, ...s.party].some((a) => a.name === r.name && a.present === true),
           ) ?? false;
-          const relations = f.relations?.length
-            ? ` [${f.relations.map((rel) => `${rel.with} ${rel.attitude}${rel.note ? ` ${rel.note}` : ''}`).join(', ')}]`
+          const shownRelations = (f.relations ?? [])
+            .filter((rel) => Boolean(rel.note) || Math.abs(rel.attitude) >= 30)
+            .slice(0, 4);
+          const relations = shownRelations.length
+            ? ` [${shownRelations.map((rel) => `${rel.with} ${rel.attitude}${rel.note ? ` ${rel.note}` : ''}`).join(', ')}${(f.relations?.length ?? 0) > shownRelations.length ? `; ещё ${(f.relations?.length ?? 0) - shownRelations.length}` : ''}]`
             : '';
           const roster = (!compact || inScene) && f.roster?.length
             ? `, состав: ${f.roster
