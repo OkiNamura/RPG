@@ -56,7 +56,8 @@ docs/             — архитектура, ТЗ и этапы
 ```
 
 Переносимое ТЗ: [`docs/TZ.md`](docs/TZ.md).  
-Запуск после перезагрузки: [`docs/START.md`](docs/START.md).
+Запуск после перезагрузки: [`docs/START.md`](docs/START.md).  
+Контекст для ревью: [`docs/CONTEXT.md`](docs/CONTEXT.md) · протокол пары: [`docs/PAIRING.md`](docs/PAIRING.md).
 
 ## API
 
