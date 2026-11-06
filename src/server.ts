@@ -67,6 +67,7 @@ import { KeyStore, fetchKeyModels, normalizeBaseUrl, type KeyModel } from './cor
 import { makeWorldProfile } from './core/world-profile.ts';
 import { DEFAULT_FEATURES, normalizeFeatures, type FeatureFlags } from './core/features.ts';
 import { estimatePrice } from './core/economy.ts';
+import { shouldRunDirector } from './core/director.ts';
 import { directorNote, recallLog } from './core/recall.ts';
 import { applySocialReaction } from './core/social.ts';
 import { embedTexts } from './core/embeddings.ts';
@@ -1337,11 +1338,14 @@ async function augmentFeatureNotes(session: Session, input: string, id: string):
     const director = session.agents?.director ?? agents.director;
     session.lastDirectorMs = 0;
     const sceneId = session.state.scene?.id ?? '';
-    const directorDue = !session.state.scene
-      || session.state.scene.stalls >= 2
-      || sceneId !== session.lastDirectorSceneId
-      || session.state.turn <= (session.lastDirectorTurn ?? -99)
-      || session.state.turn - (session.lastDirectorTurn ?? -99) >= 3;
+    const directorDue = shouldRunDirector({
+      turn: session.state.turn,
+      hasScene: Boolean(session.state.scene),
+      stalls: session.state.scene?.stalls ?? 0,
+      sceneId,
+      lastSceneId: session.lastDirectorSceneId,
+      lastTurn: session.lastDirectorTurn,
+    });
     if (director?.enabled && directorDue) {
       try {
         const directorStarted = Date.now();

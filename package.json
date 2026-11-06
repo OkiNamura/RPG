@@ -19,6 +19,7 @@
     "test:context": "node scripts/context-test.mjs",
     "test:context-order": "node scripts/context-order-test.mjs",
     "test:memory": "node scripts/memory-test.mjs",
+    "test:director": "node scripts/director-test.mjs",
     "test:action-repeat": "node scripts/action-repeat-test.mjs",
     "shot": "node scripts/shot.mjs",
     "playtest": "node scripts/playtest.mjs"
