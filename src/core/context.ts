@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Сборка контекста по слоям.
  *
  * Порядок продиктован кэшем токенов, а не красотой: провайдер кэширует
@@ -8,6 +8,7 @@
  *   [static]      правила + мир + тон        — не меняется никогда
  *   [conspect]    закрытые арки              — меняется раз в арку
  *   [history]     последние ходы сообщениями — только дописывается в конец
+ *   [lore]        динамический лор           — после истории, чтобы не жечь кэш
  *   [state]       цифры текущего хода        — меняется каждый ход, но мал
  *   [turn]        ввод игрока                — меняется каждый ход
  *
@@ -240,8 +241,10 @@ export function renderState(s: GameState, options: RenderStateOptions = {}): str
         .map((f) => {
           const head = f.leader ? `, глава: ${f.leader}` : '';
           const shadow = f.shadow ? `, тень: ${f.shadow}` : '';
-          const inScene = f.roster?.some((r) => s.npcs.some((a) => a.name === r.name && a.present === true)) ?? false;
-          const roster = inScene && f.roster?.length
+          const inScene = f.roster?.some((r) =>
+            [...s.npcs, ...s.party].some((a) => a.name === r.name && a.present === true),
+          ) ?? false;
+          const roster = (!compact || inScene) && f.roster?.length
             ? `, состав: ${f.roster
                 .slice(0, 6)
                 .map((r) => `${r.name}${r.hidden ? ' (скрыт)' : ''} — ${r.role}`)
@@ -285,10 +288,6 @@ export function buildContext(input: ContextInput): BuiltContext {
     messages.push({ role: 'system', content: staticBlock });
     segments.push(seg('static', staticBlock));
   }
-  if (input.loreTop) {
-    messages.push({ role: 'system', content: input.loreTop });
-    segments.push(seg('lore.top', input.loreTop));
-  }
 
   // 1.5. Память истории: то, что игрок закрепил сам. Маленький блок,
   //      но меняется редко — кэш статики не страдает.
@@ -301,10 +300,6 @@ export function buildContext(input: ContextInput): BuiltContext {
   if (input.conspectFrozen) {
     messages.push({ role: 'system', content: input.conspectFrozen });
     segments.push(seg('conspect.frozen', input.conspectFrozen));
-  }
-  if (input.loreHistory) {
-    messages.push({ role: 'system', content: input.loreHistory });
-    segments.push(seg('lore.history', input.loreHistory));
   }
 
   // 3. История — настоящими сообщениями, только дописывается в конец.
@@ -336,6 +331,16 @@ export function buildContext(input: ContextInput): BuiltContext {
     const block = `КОНСПЕКТ ПРОШЛОГО:\n${input.conspectSummary}`;
     messages.push({ role: 'system', content: block });
     segments.push(seg('conspect', block));
+  }
+  // 3.6. Динамический лор — после истории: смена набора записей не должна
+  //      сжигать кэш самого большого блока.
+  if (input.loreTop) {
+    messages.push({ role: 'system', content: input.loreTop });
+    segments.push(seg('lore.top', input.loreTop));
+  }
+  if (input.loreHistory) {
+    messages.push({ role: 'system', content: input.loreHistory });
+    segments.push(seg('lore.history', input.loreHistory));
   }
   if (input.loreAfter) {
     messages.push({ role: 'system', content: input.loreAfter });

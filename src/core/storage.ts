@@ -77,6 +77,12 @@ export interface TurnSnapshot {
   /** какой вариант сейчас показан: 1 — основной, 2..N — альтернативы */
   variant?: number;
   variants?: TurnVariant[];
+  /** опции хода для воспроизводимой перегенерации */
+  turnOptions?: {
+    dice?: boolean;
+    focus?: string[];
+    timeTarget?: unknown;
+  };
 }
 
 export interface SavedCampaign {

@@ -1343,7 +1343,7 @@ async function augmentFeatureNotes(session: Session, input: string, id: string):
             { role: 'system', content: director.prompt },
             {
               role: 'user',
-              content: `СЦЕНА: ${session.state.place}. Игрок: ${input}\nВ сцене: ${present.map((actor) => actor.name).join(', ') || 'только герой'}\nСОСТОЯНИЕ:\n${renderState(session.state).slice(0, 5000)}`,
+              content: `СЦЕНА: ${session.state.place}. Игрок: ${input}\nВ сцене: ${present.map((actor) => actor.name).join(', ') || 'только герой'}\nСОСТОЯНИЕ:\n${renderState(session.state, { mode: 'gm' }).slice(0, 5000)}`,
             },
           ]);
           session.lastDirectorMs = Date.now() - directorStarted;
@@ -1498,7 +1498,27 @@ function reviveIfAllowed(id: string, session: Session): void {
   if (!hero.conditions.includes('без сознания')) hero.conditions.push('без сознания');
 }
 
- async function afterTurn(
+  async function prepareTurn(
+    session: Session,
+    id: string,
+    input: string,
+    options: { dice?: boolean; focus?: string[]; timeTarget?: TimeTarget | null } = {},
+  ): Promise<NumericSnapshot> {
+    session.groupFocus = Array.isArray(options.focus)
+      ? options.focus.map((name) => String(name)).filter(Boolean).slice(0, 8)
+      : [];
+    session.extraLore = pickLore(session, input);
+    const notes = pickNotes(id, session, Boolean(options.dice), input);
+    session.extraNotes = notes.text;
+    await augmentFeatureNotes(session, input, id);
+    if (timeTargetNote(options.timeTarget ?? null)) {
+      session.extraNotes += `\n\n${timeTargetNote(options.timeTarget ?? null)}`;
+    }
+    session.lastRoll = notes.roll;
+    return numericSnapshot(session.state);
+  }
+
+  async function afterTurn(
   session: Session,
   id: string,
   input: string,
@@ -1509,6 +1529,7 @@ function reviveIfAllowed(id: string, session: Session): void {
   clientTurnId?: string,
   beforeNumbers?: NumericSnapshot,
   timeTarget?: TimeTarget | null,
+  turnOptions?: { dice?: boolean; focus?: string[] },
 ): Promise<Record<string, unknown>> {
   const afterStarted = Date.now();
   const repairStarted = Date.now();
@@ -1609,6 +1630,10 @@ function reviveIfAllowed(id: string, session: Session): void {
       numbers,
       lastSummaryTurn: session.lastSummaryTurn ?? 0,
       variant: 1,
+      turnOptions: {
+        ...turnOptions,
+        timeTarget: timeTarget ?? null,
+      },
     },
     variantFrom,
   );
@@ -3631,15 +3656,20 @@ const server = createServer(async (req, res) => {
         session.busy = true;
         try {
           const started = Date.now();
-          session.extraLore = pickLore(session, target.input);
-          const notes = pickNotes(id, session, false, target.input);
-          session.extraNotes = notes.text;
-          await augmentFeatureNotes(session, target.input, id);
-          session.lastRoll = notes.roll;
-          const beforeNumbers = numericSnapshot(session.state);
+          const options = target.turnOptions ?? {};
+          const timeTarget = normalizeTimeTarget(options.timeTarget);
+          session.groupFocus = Array.isArray(options.focus) ? options.focus.filter(Boolean).slice(0, 8) : [];
+          const beforeNumbers = await prepareTurn(session, id, target.input, {
+            dice: Boolean(options.dice),
+            focus: options.focus ?? [],
+            timeTarget,
+          });
           const stats = await runTurn(session, target.input);
           const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
-          const payload = await afterTurn(session, id, target.input, prose, stats, started, target, undefined, beforeNumbers);
+          const payload = await afterTurn(session, id, target.input, prose, stats, started, target, undefined, beforeNumbers, timeTarget, {
+            dice: Boolean(options.dice),
+            focus: session.groupFocus,
+          });
           return sendJson(res, payload);
         } catch (err) {
           restoreTo(session, id, turn);
@@ -3668,15 +3698,22 @@ const server = createServer(async (req, res) => {
         session.busy = true;
         try {
           const started = Date.now();
-          session.extraLore = pickLore(session, input);
-          const notes = pickNotes(id, session, Boolean(body.dice), input);
-          session.extraNotes = notes.text;
-          await augmentFeatureNotes(session, input, id);
-          session.lastRoll = notes.roll;
-          const beforeNumbers = numericSnapshot(session.state);
+          const options = target.turnOptions ?? {};
+          // Новый текст — новая цель времени. Старую цель не наследуем.
+          const eventWord = /до\s+(ближайшего\s+)?(события|встречи)/i.test(input);
+          const timeTarget = eventWord && nextStateEvent(session) ? ({ kind: 'event' } as TimeTarget) : null;
+          session.groupFocus = Array.isArray(options.focus) ? options.focus.filter(Boolean).slice(0, 8) : [];
+          const beforeNumbers = await prepareTurn(session, id, input, {
+            dice: Boolean(options.dice),
+            focus: options.focus ?? [],
+            timeTarget,
+          });
           const stats = await runTurn(session, input);
           const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
-          const payload = await afterTurn(session, id, input, prose, stats, started, target, undefined, beforeNumbers);
+          const payload = await afterTurn(session, id, input, prose, stats, started, target, undefined, beforeNumbers, timeTarget, {
+            dice: Boolean(options.dice),
+            focus: session.groupFocus,
+          });
           return sendJson(res, payload);
         } catch (err) {
           restoreTo(session, id, turn);
@@ -4906,21 +4943,19 @@ const server = createServer(async (req, res) => {
             send('delta', { type: 'delta', text: '' });
 
             try {
-              session.groupFocus = Array.isArray(body.focus)
-                ? body.focus.map((name: unknown) => String(name)).filter(Boolean).slice(0, 8)
-                : [];
-              session.extraLore = pickLore(session, input);
-              const notes = pickNotes(id, session, Boolean(body.dice), input);
-              session.extraNotes = notes.text;
-              await augmentFeatureNotes(session, input, id);
-              if (timeTargetNote(timeTarget)) session.extraNotes += `\n\n${timeTargetNote(timeTarget)}`;
-              session.lastRoll = notes.roll;
-              const beforeNumbers = numericSnapshot(session.state);
+              const beforeNumbers = await prepareTurn(session, id, input, {
+                dice: Boolean(body.dice),
+                focus: Array.isArray(body.focus) ? body.focus.map(String) : [],
+                timeTarget,
+              });
               const stats = await runTurn(session, input, (delta) =>
                 send('delta', { type: 'delta', text: delta }),
               );
               const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
-              const payload = await afterTurn(session, id, input, prose, stats, started, undefined, clientTurnId, beforeNumbers, timeTarget);
+              const payload = await afterTurn(session, id, input, prose, stats, started, undefined, clientTurnId, beforeNumbers, timeTarget, {
+                dice: Boolean(body.dice),
+                focus: session.groupFocus ?? [],
+              });
               send('done', { type: 'done', payload });
             } catch (err) {
               send('error', {
@@ -4933,16 +4968,17 @@ const server = createServer(async (req, res) => {
             return;
           }
 
-          session.extraLore = pickLore(session, input);
-          const notes = pickNotes(id, session, Boolean(body.dice), input);
-          session.extraNotes = notes.text;
-          await augmentFeatureNotes(session, input, id);
-          if (timeTargetNote(timeTarget)) session.extraNotes += `\n\n${timeTargetNote(timeTarget)}`;
-          session.lastRoll = notes.roll;
-          const beforeNumbers = numericSnapshot(session.state);
+          const beforeNumbers = await prepareTurn(session, id, input, {
+            dice: Boolean(body.dice),
+            focus: Array.isArray(body.focus) ? body.focus.map(String) : [],
+            timeTarget,
+          });
           const stats = await runTurn(session, input);
           const prose = session.state.log[session.state.log.length - 1]?.text ?? '';
-          const payload = await afterTurn(session, id, input, prose, stats, started, undefined, clientTurnId, beforeNumbers, timeTarget);
+          const payload = await afterTurn(session, id, input, prose, stats, started, undefined, clientTurnId, beforeNumbers, timeTarget, {
+            dice: Boolean(body.dice),
+            focus: session.groupFocus,
+          });
           return sendJson(res, payload);
         } finally {
           session.busy = false;
