@@ -45,6 +45,7 @@ const next = updateSceneCheckpoint(state, 'Ты выходишь.', false);
 if (next.id === first.id) throw new Error('смена места не начала новую сцену');
 const lastClosed = state.sceneHistory?.at(-1);
 if (!lastClosed || lastClosed.closeReason !== 'три топтания подряд') throw new Error('закрытая сцена не сохранилась в истории');
+if (state.sceneHistory?.length !== new Set(state.sceneHistory?.map((entry) => entry.id)).size) throw new Error('история сцен задвоилась');
 
 console.log('✓ фронты мира двигаются');
 console.log('✓ чекпоинт сцены и смена места');

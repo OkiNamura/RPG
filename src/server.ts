@@ -1335,10 +1335,12 @@ async function augmentFeatureNotes(session: Session, input: string, id: string):
       (actor) => actor.present === true && actor.status === 'alive' && !actor.archived,
     );
     const director = session.agents?.director ?? agents.director;
+    session.lastDirectorMs = 0;
     const sceneId = session.state.scene?.id ?? '';
     const directorDue = !session.state.scene
       || session.state.scene.stalls >= 2
       || sceneId !== session.lastDirectorSceneId
+      || session.state.turn <= (session.lastDirectorTurn ?? -99)
       || session.state.turn - (session.lastDirectorTurn ?? -99) >= 3;
     if (director?.enabled && directorDue) {
       try {
