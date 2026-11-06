@@ -26,6 +26,8 @@ const RECALL_LIMIT = 6;
 const RECALL_CHARS = 3000;
 const TOTAL_CHARS = 9000;
 
+export const MEMORY_LIMITS = { pinnedEntries: PINNED_LIMIT, pinnedChars: PINNED_CHARS, recallEntries: RECALL_LIMIT, recallChars: RECALL_CHARS, totalChars: TOTAL_CHARS };
+
 export function normalizeMemories(value: unknown): MemoryEntry[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -53,10 +55,14 @@ export function buildMemoryBlock(entries: MemoryEntry[], legacy: string, searchT
     .slice(0, PINNED_LIMIT);
   const usedPinned: string[] = [];
   const pinnedLines: string[] = [];
+  const dropped: string[] = [];
   let pinnedChars = 0;
   for (const entry of pinned) {
     const line = `- ${entry.text}`;
-    if (pinnedChars + line.length > PINNED_CHARS) break;
+    if (pinnedChars + entry.text.length > PINNED_CHARS) {
+      dropped.push(entry.id);
+      continue;
+    }
     pinnedLines.push(line);
     usedPinned.push(entry.id);
     pinnedChars += entry.text.length;
@@ -67,13 +73,12 @@ export function buildMemoryBlock(entries: MemoryEntry[], legacy: string, searchT
   const usedRecall: string[] = [];
   const recallLines: string[] = [];
   let recallChars = 0;
-  const dropped: string[] = [];
   const candidates = entries
     .filter((entry) => !entry.pinned && entry.keys.length > 0 && entry.keys.some((key) => hitsKey(searchText, key)))
     .sort((a, b) => b.importance - a.importance || b.createdTurn - a.createdTurn);
   for (const entry of candidates) {
     const line = `- ${entry.text}`;
-    if (usedRecall.length >= RECALL_LIMIT || recallChars + line.length > recallBudget) {
+    if (usedRecall.length >= RECALL_LIMIT || recallChars + entry.text.length > recallBudget) {
       dropped.push(entry.id);
       continue;
     }

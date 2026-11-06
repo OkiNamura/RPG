@@ -13,5 +13,17 @@ const noMatch = buildMemoryBlock(entries, '', 'иду спать');
 if (noMatch.recall) throw new Error('recall без ключа');
 const normalized = normalizeMemories([{ text: 'старая запись' }]);
 if (normalized.length !== 1 || normalized[0].pinned !== false) throw new Error('нормализация старых записей');
+const eight = Array.from({ length: 8 }, (_, index) => ({
+  id: `big-${index}`,
+  kind: 'fact',
+  text: 'x'.repeat(500),
+  keys: [],
+  importance: 2,
+  pinned: true,
+  createdTurn: index,
+  source: 'player',
+}));
+const bigBlock = buildMemoryBlock(eight, '', '');
+if (bigBlock.usedPinned.length !== 8) throw new Error(`восьмая закреплённая потерялась: ${bigBlock.usedPinned.length}`);
 console.log('✓ pinned и recall памяти');
-console.log('✓ старые записи нормализуются');
+console.log('✓ восемь закреплённых по 500 символов попадают в контекст');

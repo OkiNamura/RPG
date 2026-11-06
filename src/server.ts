@@ -3957,7 +3957,11 @@ const server = createServer(async (req, res) => {
             : session.memories.map((item) => (item.id === entryId ? next : item));
         if (!candidate) return sendJson(res, { error: 'слишком много записей' }, 400);
         const pinnedList = candidate.filter((item) => item.pinned);
-        if (pinnedList.length > 8 || pinnedList.reduce((sum, item) => sum + item.text.length, 0) > 4000) {
+        const currentPinned = session.memories.filter((item) => item.pinned);
+        const grew = pinnedList.length > currentPinned.length
+          || pinnedList.reduce((sum, item) => sum + item.text.length, 0)
+            > currentPinned.reduce((sum, item) => sum + item.text.length, 0);
+        if (grew && (pinnedList.length > 8 || pinnedList.reduce((sum, item) => sum + item.text.length, 0) > 4000)) {
           return sendJson(res, { error: 'закреплённая память переполнена' }, 400);
         }
         session.memories = candidate;

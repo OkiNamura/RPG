@@ -375,6 +375,8 @@ async function main() {
 
   // ---------- игра ----------
   try {
+    // Свой тестовый мир каждый прогон: старый кэш/турн не должен влиять.
+    await fetch(BASE + '/api/campaign/ui-test-run', { method: 'DELETE' }).catch(() => undefined);
     const list = await (await fetch(BASE + '/api/campaigns')).json();
 
     // Тест ходит только в свою кампанию — чужие игры не трогаем.
