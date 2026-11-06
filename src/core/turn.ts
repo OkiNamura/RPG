@@ -117,6 +117,7 @@ export interface Session {
     messages: { role: string; content: string }[];
     totalTokens: number;
     segments: { name: string; chars: number; tokens?: number }[];
+    budget?: { limitTokens: number; totalTokens: number; over: boolean; summaryChars: number };
   };
   /** время последнего вызова режиссёра */
   lastDirectorMs?: number;
@@ -235,6 +236,12 @@ export async function runTurn(
     messages: ctx.messages.map((m) => ({ role: m.role, content: m.content })),
     totalTokens: ctx.totalTokens,
     segments: ctx.segments.map((s) => ({ name: s.name, chars: s.chars, tokens: s.tokens })),
+    budget: {
+      limitTokens: 25000,
+      totalTokens: ctx.totalTokens,
+      over: ctx.totalTokens > 25000,
+      summaryChars: Math.min((session.summary ?? '').length, 24000),
+    },
   };
 
   // Стрим возможен, когда ведущий пишет чистую прозу (состоянием владеет агент).

@@ -328,7 +328,11 @@ export function buildContext(input: ContextInput): BuiltContext {
   // 3.5. Конспект прошлого: всё, что старше окна последних ходов.
   //      Стоит после истории, чтобы не ломать кэш статики и окна.
   if (input.conspectSummary) {
-    const block = `КОНСПЕКТ ПРОШЛОГО:\n${input.conspectSummary}`;
+    const source = input.conspectSummary;
+    const summary = source.length > 24000
+      ? `${source.slice(0, 4000)}\n\n[...часть конспекта сокращена в контексте; полный текст остаётся в кампании...]\n\n${source.slice(-20000)}`
+      : source;
+    const block = `КОНСПЕКТ ПРОШЛОГО:\n${summary}`;
     messages.push({ role: 'system', content: block });
     segments.push(seg('conspect', block));
   }

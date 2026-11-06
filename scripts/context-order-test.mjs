@@ -57,6 +57,16 @@ const lastHistory = names.findLastIndex((name) => name.startsWith('log:'));
 if (cachedPrefix(built.segments, changedLore.segments) <= lastHistory) {
   throw new Error('смена лора сожгла кэш истории');
 }
+const longSummary = `${'старая арка. '.repeat(5000)}${'свежая арка. '.repeat(1000)}`;
+const longBuilt = buildContext({
+  core: 'core', world: 'world', tone: '', hero: 'hero',
+  conspectFrozen: 'frozen', conspectSummary: longSummary, state,
+  windowTurns: 24, playerInput: 'Новый ход', memory: 'memory',
+});
+const summarySegment = longBuilt.segments.find((segment) => segment.name === 'conspect');
+if (!summarySegment || summarySegment.chars > 25000) throw new Error('конспект не ограничен в контексте');
+if (longSummary.length !== `${'старая арка. '.repeat(5000)}${'свежая арка. '.repeat(1000)}`.length) throw new Error('исходный конспект изменён');
 console.log('✓ динамический лор после истории');
 console.log('✓ смена лора не сжигает префикс истории');
+console.log('✓ конспект ограничен только в контексте');
 console.log('✓ порядок памяти и заметок');

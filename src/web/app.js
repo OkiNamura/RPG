@@ -5819,6 +5819,11 @@ function openContextInspector(campaignId) {
     .then((data) => {
       body.replaceChildren();
       body.append(el('div', 'person-field', `Токенов: ${data.totalTokens ?? 0}`));
+      if (data.budget) {
+        const budget = data.budget;
+        body.append(el('div', 'person-field', `Бюджет: ${budget.totalTokens}/${budget.limitTokens} ток · конспект ${budget.summaryChars} зн.`));
+        if (budget.over) body.append(el('div', 'person-field warn', 'Бюджет превышен: notes и история не режутся, проверь лор/состояние.'));
+      }
       if (!data.enabled) body.append(el('div', 'person-field', 'Инспектор выключен в админке.'));
       const segments = data.segments ?? [];
       if (segments.length) {

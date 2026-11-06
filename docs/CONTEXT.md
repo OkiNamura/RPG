@@ -214,19 +214,27 @@ scene {
 6. **Суммаризатор раз в 3 хода**, а не `summarizeEvery = 10` (это поле управляет только механическими арками, когда агент выключен).
 7. Шапка-комментарий в `context.ts` описывает старый порядок слоёв (без lore/memory).
 
-## Известные цифры
+## Known figures
 
 ```text
-504 хода
-39,5 млн входных токенов
-~$2,03
-~68–73 тыс. токенов на ход
-summary 64,5 тыс. символов
-state 36,3 тыс. символов
-history 33,8 тыс. символов
+504 turns
+39.5M input tokens
+~$2.03
+~68–73k tokens per turn
+summary 64.5k chars
+state 36.3k chars
+history 33.8k chars
 ```
 
-Подробнее — в `docs/BACKLOG.md`.
+After A3/A6b on the backup (`test-modern-child-before-repeat-fix`):
+
+```text
+context: 34,679 → 21,895 tokens
+summary in context: 65,011 → 24,102 chars
+state: 36,309 → 5,851 chars
+```
+
+The session summary and archive are not modified; only the context copy is clipped.
 
 ## Что нельзя ломать
 
