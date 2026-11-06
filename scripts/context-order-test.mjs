@@ -65,6 +65,7 @@ const longBuilt = buildContext({
 });
 const summarySegment = longBuilt.segments.find((segment) => segment.name === 'conspect');
 if (!summarySegment || summarySegment.chars > 25000) throw new Error('конспект не ограничен в контексте');
+if (!longBuilt.messages.some((message) => message.content.includes('сокращена в контексте'))) throw new Error('нет маркера обрезки конспекта');
 if (longSummary.length !== `${'старая арка. '.repeat(5000)}${'свежая арка. '.repeat(1000)}`.length) throw new Error('исходный конспект изменён');
 console.log('✓ динамический лор после истории');
 console.log('✓ смена лора не сжигает префикс истории');

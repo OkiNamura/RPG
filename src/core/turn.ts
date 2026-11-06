@@ -246,7 +246,11 @@ export async function runTurn(
       limitTokens: CONTEXT_BUDGET_TOKENS,
       totalTokens: ctx.totalTokens,
       over: ctx.totalTokens > CONTEXT_BUDGET_TOKENS,
-      summaryChars: ctx.segments.find((segment) => segment.name === 'conspect')?.chars ?? 0,
+      summaryChars: Math.max(
+        0,
+        (ctx.segments.find((segment) => segment.name === 'conspect')?.chars ?? 0)
+          - 'КОНСПЕКТ ПРОШЛОГО:\n'.length,
+      ),
       summaryOriginalChars: session.summary?.length ?? 0,
     },
   };
