@@ -11,15 +11,31 @@
 // Код выхода: 0 = ОК, 2 = НЕ ОК, 1 = ошибка вызова.
 
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const [, , stage = 'diff', task = '', extra = ''] = process.argv;
 const root = process.cwd();
 
+function envValue(key) {
+  if (process.env[key]) return process.env[key];
+  try {
+    const env = readFileSync(join(root, '.env'), 'utf8');
+    for (const line of env.split(/\r?\n/)) {
+      const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/.exec(line);
+      if (match && match[1] === key) return match[2].replace(/^["']|["']$/g, '').trim();
+    }
+  } catch {
+    /* .env нет */
+  }
+  return '';
+}
+
 function findClaudeOnWindows() {
   const base = join(process.env.LOCALAPPDATA ?? '', 'Claude-Data');
   if (!existsSync(base)) return null;
+  let newest = null;
+  let newestMs = -1;
   const stack = [{ dir: base, depth: 0 }];
   while (stack.length) {
     const { dir, depth } = stack.pop();
@@ -32,16 +48,28 @@ function findClaudeOnWindows() {
     }
     for (const entry of entries) {
       const path = join(dir, entry.name);
-      if (entry.isFile() && entry.name.toLowerCase() === 'claude.exe') return path;
-      if (entry.isDirectory()) stack.push({ dir: path, depth: depth + 1 });
+      if (entry.isFile() && entry.name.toLowerCase() === 'claude.exe') {
+        try {
+          const mtime = statSync(path).mtimeMs;
+          if (mtime > newestMs) {
+            newest = path;
+            newestMs = mtime;
+          }
+        } catch {
+          /* удалённый файл */
+        }
+      } else if (entry.isDirectory()) {
+        stack.push({ dir: path, depth: depth + 1 });
+      }
     }
   }
-  return null;
+  return newest;
 }
 
-const claudeBin = process.env.CLAUDE_BIN
+const claudeBin = envValue('CLAUDE_BIN')
   || (process.platform === 'win32' ? findClaudeOnWindows() : null)
   || 'claude';
+const useShell = process.platform === 'win32' && (claudeBin === 'claude' || /\.(cmd|bat)$/i.test(claudeBin));
 
 const RULES = `
 Ты — ревьюер проекта (роль Claude из docs/PAIRING.md). Код пишет DeepSeek, ты только читаешь.
@@ -77,7 +105,7 @@ const args = [
   '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch',
 ];
 
-const child = spawn(claudeBin, args, { cwd: root, shell: false });
+const child = spawn(claudeBin, args, { cwd: root, shell: useShell });
 let out = '';
 let err = '';
 child.stdout.on('data', (d) => { out += d; process.stdout.write(d); });
