@@ -3648,6 +3648,7 @@ const server = createServer(async (req, res) => {
         const list = snapshots.get(id) ?? [];
         const target = list.find((s) => s.turn === turn);
         if (!target) return sendJson(res, { error: 'нет снимка этого хода' }, 404);
+        if (metas.get(id)?.frozen) return sendJson(res, { error: 'кампания заморожена в админке' }, 409);
         if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
         if (!restoreTo(session, id, turn - 1)) {
           return sendJson(res, { error: 'нет снимка предыдущего хода' }, 400);
@@ -3658,7 +3659,6 @@ const server = createServer(async (req, res) => {
           const started = Date.now();
           const options = target.turnOptions ?? {};
           const timeTarget = normalizeTimeTarget(options.timeTarget);
-          session.groupFocus = Array.isArray(options.focus) ? options.focus.filter(Boolean).slice(0, 8) : [];
           const beforeNumbers = await prepareTurn(session, id, target.input, {
             dice: Boolean(options.dice),
             focus: options.focus ?? [],
@@ -3690,6 +3690,7 @@ const server = createServer(async (req, res) => {
         const list = snapshots.get(id) ?? [];
         const target = list.find((s) => s.turn === turn);
         if (!target) return sendJson(res, { error: 'нет снимка этого хода' }, 404);
+        if (metas.get(id)?.frozen) return sendJson(res, { error: 'кампания заморожена в админке' }, 409);
         if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
         if (!restoreTo(session, id, turn - 1)) {
           return sendJson(res, { error: 'нет снимка предыдущего хода' }, 400);
@@ -3702,7 +3703,6 @@ const server = createServer(async (req, res) => {
           // Новый текст — новая цель времени. Старую цель не наследуем.
           const eventWord = /до\s+(ближайшего\s+)?(события|встречи)/i.test(input);
           const timeTarget = eventWord && nextStateEvent(session) ? ({ kind: 'event' } as TimeTarget) : null;
-          session.groupFocus = Array.isArray(options.focus) ? options.focus.filter(Boolean).slice(0, 8) : [];
           const beforeNumbers = await prepareTurn(session, id, input, {
             dice: Boolean(options.dice),
             focus: options.focus ?? [],

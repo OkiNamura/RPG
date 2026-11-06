@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Сборка контекста по слоям.
  *
  * Порядок продиктован кэшем токенов, а не красотой: провайдер кэширует
@@ -354,8 +354,9 @@ export function buildContext(input: ContextInput): BuiltContext {
   segments.push(seg('state', stateBlock));
 
   // 4.1. Лор-книга: только записи, чьи ключи встретились в этой сцене.
-  if (input.loreDepth || input.lore) {
-    const lore = input.loreDepth || input.lore || '';
+  //      input.lore уже разложен по top/history/after; не дублируем его здесь.
+  if (input.loreDepth) {
+    const lore = input.loreDepth;
     messages.push({ role: 'system', content: lore });
     segments.push(seg('lore.depth', lore));
   }
