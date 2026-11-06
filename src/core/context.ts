@@ -256,13 +256,16 @@ export function renderState(s: GameState, options: RenderStateOptions = {}): str
           const inScene = f.roster?.some((r) =>
             [...s.npcs, ...s.party].some((a) => a.name === r.name && a.present === true),
           ) ?? false;
+          const relations = f.relations?.length
+            ? ` [${f.relations.map((rel) => `${rel.with} ${rel.attitude}${rel.note ? ` ${rel.note}` : ''}`).join(', ')}]`
+            : '';
           const roster = (!compact || inScene) && f.roster?.length
             ? `, состав: ${f.roster
                 .slice(0, 6)
                 .map((r) => `${r.name}${r.hidden ? ' (скрыт)' : ''} — ${r.role}`)
                 .join('; ')}`
             : '';
-          return `${f.name} (${f.attitude > 0 ? '+' : ''}${f.attitude}${head}${shadow}${roster})`;
+          return `${f.name} (${f.attitude > 0 ? '+' : ''}${f.attitude}${head}${shadow}${roster}${relations})`;
         })
         .join('; ')}`,
     );

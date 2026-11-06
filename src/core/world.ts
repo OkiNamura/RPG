@@ -39,6 +39,9 @@ export function advanceFactionRelations(state: GameState): string[] {
       } else if (relation.attitude >= 30 && relation.note !== 'союз') {
         relation.note = 'союз';
         changes.push(`союз: ${faction.name} и ${relation.with}`);
+      } else if (relation.attitude > -30 && relation.attitude < 30 && (relation.note === 'война' || relation.note === 'союз')) {
+        relation.note = 'перемирие';
+        changes.push(`перемирие: ${faction.name} и ${relation.with}`);
       }
     }
   }

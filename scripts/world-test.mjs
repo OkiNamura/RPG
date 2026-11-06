@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createState, updateSceneCheckpoint } from '../src/core/state.ts';
-import { advanceWorld, makeFrontsFromStory } from '../src/core/world.ts';
+import { advanceFactionRelations, advanceWorld, makeFrontsFromStory } from '../src/core/world.ts';
 import { normalizeWorldStory } from '../src/core/world-story.ts';
 
 const state = createState('Аня', 'Кухня дома');
@@ -47,6 +47,17 @@ const lastClosed = state.sceneHistory?.at(-1);
 if (!lastClosed || lastClosed.closeReason !== 'три топтания подряд') throw new Error('закрытая сцена не сохранилась в истории');
 if (state.sceneHistory?.length !== new Set(state.sceneHistory?.map((entry) => entry.id)).size) throw new Error('история сцен задвоилась');
 
+state.factions = [
+  { name: 'Стража', attitude: 0, relations: [{ with: 'Воры', attitude: 0, note: 'война' }] },
+  { name: 'Воры', attitude: 0, relations: [{ with: 'Стража', attitude: 0, note: 'война' }] },
+];
+const relation = state.factions[0].relations[0];
+relation.attitude = 0;
+relation.note = 'война';
+advanceFactionRelations(state);
+if (relation.note !== 'перемирие') throw new Error('война не перешла в перемирие');
+
 console.log('✓ фронты мира двигаются');
 console.log('✓ чекпоинт сцены и смена места');
 console.log('✓ три топтания закрывают сцену и сохраняют её в истории');
+console.log('✓ война/союз сбрасываются в перемирие');
