@@ -51,15 +51,14 @@ export function normalizeMemories(value: unknown): MemoryEntry[] {
 export function buildMemoryBlock(entries: MemoryEntry[], legacy: string, searchText: string): MemoryBlock {
   const pinned = entries
     .filter((entry) => entry.pinned)
-    .sort((a, b) => b.importance - a.importance || a.createdTurn - b.createdTurn || a.id.localeCompare(b.id))
-    .slice(0, PINNED_LIMIT);
+    .sort((a, b) => b.importance - a.importance || a.createdTurn - b.createdTurn || a.id.localeCompare(b.id));
   const usedPinned: string[] = [];
   const pinnedLines: string[] = [];
   const dropped: string[] = [];
   let pinnedChars = 0;
   for (const entry of pinned) {
     const line = `- ${entry.text}`;
-    if (pinnedChars + entry.text.length > PINNED_CHARS) {
+    if (usedPinned.length >= PINNED_LIMIT || pinnedChars + entry.text.length > PINNED_CHARS) {
       dropped.push(entry.id);
       continue;
     }

@@ -14,7 +14,7 @@ import { basename, extname, join, normalize, sep } from 'node:path';
 import { characterSheetPrompt, generateImage, itemCardPrompt, locationPrompt, masterCardPrompt, portraitPrompt, scenePrompt } from './core/images.ts';
 import { renderMap } from './core/map.ts';
 import { createState, normalizeState, updateSceneCheckpoint, type Actor, type GameState, type Norm, type NumberChange, type Resource } from './core/state.ts';
-import { normalizeMemories, type MemoryEntry } from './core/memory.ts';
+import { normalizeMemories, MEMORY_LIMITS, type MemoryEntry } from './core/memory.ts';
 import { normalizeWorldStory, type WorldStory } from './core/world-story.ts';
 import { advanceWorld, makeFrontsFromFactions, makeFrontsFromStory } from './core/world.ts';
 import { Conspect, type Arc } from './core/conspect.ts';
@@ -3961,7 +3961,7 @@ const server = createServer(async (req, res) => {
         const grew = pinnedList.length > currentPinned.length
           || pinnedList.reduce((sum, item) => sum + item.text.length, 0)
             > currentPinned.reduce((sum, item) => sum + item.text.length, 0);
-        if (grew && (pinnedList.length > 8 || pinnedList.reduce((sum, item) => sum + item.text.length, 0) > 4000)) {
+        if (grew && (pinnedList.length > MEMORY_LIMITS.pinnedEntries || pinnedList.reduce((sum, item) => sum + item.text.length, 0) > MEMORY_LIMITS.pinnedChars)) {
           return sendJson(res, { error: 'закреплённая память переполнена' }, 400);
         }
         session.memories = candidate;

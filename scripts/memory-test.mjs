@@ -25,5 +25,9 @@ const eight = Array.from({ length: 8 }, (_, index) => ({
 }));
 const bigBlock = buildMemoryBlock(eight, '', '');
 if (bigBlock.usedPinned.length !== 8) throw new Error(`восьмая закреплённая потерялась: ${bigBlock.usedPinned.length}`);
+const nine = [...eight, { ...eight[0], id: 'big-8', text: 'девятая' }];
+const nineBlock = buildMemoryBlock(nine, '', '');
+if (nineBlock.usedPinned.length !== 8 || nineBlock.dropped.length !== 1) throw new Error('девятая pinned не попала в dropped');
 console.log('✓ pinned и recall памяти');
 console.log('✓ восемь закреплённых по 500 символов попадают в контекст');
+console.log('✓ девятая закреплённая видна как вытесненная');
