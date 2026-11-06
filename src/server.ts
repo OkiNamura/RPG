@@ -1964,6 +1964,7 @@ async function persist(id: string, session: Session): Promise<void> {
           segments: session.lastContext.segments,
           messages: session.lastContext.messages,
           lore: session.lastLoreReport ?? [],
+          budget: session.lastContext.budget ?? null,
         }, null, 2)}\n`,
         'utf8',
       );
@@ -3537,7 +3538,7 @@ const server = createServer(async (req, res) => {
 
       // Контекстный инспектор: что реально ушло в модель.
       if (action === 'inspector' && req.method === 'GET') {
-        let savedInspector: { totalTokens?: number; segments?: unknown[]; messages?: unknown[]; lore?: unknown[] } | null = null;
+        let savedInspector: { totalTokens?: number; segments?: unknown[]; messages?: unknown[]; lore?: unknown[]; budget?: unknown } | null = null;
         if (!session.lastContext) {
           try {
             savedInspector = JSON.parse(await readFile(join(INSPECTOR_DIR, `${id}.json`), 'utf8')) as typeof savedInspector;
@@ -3551,6 +3552,7 @@ const server = createServer(async (req, res) => {
           segments: session.lastContext?.segments ?? savedInspector?.segments ?? [],
           messages: session.lastContext?.messages ?? savedInspector?.messages ?? [],
           lore: session.lastLoreReport ?? savedInspector?.lore ?? [],
+          budget: session.lastContext?.budget ?? savedInspector?.budget ?? null,
           features,
         });
       }

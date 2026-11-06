@@ -5821,7 +5821,7 @@ function openContextInspector(campaignId) {
       body.append(el('div', 'person-field', `Токенов: ${data.totalTokens ?? 0}`));
       if (data.budget) {
         const budget = data.budget;
-        body.append(el('div', 'person-field', `Бюджет: ${budget.totalTokens}/${budget.limitTokens} ток · конспект ${budget.summaryChars} зн.`));
+        body.append(el('div', 'person-field', `Бюджет: ${budget.totalTokens}/${budget.limitTokens} ток · конспект ${budget.summaryChars}/${budget.summaryOriginalChars} зн.`));
         if (budget.over) body.append(el('div', 'person-field warn', 'Бюджет превышен: notes и история не режутся, проверь лор/состояние.'));
       }
       if (!data.enabled) body.append(el('div', 'person-field', 'Инспектор выключен в админке.'));

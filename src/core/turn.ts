@@ -5,7 +5,7 @@
  * что реально ушло в модель.
  */
 
-import { buildContext, cachedPrefix, type Segment } from './context.ts';
+import { buildContext, cachedPrefix, CONTEXT_BUDGET_TOKENS, type Segment } from './context.ts';
 import { Conspect } from './conspect.ts';
 import { applyDelta, parseDelta, type Delta, type ParsedReply } from './delta.ts';
 import { critique } from './critic.ts';
@@ -117,7 +117,13 @@ export interface Session {
     messages: { role: string; content: string }[];
     totalTokens: number;
     segments: { name: string; chars: number; tokens?: number }[];
-    budget?: { limitTokens: number; totalTokens: number; over: boolean; summaryChars: number };
+    budget?: {
+      limitTokens: number;
+      totalTokens: number;
+      over: boolean;
+      summaryChars: number;
+      summaryOriginalChars: number;
+    };
   };
   /** время последнего вызова режиссёра */
   lastDirectorMs?: number;
@@ -237,10 +243,11 @@ export async function runTurn(
     totalTokens: ctx.totalTokens,
     segments: ctx.segments.map((s) => ({ name: s.name, chars: s.chars, tokens: s.tokens })),
     budget: {
-      limitTokens: 25000,
+      limitTokens: CONTEXT_BUDGET_TOKENS,
       totalTokens: ctx.totalTokens,
-      over: ctx.totalTokens > 25000,
-      summaryChars: Math.min((session.summary ?? '').length, 24000),
+      over: ctx.totalTokens > CONTEXT_BUDGET_TOKENS,
+      summaryChars: ctx.segments.find((segment) => segment.name === 'conspect')?.chars ?? 0,
+      summaryOriginalChars: session.summary?.length ?? 0,
     },
   };
 

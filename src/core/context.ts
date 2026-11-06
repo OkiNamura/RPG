@@ -82,6 +82,10 @@ function formatCurrencies(currencies?: { name: string; amount: number }[]): stri
   return (currencies ?? []).map((currency) => `${currency.amount} ${currency.name}`).join(', ');
 }
 
+/** Бюджет и лимит конспекта — общие для контекста и инспектора. */
+export const CONTEXT_BUDGET_TOKENS = 25000;
+export const CONTEXT_SUMMARY_LIMIT = 24000;
+
 export interface RenderStateOptions {
   /** gm — компактный контекст ведущего; agent — полная картина для агента состояния */
   mode?: 'gm' | 'agent';
@@ -329,8 +333,8 @@ export function buildContext(input: ContextInput): BuiltContext {
   //      Стоит после истории, чтобы не ломать кэш статики и окна.
   if (input.conspectSummary) {
     const source = input.conspectSummary;
-    const summary = source.length > 24000
-      ? `${source.slice(0, 4000)}\n\n[...часть конспекта сокращена в контексте; полный текст остаётся в кампании...]\n\n${source.slice(-20000)}`
+    const summary = source.length > CONTEXT_SUMMARY_LIMIT
+      ? `${source.slice(0, 4000)}\n\n[...часть конспекта сокращена в контексте; полный текст остаётся в кампании...]\n\n${source.slice(-(CONTEXT_SUMMARY_LIMIT - 4000))}`
       : source;
     const block = `КОНСПЕКТ ПРОШЛОГО:\n${summary}`;
     messages.push({ role: 'system', content: block });
