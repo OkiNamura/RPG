@@ -5017,6 +5017,10 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
       row('Участники', state.scene.participants.join(', ') || 'только герой'),
     ];
     if (state.scene.goal) sceneRows.push(row('Статус', state.scene.goal));
+    if (state.scene.question) sceneRows.push(row('Вопрос', state.scene.question.slice(0, 160)));
+    if (state.scene.closedTurn) sceneRows.push(row('Закрыта', `${state.scene.closeReason ?? ''} · ход ${state.scene.closedTurn}`));
+    const lastClosed = state.sceneHistory?.at(-1);
+    if (lastClosed) sceneRows.push(row('Прошлая', `${lastClosed.place}: ${lastClosed.closeReason}`));
     frag.append(section('Сцена', sceneRows));
   }
   if (state.clocks?.length) {

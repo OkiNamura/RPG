@@ -104,8 +104,12 @@ export function renderState(s: GameState, options: RenderStateOptions = {}): str
   lines.push(`Место: ${s.place}`);
   if (s.scene) {
     lines.push(
-      `Сцена: ${s.scene.place}, ход ${s.scene.startedTurn}–${s.scene.updatedTurn}; участники: ${s.scene.participants.join(', ') || 'только герой'}${s.scene.goal ? `; ${s.scene.goal}` : ''}`,
+      `Сцена: ${s.scene.place}, ход ${s.scene.startedTurn}–${s.scene.updatedTurn}; участники: ${s.scene.participants.join(', ') || 'только герой'}${s.scene.goal ? `; ${s.scene.goal}` : ''}${s.scene.question ? `; вопрос: ${s.scene.question.slice(0, 160)}` : ''}${s.scene.closedTurn ? `; закрыта на ходу ${s.scene.closedTurn} (${s.scene.closeReason ?? ''})` : ''}`,
     );
+  }
+  const closedScene = s.sceneHistory?.at(-1);
+  if (closedScene) {
+    lines.push(`Прошлая сцена: ${closedScene.place}, ${closedScene.closeReason}${closedScene.question ? `; вопрос был: ${closedScene.question.slice(0, 120)}` : ''}`);
   }
   lines.push(`Погода: ${s.weather}`);
 

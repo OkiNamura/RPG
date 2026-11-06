@@ -1335,7 +1335,12 @@ async function augmentFeatureNotes(session: Session, input: string, id: string):
       (actor) => actor.present === true && actor.status === 'alive' && !actor.archived,
     );
     const director = session.agents?.director ?? agents.director;
-    if (director?.enabled) {
+    const sceneId = session.state.scene?.id ?? '';
+    const directorDue = !session.state.scene
+      || session.state.scene.stalls >= 2
+      || sceneId !== session.lastDirectorSceneId
+      || session.state.turn - (session.lastDirectorTurn ?? -99) >= 3;
+    if (director?.enabled && directorDue) {
       try {
         const directorStarted = Date.now();
         const model = makeAgentModel(director);
@@ -1348,6 +1353,8 @@ async function augmentFeatureNotes(session: Session, input: string, id: string):
             },
           ]);
           session.lastDirectorMs = Date.now() - directorStarted;
+          session.lastDirectorTurn = session.state.turn;
+          session.lastDirectorSceneId = sceneId;
           if (reply.text.trim()) parts.push(`[Режиссёр]\n${reply.text.trim().slice(0, 1200)}`);
           const tokensIn = reply.inputTokens ?? 0;
           const tokensOut = reply.outputTokens ?? 0;

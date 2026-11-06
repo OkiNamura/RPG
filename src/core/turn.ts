@@ -132,6 +132,9 @@ export interface Session {
   };
   /** время последнего вызова режиссёра */
   lastDirectorMs?: number;
+  /** когда и на какой сцене вызывался Director */
+  lastDirectorTurn?: number;
+  lastDirectorSceneId?: string;
 }
 
 export interface TurnStats {

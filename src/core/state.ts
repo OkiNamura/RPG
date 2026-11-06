@@ -74,6 +74,18 @@ export interface SceneState {
   goal?: string;
   lastBeat?: string;
   stalls: number;
+  question?: string;
+  closedTurn?: number;
+  closeReason?: string;
+}
+
+export interface SceneHistoryEntry {
+  id: string;
+  place: string;
+  startedTurn: number;
+  closedTurn: number;
+  question?: string;
+  closeReason: string;
 }
 
 /** Долгий фронт мира: не таймер сцены, а давление между ходами. */
@@ -113,8 +125,30 @@ export function updateSceneCheckpoint(state: GameState, prose: string, stalled =
       .map((actor) => actor.name),
   ].filter(Boolean);
   const beat = prose.replace(/\s+/g, ' ').trim().slice(0, 180);
-  const previous = state.scene;
-  if (!previous || previous.place !== state.place) {
+  let previous = state.scene;
+  const archive = (scene: SceneState, reason: string): void => {
+    state.sceneHistory ??= [];
+    state.sceneHistory.push({
+      id: scene.id,
+      place: scene.place,
+      startedTurn: scene.startedTurn,
+      closedTurn: scene.closedTurn ?? state.turn,
+      question: scene.question,
+      closeReason: scene.closeReason ?? reason,
+    });
+    state.sceneHistory = state.sceneHistory.slice(-5);
+  };
+  if (previous?.closedTurn) {
+    archive(previous, previous.closeReason ?? 'сцена закрыта');
+    previous = undefined;
+  }
+  if (previous && previous.place !== state.place) {
+    previous.closedTurn = state.turn;
+    previous.closeReason = 'смена места';
+    archive(previous, 'смена места');
+    previous = undefined;
+  }
+  if (!previous) {
     state.scene = {
       id: `scene-${state.turn}-${state.place.replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 40)}`,
       startedTurn: state.turn,
@@ -123,6 +157,7 @@ export function updateSceneCheckpoint(state: GameState, prose: string, stalled =
       participants: [...new Set(participants)],
       lastBeat: beat,
       stalls: stalled ? 1 : 0,
+      question: 'Что изменится в этой сцене?',
     };
     return state.scene;
   }
@@ -132,6 +167,11 @@ export function updateSceneCheckpoint(state: GameState, prose: string, stalled =
   previous.stalls = stalled ? (previous.stalls ?? 0) + 1 : 0;
   if (previous.stalls >= 2) previous.goal = 'сцена топчется: нужен новый факт';
   else if (previous.goal === 'сцена топчется: нужен новый факт') previous.goal = undefined;
+  if (previous.stalls >= 3 && !previous.closedTurn) {
+    previous.closedTurn = state.turn;
+    previous.closeReason = 'три топтания подряд';
+    previous.goal = 'сцена закрыта: нужен новый факт';
+  }
   return previous;
 }
 
@@ -456,6 +496,8 @@ export interface GameState {
   worldStory?: WorldStory;
   /** текущая сцена: чекпоинт для resume и защиты от топтания */
   scene?: SceneState;
+  /** последние закрытые сцены, без вложенной истории */
+  sceneHistory?: SceneHistoryEntry[];
   /** долгие фронты мира, которые двигаются между ходами */
   fronts: WorldFront[];
   /** видимые часы мира */
@@ -567,6 +609,15 @@ export function normalizeState(state: GameState): GameState {
   state.clocks ??= [];
   state.worldStory ??= undefined;
   state.locations ??= [];
+  state.sceneHistory ??= [];
+  state.sceneHistory = state.sceneHistory.slice(-5).map((entry) => ({
+    id: String(entry.id ?? ''),
+    place: String(entry.place ?? ''),
+    startedTurn: Number(entry.startedTurn ?? 0),
+    closedTurn: Number(entry.closedTurn ?? 0),
+    question: entry.question ? String(entry.question) : undefined,
+    closeReason: String(entry.closeReason ?? 'закрыта'),
+  }));
   for (const location of state.locations) {
     location.note ??= '';
     location.description ??= '';
