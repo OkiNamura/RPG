@@ -2369,7 +2369,7 @@ async function viewNew(view) {
     const levelHead = el('div', 'level-head');
     const levelName = el('b', 'level-name', '');
     const levelValue = el('span', 'level-value', '');
-    levelHead.append(el('span', '', 'Уровень повествования'), levelName, levelValue);
+    levelHead.append(el('span', '', 'Уровень интенсивности'), levelName, levelValue);
 
     const range = el('input', 'level-range');
     range.type = 'range';

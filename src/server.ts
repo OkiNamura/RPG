@@ -1,4 +1,4 @@
-﻿/**
+/**
  * HTTP-сервер игры: статика и API. Без зависимостей.
  *
  *   node src/server.ts
@@ -1747,6 +1747,14 @@ function gameRulesFor(meta: CampaignMeta): string[] {
   ];
 }
 
+/** Убрать старый блок уровня из сохранённой библии: он мог задавать жанр. */
+function stripToneIntensity(value: string): string {
+  return value
+    .replace(/\n?# УРОВЕНЬ (?:ПОВЕСТВОВАНИЯ|ИНТЕНСИВНОСТИ)[\s\S]*?(?=\n# |$)/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /** Герой хранится без служебных настроек и повторного тона. */
 function heroBaseText(value: string): string {
   return String(value ?? '')
@@ -1829,6 +1837,16 @@ async function getSession(id: string): Promise<Session | null> {
       tone: saved.text.tone ?? '',
       hero: saved.text.hero ?? '',
     };
+  }
+
+  // Старые кампании могли сохранить в библии старый блок уровня,
+  // который задавал жанр. Пересобираем только интенсивность.
+  const savedLevelValue = Number(saved.meta?.toneLevel);
+  if (Number.isFinite(savedLevelValue)) {
+    const neutralTone = toneDirective(savedLevelValue);
+    staticText.core = `${stripToneIntensity(staticText.core)}\n\n${neutralTone}`.trim();
+    staticText.hero = `${stripToneIntensity(staticText.hero)}\n\n${neutralTone}`.trim();
+    if (saved.meta) saved.meta.toneLevelName = toneLevel(savedLevelValue).name;
   }
 
   const session = createSession({
@@ -2909,7 +2927,7 @@ const server = createServer(async (req, res) => {
           content: `${agent?.enabled ? `${agent.prompt}\n\n` : ''}Ты подбираешь теги для текстовой RPG.
 Верни только JSON: {"tags": ["Название", "Название"]}. Выбери ВСЕ подходящие теги — до ${limit} штук.
 Бери теги из предоставленного списка, ровно как они написаны.
-Фраза игрока описывает игру: «романтическая комедия» → романтика, комедия, романтическая комедия, эмоции, сёдзё; «максимально жёсткое фэнтези» → тёмное фэнтези, насилие, пытки, смерть, мрачное, ангст.
+Фраза игрока описывает игру: «романтическая комедия» → романтика, комедия, романтическая комедия, эмоции, сёдзё; «максимально жёсткая история» → насилие, пытки, смерть, мрачное, ангст.
 Бери и жанровые, и контентные теги, если они подходят смыслу.
 Не ограничивайся парой тегов: бери все жанры, эмоции, направления, формы, миры и контентные теги, которые действительно подходят фразе.
 Уровень повествования: ${level}/11 (${rules.name}). ${rules.directive}
