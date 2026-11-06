@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 import { buildMemoryBlock, normalizeMemories } from '../src/core/memory.ts';
 
 const entries = [
@@ -7,6 +7,7 @@ const entries = [
 ];
 const block = buildMemoryBlock(entries, '', 'беру кольца у колодца');
 if (!block.pinned.includes('Долг гильдии')) throw new Error('pinned не попал в контекст');
+if (!block.learned.includes('Долг гильдии')) throw new Error('learned не собрался из важной записи');
 if (!block.recall.includes('Кольцо')) throw new Error('recall по стеммингу не сработал');
 if (block.usedPinned[0] !== 'a' || block.usedRecall[0] !== 'b') throw new Error('неверный отчёт памяти');
 const noMatch = buildMemoryBlock(entries, '', 'иду спать');

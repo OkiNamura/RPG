@@ -251,6 +251,7 @@ export async function runTurn(
     notes: session.extraNotes,
     memory: session.memory,
     memoryPinned: memoryBlock.pinned,
+    memoryLearned: memoryBlock.learned,
     memoryRecall: memoryBlock.recall,
   });
 

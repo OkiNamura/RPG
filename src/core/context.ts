@@ -57,6 +57,8 @@ export interface ContextInput {
   memory?: string;
   /** стабильный блок закреплённых записей */
   memoryPinned?: string;
+  /** короткий усвоенный слой */
+  memoryLearned?: string;
   /** recall по сцене — после истории */
   memoryRecall?: string;
 }
@@ -313,6 +315,10 @@ export function buildContext(input: ContextInput): BuiltContext {
   if (input.memoryPinned) {
     messages.push({ role: 'system', content: input.memoryPinned });
     segments.push(seg('memory.pinned', input.memoryPinned));
+  }
+  if (input.memoryLearned) {
+    messages.push({ role: 'system', content: input.memoryLearned });
+    segments.push(seg('memory.learned', input.memoryLearned));
   }
 
   // 2. Медленный слой: закрытые арки. Меняется раз в арку — и каждый раз  //    ломает кэш на один ход. Это цена, которую платим редко и осознанно.

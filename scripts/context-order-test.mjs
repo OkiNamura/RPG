@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 import { buildContext, cachedPrefix } from '../src/core/context.ts';
 import { createState } from '../src/core/state.ts';
 
@@ -20,6 +20,7 @@ const built = buildContext({
   playerInput: 'Новый ход',
   memory: 'memory',
   memoryPinned: 'pinned',
+  memoryLearned: 'learned',
   memoryRecall: 'recall',
   loreTop: 'lore-top',
   loreHistory: 'lore-history',
@@ -38,6 +39,7 @@ if (index('lore.history') < index('log')) throw new Error('lore.history стои
 if (index('lore.after') < index('log')) throw new Error('lore.after стоит до истории');
 if (index('memory') > index('log')) throw new Error('memory должна быть до истории');
 if (index('memory.pinned') > index('log')) throw new Error('pinned должна быть до истории');
+if (index('memory.learned') > index('log')) throw new Error('learned должна быть до истории');
 if (index('memory.recall') < index('lore.after')) throw new Error('recall должен быть после lore.after');
 if (index('notes') < index('state')) throw new Error('notes должны быть после state');
 const changedLore = buildContext({
@@ -51,6 +53,8 @@ const changedLore = buildContext({
   windowTurns: 24,
   playerInput: 'Новый ход',
   memory: 'memory',
+  memoryPinned: 'pinned',
+  memoryLearned: 'learned',
   loreTop: 'другой лор',
   loreHistory: 'другой исторический лор',
   loreAfter: 'другой лор после',

@@ -13,6 +13,7 @@ export interface MemoryEntry {
 
 export interface MemoryBlock {
   pinned: string;
+  learned: string;
   recall: string;
   usedPinned: string[];
   usedRecall: string[];
@@ -87,13 +88,19 @@ export function buildMemoryBlock(entries: MemoryEntry[], legacy: string, searchT
   }
 
   const pinnedText = pinnedLines.length ? `Память (важно):\n${pinnedLines.join('\n')}` : '';
+  const learnedLines = pinned
+    .filter((entry) => entry.importance === 3)
+    .slice(0, 2)
+    .map((entry) => `- ${entry.text.slice(0, 300)}`);
+  const learnedText = learnedLines.length ? `Усвоено:\n${learnedLines.join('\n')}` : '';
   const recallText = recallLines.length ? `Память по сцене:\n${recallLines.join('\n')}` : '';
   return {
     pinned: pinnedText,
+    learned: learnedText,
     recall: recallText,
     usedPinned,
     usedRecall,
     dropped,
-    chars: pinnedText.length + recallText.length,
+    chars: pinnedText.length + learnedText.length + recallText.length,
   };
 }
