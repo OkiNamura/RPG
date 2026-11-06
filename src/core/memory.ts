@@ -37,10 +37,11 @@ export function normalizeMemories(value: unknown): MemoryEntry[] {
       keys: Array.isArray(item.keys) ? item.keys.map(String).map((key) => key.trim()).filter(Boolean).slice(0, 8) : [],
       importance: (item.importance === 1 || item.importance === 3 ? item.importance : 2) as 1 | 2 | 3,
       pinned: item.pinned === true,
-      createdTurn: Number(item.createdTurn ?? 0),
+      createdTurn: Number.isFinite(Number(item.createdTurn)) ? Number(item.createdTurn) : 0,
       source: 'player' as const,
     }))
     .filter((entry) => entry.text.length > 0)
+    .filter((entry, index, list) => list.findIndex((item) => item.id === entry.id) === index)
     .slice(0, 50);
 }
 
@@ -58,7 +59,7 @@ export function buildMemoryBlock(entries: MemoryEntry[], legacy: string, searchT
     if (pinnedChars + line.length > PINNED_CHARS) break;
     pinnedLines.push(line);
     usedPinned.push(entry.id);
-    pinnedChars += line.length + 1;
+    pinnedChars += entry.text.length;
   }
 
   const legacyChars = legacy.length;
@@ -78,7 +79,7 @@ export function buildMemoryBlock(entries: MemoryEntry[], legacy: string, searchT
     }
     recallLines.push(line);
     usedRecall.push(entry.id);
-    recallChars += line.length + 1;
+    recallChars += entry.text.length;
   }
 
   const pinnedText = pinnedLines.length ? `Память (важно):\n${pinnedLines.join('\n')}` : '';

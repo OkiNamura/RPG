@@ -5839,20 +5839,28 @@ function openMemoryModal(campaignId) {
       const pin = el('button', 'btn small', entry.pinned ? 'Открепить' : 'Закрепить');
       pin.type = 'button';
       pin.addEventListener('click', async () => {
-        await api(`/api/campaign/${encodeURIComponent(campaignId)}/memory-entry`, {
-          method: 'POST',
-          body: JSON.stringify({ action: entry.pinned ? 'unpin' : 'pin', id: entry.id }),
-        });
-        await load();
+        try {
+          await api(`/api/campaign/${encodeURIComponent(campaignId)}/memory-entry`, {
+            method: 'POST',
+            body: JSON.stringify({ action: entry.pinned ? 'unpin' : 'pin', id: entry.id }),
+          });
+          await load();
+        } catch (err) {
+          status.textContent = err.message;
+        }
       });
       const remove = el('button', 'btn small', 'Удалить');
       remove.type = 'button';
       remove.addEventListener('click', async () => {
-        await api(`/api/campaign/${encodeURIComponent(campaignId)}/memory-entry`, {
-          method: 'POST',
-          body: JSON.stringify({ action: 'delete', id: entry.id }),
-        });
-        await load();
+        try {
+          await api(`/api/campaign/${encodeURIComponent(campaignId)}/memory-entry`, {
+            method: 'POST',
+            body: JSON.stringify({ action: 'delete', id: entry.id }),
+          });
+          await load();
+        } catch (err) {
+          status.textContent = err.message;
+        }
       });
       row.append(
         el('span', 'memory-entry-text', entry.text),
@@ -5917,6 +5925,11 @@ function openContextInspector(campaignId) {
         const budget = data.budget;
         body.append(el('div', 'person-field', `Бюджет: ${budget.totalTokens}/${budget.limitTokens} ток · конспект ${budget.summaryChars}/${budget.summaryOriginalChars} зн.`));
         if (budget.over) body.append(el('div', 'person-field warn', 'Бюджет превышен: notes и история не режутся, проверь лор/состояние.'));
+      }
+      if (data.memory) {
+        const used = (data.memory.usedPinned ?? []).length + (data.memory.usedRecall ?? []).length;
+        const dropped = (data.memory.dropped ?? []).length;
+        body.append(el('div', 'person-field', `Память: ${used} записей · вытеснено ${dropped}`));
       }
       if (!data.enabled) body.append(el('div', 'person-field', 'Инспектор выключен в админке.'));
       const segments = data.segments ?? [];
@@ -6213,7 +6226,7 @@ async function viewPlay(view, id, useCache = true) {
         const changed =
           fresh.state?.turn !== data.state?.turn ||
           (fresh.history?.length ?? 0) !== (data.history?.length ?? 0);
-        if (changed) {
+        if (changed && !app.game) {
           view.replaceChildren();
           void viewPlay(view, id, false);
         }
@@ -6554,7 +6567,7 @@ async function viewPlay(view, id, useCache = true) {
       const current = readPending(id);
       if (current) showOutbox(current);
     } finally {
-      app.game.busy = false;
+      if (app.game) app.game.busy = false;
       // На телефоне не открываем клавиатуру после ответа. На десктопе
       // возвращаем фокус, чтобы не было ощущения «кулдауна».
       if (window.matchMedia?.('(min-width: 900px)').matches) {

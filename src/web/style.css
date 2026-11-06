@@ -4440,3 +4440,8 @@ select {
 .modal-closing .image-modal > * { transform: translateY(100%); transition: transform 0.18s ease; }
 .pull-refresh { position: fixed; top: 8px; left: 50%; z-index: 9999; transform: translate(-50%, 0); padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: #141418; color: var(--muted); font-size: 11px; letter-spacing: 0.03em; pointer-events: none; transition: opacity 0.15s ease; }
 .pull-refresh.pulling { border-color: var(--gold-dim); color: var(--gold); }
+
+.memory-form { display: grid; gap: 8px; margin: 12px 0; }
+.memory-entry { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.memory-entry-text { flex: 1 1 100%; color: var(--text); }
+.memory-entry-meta { flex: 1 1 auto; color: var(--muted); font-size: 12px; }

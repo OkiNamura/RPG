@@ -3916,6 +3916,9 @@ const server = createServer(async (req, res) => {
         if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
         const body = await readBody(req);
         const op = String(body.action ?? '');
+        if (!['add', 'update', 'delete', 'pin', 'unpin'].includes(op)) {
+          return sendJson(res, { error: 'неизвестное действие памяти' }, 400);
+        }
         const entryId = String(body.id ?? '');
         const entry = session.memories.find((item) => item.id === entryId);
         if (op !== 'add' && !entry) return sendJson(res, { error: 'запись не найдена' }, 404);
@@ -3923,8 +3926,14 @@ const server = createServer(async (req, res) => {
         const keys = Array.isArray(body.keys)
           ? [...new Set(body.keys.map((key: unknown) => String(key).trim()).filter(Boolean))].slice(0, 8)
           : entry?.keys ?? [];
-        const kind: 'fact' | 'journal' = body.kind === 'fact' ? 'fact' : 'journal';
-        const importance: 1 | 2 | 3 = body.importance === 1 || body.importance === 3 ? body.importance : 2;
+        if (body.kind != null && body.kind !== 'fact' && body.kind !== 'journal') {
+          return sendJson(res, { error: 'неизвестный тип памяти' }, 400);
+        }
+        const kind: 'fact' | 'journal' = (body.kind as 'fact' | 'journal' | undefined) ?? entry?.kind ?? 'journal';
+        if (body.importance != null && ![1, 2, 3].includes(Number(body.importance))) {
+          return sendJson(res, { error: 'важность должна быть 1..3' }, 400);
+        }
+        const importance: 1 | 2 | 3 = (Number(body.importance ?? entry?.importance ?? 2) as 1 | 2 | 3);
         const pinned = op === 'pin' ? true : op === 'unpin' ? false : Boolean(entry?.pinned ?? body.pinned);
         if ((op === 'add' || op === 'update') && !text) return sendJson(res, { error: 'пустой текст' }, 400);
         const next: MemoryEntry = entry
