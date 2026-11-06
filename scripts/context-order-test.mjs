@@ -19,6 +19,8 @@ const built = buildContext({
   windowTurns: 24,
   playerInput: 'Новый ход',
   memory: 'memory',
+  memoryPinned: 'pinned',
+  memoryRecall: 'recall',
   loreTop: 'lore-top',
   loreHistory: 'lore-history',
   loreAfter: 'lore-after',
@@ -35,6 +37,8 @@ if (index('lore.top') < index('log')) throw new Error('lore.top стоит до 
 if (index('lore.history') < index('log')) throw new Error('lore.history стоит до истории');
 if (index('lore.after') < index('log')) throw new Error('lore.after стоит до истории');
 if (index('memory') > index('log')) throw new Error('memory должна быть до истории');
+if (index('memory.pinned') > index('log')) throw new Error('pinned должна быть до истории');
+if (index('memory.recall') < index('lore.after')) throw new Error('recall должен быть после lore.after');
 if (index('notes') < index('state')) throw new Error('notes должны быть после state');
 const changedLore = buildContext({
   core: 'core',

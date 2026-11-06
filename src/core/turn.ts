@@ -6,6 +6,7 @@
  */
 
 import { buildContext, cachedPrefix, CONTEXT_BUDGET_TOKENS, type Segment } from './context.ts';
+import { buildMemoryBlock, type MemoryEntry } from './memory.ts';
 import { Conspect } from './conspect.ts';
 import { applyDelta, parseDelta, type Delta, type ParsedReply } from './delta.ts';
 import { critique } from './critic.ts';
@@ -79,6 +80,8 @@ export interface Session {
   extraLoreDepth?: string;
   /** отчёт активации World Info для инспектора */
   lastLoreReport?: { id: string; title: string; active: boolean; reason: string; chars: number }[];
+  /** отчёт памяти для инспектора */
+  lastMemoryReport?: { usedPinned: string[]; usedRecall: string[]; dropped: string[]; chars: number };
   /** sticky/cooldown для World Info */
   loreState?: Record<string, { lastTurn: number; stickyUntil: number; cooldownUntil: number }>;
   /** имена NPC, на которых сфокусирована сцена */
@@ -89,6 +92,8 @@ export interface Session {
   lastRoll?: unknown;
   /** закреплённая память истории */
   memory?: string;
+  /** записи памяти кампании (переживают undo) */
+  memories: MemoryEntry[];
   model: Model;
   prices: Prices;
   totals: Totals;
@@ -163,6 +168,7 @@ export function createSession(params: {
     prices: params.prices,
     totals: { tokensIn: 0, tokensOut: 0, cached: 0, cost: 0 },
     usage: {},
+    memories: [],
     windowTurns: params.windowTurns ?? 24,
     summarizeEvery: params.summarizeEvery ?? 10,
     lastSegments: [],
@@ -213,6 +219,17 @@ export async function runTurn(
   }
 
   const contextStarted = Date.now();
+  const memoryBlock = buildMemoryBlock(
+    session.memories ?? [],
+    session.memory ?? '',
+    [playerInput, state.place, ...state.log.slice(-4).map((entry) => entry.text)].join('\n'),
+  );
+  session.lastMemoryReport = {
+    usedPinned: memoryBlock.usedPinned,
+    usedRecall: memoryBlock.usedRecall,
+    dropped: memoryBlock.dropped,
+    chars: memoryBlock.chars,
+  };
   const ctx = buildContext({
     core: session.text.core,
     world: session.text.world,
@@ -230,6 +247,8 @@ export async function runTurn(
     loreDepth: session.extraLoreDepth,
     notes: session.extraNotes,
     memory: session.memory,
+    memoryPinned: memoryBlock.pinned,
+    memoryRecall: memoryBlock.recall,
   });
 
   const contextMs = Date.now() - contextStarted;

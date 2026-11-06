@@ -55,6 +55,10 @@ export interface ContextInput {
   notes?: string;
   /** память истории: игрок закрепляет важные факты */
   memory?: string;
+  /** стабильный блок закреплённых записей */
+  memoryPinned?: string;
+  /** recall по сцене — после истории */
+  memoryRecall?: string;
 }
 
 /** Грубо: в русском на токен приходится ~3.2 символа. */
@@ -299,6 +303,10 @@ export function buildContext(input: ContextInput): BuiltContext {
     messages.push({ role: 'system', content: `Память истории:\n${input.memory}` });
     segments.push(seg('memory', input.memory));
   }
+  if (input.memoryPinned) {
+    messages.push({ role: 'system', content: input.memoryPinned });
+    segments.push(seg('memory.pinned', input.memoryPinned));
+  }
 
   // 2. Медленный слой: закрытые арки. Меняется раз в арку — и каждый раз  //    ломает кэш на один ход. Это цена, которую платим редко и осознанно.
   if (input.conspectFrozen) {
@@ -353,6 +361,11 @@ export function buildContext(input: ContextInput): BuiltContext {
   if (input.loreAfter) {
     messages.push({ role: 'system', content: input.loreAfter });
     segments.push(seg('lore.after', input.loreAfter));
+  }
+  // 3.7. Recall памяти: меняется каждый ход, поэтому после всего стабильного.
+  if (input.memoryRecall) {
+    messages.push({ role: 'system', content: input.memoryRecall });
+    segments.push(seg('memory.recall', input.memoryRecall));
   }
 
   // 4. Цифры этого хода. Маленький и меняется всегда — поэтому в самом конце,

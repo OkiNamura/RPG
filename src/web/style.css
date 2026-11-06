@@ -512,7 +512,7 @@ body {
   padding: 3px 8px;
   border-radius: 999px;
   border: 1px solid var(--line);
-  color: var(--dim);
+  color: #a8a196;
 }
 
 .badge-status.live {

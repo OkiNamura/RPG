@@ -14,6 +14,7 @@ import { basename, extname, join, normalize, sep } from 'node:path';
 import { characterSheetPrompt, generateImage, itemCardPrompt, locationPrompt, masterCardPrompt, portraitPrompt, scenePrompt } from './core/images.ts';
 import { renderMap } from './core/map.ts';
 import { createState, normalizeState, updateSceneCheckpoint, type Actor, type GameState, type Norm, type NumberChange, type Resource } from './core/state.ts';
+import { normalizeMemories, type MemoryEntry } from './core/memory.ts';
 import { normalizeWorldStory, type WorldStory } from './core/world-story.ts';
 import { advanceWorld, makeFrontsFromFactions, makeFrontsFromStory } from './core/world.ts';
 import { Conspect, type Arc } from './core/conspect.ts';
@@ -1652,6 +1653,7 @@ function reviveIfAllowed(id: string, session: Session): void {
     state: session.state,
     summary: session.summary ?? '',
     memory: session.memory ?? '',
+          memories: session.memories,
     totals: session.totals,
     usage: session.usage,
     // Сколько записей лор-книги попало в этот ход — видно в отладке.
@@ -1682,6 +1684,7 @@ function replayTurn(session: Session, snap: TurnSnapshot): Record<string, unknow
     state: snap.turn === session.state.turn ? session.state : snap.state,
     summary: snap.summary ?? '',
     memory: session.memory ?? '',
+          memories: session.memories,
     totals: session.totals,
     usage: session.usage,
     lore: { entries: 0 },
@@ -1884,6 +1887,7 @@ async function getSession(id: string): Promise<Session | null> {
   });
   const actorsDeduped = dedupeActorLists(session.state);
   session.agents = gameAgents;
+  session.memories = normalizeMemories(saved.memories);
   session.conspect = conspectFrom(saved);
   const originalSummary = saved.summary ?? '';
   // Восстанавливаем потерянные арки только у старых сейвов без архива.
@@ -1964,6 +1968,7 @@ async function persist(id: string, session: Session): Promise<void> {
           segments: session.lastContext.segments,
           messages: session.lastContext.messages,
           lore: session.lastLoreReport ?? [],
+          memory: session.lastMemoryReport ?? null,
           budget: session.lastContext.budget ?? null,
         }, null, 2)}\n`,
         'utf8',
@@ -1994,6 +1999,7 @@ async function persist(id: string, session: Session): Promise<void> {
     arcArchive: session.arcArchive ?? [],
     lastSummaryTurn: session.lastSummaryTurn ?? 0,
     memory: session.memory,
+    memories: session.memories,
     usage: session.usage,
     totals: session.totals,
     initial: initials.get(id),
@@ -3446,7 +3452,7 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|context|container|npc|actor|location|events|forget|blocks|fill-card|inspector|price|market|undo|branches|branch|reset|restart|save-card))?$/.exec(path);
+    const campaignMatch = /^\/api\/campaign\/([^/]+)(?:\/(turn|stream|drop|quest|image|regenerate|edit|variant|card|memory|memory-entry|context|container|npc|actor|location|events|forget|blocks|fill-card|inspector|price|market|undo|branches|branch|reset|restart|save-card))?$/.exec(path);
     if (campaignMatch) {
       const id = decodeURIComponent(campaignMatch[1]);
       // Id — это имя файла кампании: никаких слэшей и переходов вверх.
@@ -3538,7 +3544,7 @@ const server = createServer(async (req, res) => {
 
       // Контекстный инспектор: что реально ушло в модель.
       if (action === 'inspector' && req.method === 'GET') {
-        let savedInspector: { totalTokens?: number; segments?: unknown[]; messages?: unknown[]; lore?: unknown[]; budget?: unknown } | null = null;
+        let savedInspector: { totalTokens?: number; segments?: unknown[]; messages?: unknown[]; lore?: unknown[]; memory?: unknown; budget?: unknown } | null = null;
         if (!session.lastContext) {
           try {
             savedInspector = JSON.parse(await readFile(join(INSPECTOR_DIR, `${id}.json`), 'utf8')) as typeof savedInspector;
@@ -3552,6 +3558,7 @@ const server = createServer(async (req, res) => {
           segments: session.lastContext?.segments ?? savedInspector?.segments ?? [],
           messages: session.lastContext?.messages ?? savedInspector?.messages ?? [],
           lore: session.lastLoreReport ?? savedInspector?.lore ?? [],
+          memory: session.lastMemoryReport ?? savedInspector?.memory ?? null,
           budget: session.lastContext?.budget ?? savedInspector?.budget ?? null,
           features,
         });
@@ -3603,6 +3610,7 @@ const server = createServer(async (req, res) => {
           locations: session.state.locations ?? [],
           summary: session.summary ?? '',
           memory: session.memory ?? '',
+          memories: session.memories,
           conspect: session.conspect.renderFrozen(),
           arcs: session.arcArchive ?? [],
           illustrations: session.state.illustrations ?? [],
@@ -3618,6 +3626,7 @@ const server = createServer(async (req, res) => {
           model: MODEL,
           summary: session.summary ?? '',
           memory: session.memory ?? '',
+          memories: session.memories,
           arcs: session.arcArchive ?? [],
           conspect: session.conspect.renderFrozen(),
           conspectRecent: session.conspect.renderRecent(),
@@ -3900,6 +3909,51 @@ const server = createServer(async (req, res) => {
         session.memory = String(body.text ?? '').slice(0, 4000);
         await persist(id, session);
         return sendJson(res, { memory: session.memory });
+      }
+
+      // Структурированные записи памяти: переживают undo, живут в кампании.
+      if (action === 'memory-entry' && req.method === 'POST') {
+        if (session.busy) return sendJson(res, { error: 'ход уже идёт, дождитесь ответа' }, 409);
+        const body = await readBody(req);
+        const op = String(body.action ?? '');
+        const entryId = String(body.id ?? '');
+        const entry = session.memories.find((item) => item.id === entryId);
+        if (op !== 'add' && !entry) return sendJson(res, { error: 'запись не найдена' }, 404);
+        const text = String(body.text ?? entry?.text ?? '').trim().slice(0, 500);
+        const keys = Array.isArray(body.keys)
+          ? [...new Set(body.keys.map((key: unknown) => String(key).trim()).filter(Boolean))].slice(0, 8)
+          : entry?.keys ?? [];
+        const kind: 'fact' | 'journal' = body.kind === 'fact' ? 'fact' : 'journal';
+        const importance: 1 | 2 | 3 = body.importance === 1 || body.importance === 3 ? body.importance : 2;
+        const pinned = op === 'pin' ? true : op === 'unpin' ? false : Boolean(entry?.pinned ?? body.pinned);
+        if ((op === 'add' || op === 'update') && !text) return sendJson(res, { error: 'пустой текст' }, 400);
+        const next: MemoryEntry = entry
+          ? { ...entry, text, keys, kind, importance, pinned }
+          : {
+              id: `mem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              text,
+              keys,
+              kind,
+              importance,
+              pinned,
+              createdTurn: session.state.turn,
+              source: 'player' as const,
+            };
+        const candidate = op === 'delete'
+          ? session.memories.filter((item) => item.id !== entryId)
+          : op === 'add'
+            ? (session.memories.length >= 50
+                ? null
+                : [...session.memories, next])
+            : session.memories.map((item) => (item.id === entryId ? next : item));
+        if (!candidate) return sendJson(res, { error: 'слишком много записей' }, 400);
+        const pinnedList = candidate.filter((item) => item.pinned);
+        if (pinnedList.length > 8 || pinnedList.reduce((sum, item) => sum + item.text.length, 0) > 4000) {
+          return sendJson(res, { error: 'закреплённая память переполнена' }, 400);
+        }
+        session.memories = candidate;
+        await persist(id, session);
+        return sendJson(res, { memories: session.memories });
       }
 
       // Редактирование блоков тона, мира и героя внутри контейнера.
@@ -4198,6 +4252,7 @@ const server = createServer(async (req, res) => {
         session.lastSummaryTurn = 0;
         session.arcArchive = [];
         session.memory = '';
+        session.memories = [];
         session.conspect.clear();
         snapshots.set(id, []);
         snapshotsDirty.add(id);

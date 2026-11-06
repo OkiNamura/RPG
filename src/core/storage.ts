@@ -99,6 +99,8 @@ export interface SavedCampaign {
   lastSummaryTurn?: number;
   /** память истории: закреплённые игроком факты */
   memory?: string;
+  /** структурированные записи памяти */
+  memories?: import('./memory.ts').MemoryEntry[];
   /** состояние и конспект до первого хода — точка полного откката */
   initial?: TurnVariant;
   /** агенты этой игры: у каждой кампании свои */

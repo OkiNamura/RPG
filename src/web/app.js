@@ -5084,11 +5084,15 @@ function renderPanel(state, panel, campaignId, worldMap, mapText, summary) {
     await api(`/api/campaign/${encodeURIComponent(campaignId)}/memory`, { method: 'POST', body: JSON.stringify({ text: memArea.value }) });
     memStatus.textContent = 'закреплено';
   });
+  const memEntries = el('button', 'btn small', 'Записи памяти');
+  memEntries.type = 'button';
+  memEntries.addEventListener('click', () => openMemoryModal(campaignId));
   memBody.append(
     el('p', 'page-sub', 'Факты, которые ведущий помнит всегда: имена, долги, обещания.'),
     memArea,
     memSave,
     memStatus,
+    memEntries,
   );
   mem.append(memBody);
   frag.append(section('Память', [mem]));
@@ -5793,6 +5797,96 @@ function openBranchesDialog(campaignId) {
     }
   });
   void reload();
+}
+
+function openMemoryModal(campaignId) {
+  const overlay = el('div', 'library-modal');
+  const sheet = el('article', 'library-sheet');
+  const head = el('div', 'library-sheet-head');
+  const titles = el('div');
+  titles.append(el('h2', 'person-name', 'Память'), el('div', 'person-role', 'записи, которые переживают откаты'));
+  const close = el('button', 'btn small', '✕');
+  close.type = 'button';
+  head.append(titles, close);
+  const body = el('div', 'library-sheet-body');
+  sheet.append(head, body);
+  overlay.append(sheet);
+  document.body.append(overlay);
+  close.addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) overlay.remove(); });
+
+  const list = el('div');
+  const text = el('textarea', 'memory-area');
+  text.placeholder = 'Короткий факт, имя, долг или обещание';
+  const keys = el('input', 'input');
+  keys.placeholder = 'ключи через запятую: кольцо, гильдия';
+  const importance = el('select', 'input');
+  for (const [value, label] of [['1', 'низкая'], ['2', 'обычная'], ['3', 'высокая']]) {
+    const option = el('option', '', label);
+    option.value = value;
+    importance.append(option);
+  }
+  const add = el('button', 'btn small', 'Добавить');
+  add.type = 'button';
+  const status = el('span', 'status');
+  const load = async () => {
+    const fresh = await api(`/api/campaign/${encodeURIComponent(campaignId)}`);
+    list.replaceChildren();
+    const entries = fresh.memories ?? [];
+    if (!entries.length) list.append(el('p', 'page-sub', 'Пока пусто.'));
+    for (const entry of entries) {
+      const row = el('div', 'memory-entry');
+      const pin = el('button', 'btn small', entry.pinned ? 'Открепить' : 'Закрепить');
+      pin.type = 'button';
+      pin.addEventListener('click', async () => {
+        await api(`/api/campaign/${encodeURIComponent(campaignId)}/memory-entry`, {
+          method: 'POST',
+          body: JSON.stringify({ action: entry.pinned ? 'unpin' : 'pin', id: entry.id }),
+        });
+        await load();
+      });
+      const remove = el('button', 'btn small', 'Удалить');
+      remove.type = 'button';
+      remove.addEventListener('click', async () => {
+        await api(`/api/campaign/${encodeURIComponent(campaignId)}/memory-entry`, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'delete', id: entry.id }),
+        });
+        await load();
+      });
+      row.append(
+        el('span', 'memory-entry-text', entry.text),
+        el('span', 'memory-entry-meta', `${entry.pinned ? 'всегда' : 'recall'} · ${entry.keys.join(', ') || 'без ключей'}`),
+        pin,
+        remove,
+      );
+      list.append(row);
+    }
+  };
+  add.addEventListener('click', async () => {
+    try {
+      await api(`/api/campaign/${encodeURIComponent(campaignId)}/memory-entry`, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'add',
+          text: text.value,
+          keys: keys.value.split(',').map((key) => key.trim()).filter(Boolean),
+          importance: Number(importance.value),
+          kind: 'journal',
+        }),
+      });
+      text.value = '';
+      keys.value = '';
+      status.textContent = 'добавлено';
+      await load();
+    } catch (err) {
+      status.textContent = err.message;
+    }
+  });
+  const form = el('div', 'memory-form');
+  form.append(text, keys, importance, add, status);
+  body.append(el('p', 'page-sub', 'Закреплённые записи идут в контекст всегда. Остальные — по ключам сцены.'), form, list);
+  load().catch((err) => { body.append(el('p', 'page-sub', err.message)); });
 }
 
 function openContextInspector(campaignId) {

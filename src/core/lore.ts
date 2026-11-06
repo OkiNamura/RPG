@@ -35,7 +35,7 @@ export interface LoreActivation {
   reason: string;
 }
 
-function hitsKey(text: string, key: string): boolean {
+export function hitsKey(text: string, key: string): boolean {
   const low = text.toLowerCase();
   const k = key.trim().toLowerCase();
   if (k.length < 2) return false;
