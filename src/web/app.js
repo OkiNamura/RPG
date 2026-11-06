@@ -7341,15 +7341,25 @@ document.addEventListener('touchend', (event) => {
 const pullRefresh = el('div', 'pull-refresh hidden', 'Потяни вниз');
 document.body.append(pullRefresh);
 let pullStart = null;
+const pullRefreshPages = new Set(['stories', 'search', 'templates']);
 document.addEventListener('touchstart', (event) => {
   if (modalStack.length || !event.touches[0]) return;
+  if (!pullRefreshPages.has(currentRoute().name)) return;
   const target = event.target;
-  if (target instanceof Element && target.closest('input, textarea, select, [contenteditable="true"]')) return;
+  if (target instanceof Element && target.closest('input, textarea, select, [contenteditable="true"], form')) return;
   const scrollTop = Math.max(
     document.scrollingElement?.scrollTop ?? 0,
     document.querySelector('.log')?.scrollTop ?? 0,
   );
   if (scrollTop > 0) return;
+  // Если палец начал движение во внутренне прокручиваемом блоке,
+  // это обычный скролл, а не pull-to-refresh.
+  let node = target instanceof Element ? target : null;
+  while (node && node !== document.body) {
+    const style = getComputedStyle(node);
+    if (/(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 1 && node.scrollTop > 0) return;
+    node = node.parentElement;
+  }
   const touch = event.touches[0];
   pullStart = { x: touch.clientX, y: touch.clientY, active: true };
 }, { passive: true });
