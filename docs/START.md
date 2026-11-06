@@ -11,8 +11,15 @@ START-ALL.cmd
 Он открывает:
 
 1. Сервер Omika — окно `OMIKA · SERVER`.
-2. Telegram-бота — окно `OMIKA · TELEGRAM`, если есть `.telegram.env`.
-3. Браузер: http://127.0.0.1:7801
+2. Cloudflare Tunnel — окно `OMIKA · TUNNEL`, если есть `.cloudflare-tunnel.env`.
+3. Telegram-бота — окно `OMIKA · TELEGRAM`, если есть `.telegram.env`.
+4. Браузер: http://127.0.0.1:7801
+
+Публичный адрес:
+
+```text
+https://game.okinamura.com
+```
 
 ## Что должно быть запущено
 
