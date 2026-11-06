@@ -88,8 +88,8 @@ export function buildMemoryBlock(entries: MemoryEntry[], legacy: string, searchT
   }
 
   const pinnedText = pinnedLines.length ? `Память (важно):\n${pinnedLines.join('\n')}` : '';
-  const learnedLines = pinned
-    .filter((entry) => entry.importance === 3)
+  const learnedLines = entries
+    .filter((entry) => !entry.pinned && entry.importance === 3 && !usedRecall.includes(entry.id))
     .slice(0, 2)
     .map((entry) => `- ${entry.text.slice(0, 300)}`);
   const learnedText = learnedLines.length ? `Усвоено:\n${learnedLines.join('\n')}` : '';
