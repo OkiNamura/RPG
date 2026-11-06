@@ -157,7 +157,6 @@ export function updateSceneCheckpoint(state: GameState, prose: string, stalled =
       participants: [...new Set(participants)],
       lastBeat: beat,
       stalls: stalled ? 1 : 0,
-      question: 'Что изменится в этой сцене?',
     };
     return state.scene;
   }
