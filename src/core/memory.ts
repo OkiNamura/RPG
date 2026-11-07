@@ -69,7 +69,7 @@ export function buildMemoryBlock(entries: MemoryEntry[], legacy: string, searchT
   }
 
   const learnedEntries = entries
-    .filter((entry) => !entry.pinned && entry.importance === 3)
+    .filter((entry) => !entry.pinned && entry.kind === 'journal' && entry.importance === 3)
     .sort((a, b) => a.createdTurn - b.createdTurn || a.id.localeCompare(b.id))
     .slice(0, 2);
   const learnedIds = new Set(learnedEntries.map((entry) => entry.id));

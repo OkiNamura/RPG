@@ -593,12 +593,10 @@ async function viewContainer(view, id) {
   page.append(actions);
 
   const saveTasks = [];
-  let containerDirty = false;
   const saveAll = el('button', 'btn small', 'Сохранить всё');
   saveAll.type = 'button';
   saveAll.disabled = true;
   const markDirty = () => {
-    containerDirty = true;
     saveAll.disabled = false;
   };
   saveAll.addEventListener('click', async () => {
@@ -606,7 +604,6 @@ async function viewContainer(view, id) {
     saveAll.textContent = 'Сохраняю…';
     try {
       for (const task of saveTasks) await task();
-      containerDirty = false;
       toast('контейнер сохранён');
     } catch (err) {
       toast(err.message);
@@ -1865,7 +1862,7 @@ async function getCatalog() {
   return catalogCache;
 }
 
-function templateSkills(skills) {
+function _templateSkills(skills) {
   const wrap = el('div', 'person-skills numeric');
   for (const [name, value] of Object.entries(skills ?? {})) {
     const line = el('div', 'skill-row');
@@ -2669,7 +2666,7 @@ async function viewNew(view) {
 
 
 
-    const collectMatches = () => {
+    const _collectMatches = () => {
       const list = words.value
         .toLowerCase()
         .split(/[,;\s]+/u)
@@ -3921,7 +3918,7 @@ function formatSkills(skills) {
   return Object.entries(skills).map(([name, value]) => `${name} ${value}`).join(' · ');
 }
 
-function actorCard(actor, campaignId) {
+function _actorCard(actor, campaignId) {
   const details = el('details', 'card');
   details.dataset.name = actor.name;
   const summary = el('summary');
@@ -4828,7 +4825,6 @@ function calendarDate(calendar, day) {
   if (!calendar?.months?.length) {
     return { year: 1, dayOfYear: day, monthIndex: 0, monthName: '', dayOfMonth: day, season: '', moons: [] };
   }
-  const daysPerYear = calendar.months.reduce((sum, month) => sum + Math.max(1, month.days), 0);
   let remaining = Math.max(0, Math.floor(day) - 1);
   let year = calendar.startYear ?? 1;
   let monthIndex = Math.max(0, Math.min(calendar.months.length - 1, calendar.startMonth ?? 0));
@@ -6668,7 +6664,7 @@ async function streamTurn(id, input, onText, dice, clientTurnId, focus = [], tim
   return done;
 }
 
-function openImportDialog(campaignId, onDone) {
+function _openImportDialog(campaignId, onDone) {
   const overlay = el('div', 'map-modal');
   const head = el('div', 'map-modal-head');
   head.append(el('b', '', 'Импорт карточки V2'));

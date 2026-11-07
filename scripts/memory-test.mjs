@@ -18,6 +18,10 @@ const calm = buildMemoryBlock(keyed, '', 'иду домой');
 const guild = buildMemoryBlock(keyed, '', 'говорю о гильдии');
 if (calm.learned !== guild.learned) throw new Error('learned зависит от recall — сожжёт кэш истории');
 if (guild.recall.includes('Слух о гильдии')) throw new Error('learned-запись продублирована в recall');
+const factOnly = buildMemoryBlock([
+  { id: 'f', kind: 'fact', text: 'Факт важности 3', keys: [], importance: 3, pinned: false, createdTurn: 1, source: 'player' },
+], '', '');
+if (factOnly.learned.includes('Факт важности 3')) throw new Error('fact попал в learned');
 if (!block.recall.includes('Кольцо')) throw new Error('recall по стеммингу не сработал');
 if (block.usedPinned[0] !== 'a' || block.usedRecall[0] !== 'b') throw new Error('неверный отчёт памяти');
 const noMatch = buildMemoryBlock(entries, '', 'иду спать');
