@@ -56,8 +56,25 @@ relation.attitude = 0;
 relation.note = 'война';
 advanceFactionRelations(state);
 if (relation.note !== 'перемирие') throw new Error('война не перешла в перемирие');
+relation.attitude = -50;
+relation.note = 'война';
+state.factions[0].attitude = 30;
+state.factions[1].attitude = 0;
+state.fronts = [
+  { id: 'f1', name: 'Стража', faction: 'Стража', progress: 40, status: 'active', updatedTurn: 0 },
+  { id: 'f2', name: 'Воры', faction: 'Воры', progress: 0, status: 'active', updatedTurn: 0 },
+];
+advanceFactionRelations(state);
+if (relation.attitude !== -51) throw new Error(`дрейф фракций не сработал: ${relation.attitude}`);
+
+state.place = 'Новая сцена';
+const asked = updateSceneCheckpoint(state, 'Вопрос.', false, 'Что здесь не так?');
+if (asked.question !== 'Что здесь не так?') throw new Error('вопрос Director не попал в сцену');
+updateSceneCheckpoint(state, 'Ещё ход.', false, 'Что изменилось?');
+if (state.scene.question !== 'Что изменилось?') throw new Error('вопрос не обновил текущую сцену');
 
 console.log('✓ фронты мира двигаются');
 console.log('✓ чекпоинт сцены и смена места');
 console.log('✓ три топтания закрывают сцену и сохраняют её в истории');
 console.log('✓ война/союз сбрасываются в перемирие');
+console.log('✓ дрейф фракций и question сцены');

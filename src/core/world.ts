@@ -31,21 +31,59 @@ export function ensureFactionRelations(state: GameState): void {
 export function advanceFactionRelations(state: GameState): string[] {
   ensureFactionRelations(state);
   const changes: string[] = [];
-  for (const faction of state.factions ?? []) {
-    for (const relation of faction.relations ?? []) {
-      if (relation.attitude <= -30 && relation.note !== 'война') {
-        relation.note = 'война';
-        if (faction.name < relation.with) changes.push(`война: ${faction.name} против ${relation.with}`);
-      } else if (relation.attitude >= 30 && relation.note !== 'союз') {
-        relation.note = 'союз';
-        if (faction.name < relation.with) changes.push(`союз: ${faction.name} и ${relation.with}`);
-      } else if (relation.attitude > -30 && relation.attitude < 30 && (relation.note === 'война' || relation.note === 'союз')) {
-        relation.note = 'перемирие';
-        if (faction.name < relation.with) changes.push(`перемирие: ${faction.name} и ${relation.with}`);
+  const factions = state.factions ?? [];
+  for (let i = 0; i < factions.length; i += 1) {
+    for (let j = i + 1; j < factions.length; j += 1) {
+      const left = factions[i];
+      const right = factions[j];
+      left.relations ??= [];
+      right.relations ??= [];
+      let leftRelation = left.relations.find((relation) => relation.with === right.name);
+      let rightRelation = right.relations.find((relation) => relation.with === left.name);
+      if (!leftRelation) {
+        leftRelation = { with: right.name, attitude: 0 };
+        left.relations.push(leftRelation);
+      }
+      if (!rightRelation) {
+        rightRelation = { with: left.name, attitude: 0 };
+        right.relations.push(rightRelation);
+      }
+      const leftFront = state.fronts?.find((front) => front.faction === left.name)?.progress;
+      const rightFront = state.fronts?.find((front) => front.faction === right.name)?.progress;
+      const frontGap = leftFront != null && rightFront != null ? Math.abs(leftFront - rightFront) : 0;
+      const heroGap = Math.abs((left.attitude ?? 0) - (right.attitude ?? 0));
+      const hasFronts = leftFront != null && rightFront != null;
+      const drift = hasFronts
+        ? (heroGap > 0 && heroGap <= 20 ? 1 : 0) - (frontGap >= 20 ? 1 : 0)
+        : 0;
+      if (drift !== 0) {
+        const base = Number.isFinite(leftRelation.attitude) ? leftRelation.attitude : 0;
+        leftRelation.attitude = clampRelation(base + drift);
+        rightRelation.attitude = leftRelation.attitude;
+      }
+      const beforeNote = leftRelation.note;
+      const nextLeft = relationNote(leftRelation.attitude, leftRelation.note);
+      const nextRight = relationNote(rightRelation.attitude, rightRelation.note);
+      leftRelation.note = nextLeft;
+      rightRelation.note = nextRight;
+      if ((nextLeft !== beforeNote || nextRight !== beforeNote) && (nextLeft || nextRight)) {
+        changes.push(`${nextLeft ?? nextRight}: ${left.name} и ${right.name}`);
       }
     }
   }
   return changes;
+}
+
+function clampRelation(value: number): number {
+  return Math.max(-100, Math.min(100, Math.round(value)));
+}
+
+function relationNote(attitude: number, current?: string): string | undefined {
+  if (current === 'война') return attitude >= -25 ? 'перемирие' : 'война';
+  if (current === 'союз') return attitude <= 25 ? 'перемирие' : 'союз';
+  if (attitude <= -30) return 'война';
+  if (attitude >= 30) return 'союз';
+  return current === 'перемирие' ? 'перемирие' : current;
 }
 
 export function makeFrontsFromStory(state: GameState): WorldFront[] {

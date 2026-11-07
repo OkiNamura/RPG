@@ -114,7 +114,7 @@ export interface WorldClock {
 }
 
 /** Обновить чекпоинт сцены после хода. Не задаёт расписание и таймеры. */
-export function updateSceneCheckpoint(state: GameState, prose: string, stalled = false): SceneState {
+export function updateSceneCheckpoint(state: GameState, prose: string, stalled = false, question?: string): SceneState {
   const participants = [
     state.hero.name,
     ...state.party
@@ -157,12 +157,14 @@ export function updateSceneCheckpoint(state: GameState, prose: string, stalled =
       participants: [...new Set(participants)],
       lastBeat: beat,
       stalls: stalled ? 1 : 0,
+      question: question?.trim().slice(0, 160) || undefined,
     };
     return state.scene;
   }
   previous.updatedTurn = state.turn;
   previous.participants = [...new Set(participants)];
   previous.lastBeat = beat;
+  if (question?.trim()) previous.question = question.trim().slice(0, 160);
   previous.stalls = stalled ? (previous.stalls ?? 0) + 1 : 0;
   if (previous.stalls >= 2) previous.goal = 'сцена топчется: нужен новый факт';
   else if (previous.goal === 'сцена топчется: нужен новый факт') previous.goal = undefined;

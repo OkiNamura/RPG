@@ -67,7 +67,7 @@ import { KeyStore, fetchKeyModels, normalizeBaseUrl, type KeyModel } from './cor
 import { makeWorldProfile } from './core/world-profile.ts';
 import { DEFAULT_FEATURES, normalizeFeatures, type FeatureFlags } from './core/features.ts';
 import { estimatePrice } from './core/economy.ts';
-import { shouldRunDirector } from './core/director.ts';
+import { directorQuestion, shouldRunDirector } from './core/director.ts';
 import { directorNote, recallLog } from './core/recall.ts';
 import { applySocialReaction } from './core/social.ts';
 import { embedTexts } from './core/embeddings.ts';
@@ -1337,6 +1337,7 @@ async function augmentFeatureNotes(session: Session, input: string, id: string):
     );
     const director = session.agents?.director ?? agents.director;
     session.lastDirectorMs = 0;
+    session.lastDirectorQuestion = undefined;
     const sceneId = session.state.scene?.id ?? '';
     const directorDue = shouldRunDirector({
       turn: session.state.turn,
@@ -1361,7 +1362,10 @@ async function augmentFeatureNotes(session: Session, input: string, id: string):
           session.lastDirectorMs = Date.now() - directorStarted;
           session.lastDirectorTurn = session.state.turn;
           session.lastDirectorSceneId = sceneId;
-          if (reply.text.trim()) parts.push(`[Режиссёр]\n${reply.text.trim().slice(0, 1200)}`);
+          if (reply.text.trim()) {
+            parts.push(`[Режиссёр]\n${reply.text.trim().slice(0, 1200)}`);
+            session.lastDirectorQuestion = directorQuestion(reply.text);
+          }
           const tokensIn = reply.inputTokens ?? 0;
           const tokensOut = reply.outputTokens ?? 0;
           addUsage(session, 'director', tokensIn, tokensOut, costOf(tokensIn, tokensOut));
@@ -1582,7 +1586,7 @@ function reviveIfAllowed(id: string, session: Session): void {
   reviveIfAllowed(id, session);
   // Цель времени ставим после агента состояния: он не должен её переписать.
   if (beforeNumbers && timeTarget) applyTimeTarget(session, timeTarget, beforeNumbers);
-  updateSceneCheckpoint(session.state, prose, Boolean(stats.stalled));
+  updateSceneCheckpoint(session.state, prose, Boolean(stats.stalled), session.lastDirectorQuestion);
   agentChanges.push(...advanceWorld(session.state));
 
   const reasons = stateResult.status === 'fulfilled' ? { ...stateResult.value.reasons } : {};

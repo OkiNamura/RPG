@@ -135,6 +135,7 @@ export interface Session {
   /** когда и на какой сцене вызывался Director */
   lastDirectorTurn?: number;
   lastDirectorSceneId?: string;
+  lastDirectorQuestion?: string;
 }
 
 export interface TurnStats {

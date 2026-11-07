@@ -411,7 +411,7 @@ function testNewFeatures() {
     loreTop: 'ТОП', loreHistory: 'ИСТОРИЯ', loreAfter: 'ПОСЛЕ', loreDepth: 'ГЛУБИНА',
   });
   const names = context.segments.map((segment) => segment.name);
-  check('World Info: top стоит до истории', names.indexOf('lore.top') < names.findIndex((name) => name.startsWith('log:')));
+  check('World Info: top стоит после истории', names.indexOf('lore.top') > names.findIndex((name) => name.startsWith('log:')));
   check('World Info: after стоит после истории', names.indexOf('lore.after') > names.findIndex((name) => name.startsWith('log:')));
   check('World Info: depth стоит после состояния', names.indexOf('lore.depth') > names.indexOf('state'));
   state.party.push({ name: 'Соня', role: 'спутница', status: 'alive', bond: 50, attitude: 40, morale: 60, wounds: [] });

@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "omika",
   "version": "0.2.0",
   "private": true,
@@ -9,7 +9,7 @@
     "catalog": "node scripts/build-catalog.mjs",
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
     "lint": "node node_modules/eslint/bin/eslint.js .",
-    "test": "node scripts/unit-test.mjs",
+    "test": "node scripts/unit-test.mjs && node scripts/memory-test.mjs && node scripts/director-test.mjs && node scripts/world-test.mjs && node scripts/context-order-test.mjs",
     "test:ui": "node scripts/ui-test.mjs",
     "test:e2e": "node scripts/e2e-full.mjs",
     "test:a11y": "node scripts/a11y-test.mjs",
