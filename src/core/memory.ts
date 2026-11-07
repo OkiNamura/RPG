@@ -68,13 +68,22 @@ export function buildMemoryBlock(entries: MemoryEntry[], legacy: string, searchT
     pinnedChars += entry.text.length;
   }
 
+  const learnedEntries = entries
+    .filter((entry) => !entry.pinned && entry.importance === 3)
+    .sort((a, b) => a.createdTurn - b.createdTurn || a.id.localeCompare(b.id))
+    .slice(0, 2);
+  const learnedIds = new Set(learnedEntries.map((entry) => entry.id));
+  const learnedLines = learnedEntries.map((entry) => `- ${entry.text.slice(0, 300)}`);
+  const learnedText = learnedLines.length ? `Усвоено:\n${learnedLines.join('\n')}` : '';
+  const learnedChars = learnedEntries.reduce((sum, entry) => sum + Math.min(entry.text.length, 300), 0);
+
   const legacyChars = legacy.length;
-  const recallBudget = Math.max(0, Math.min(RECALL_CHARS, TOTAL_CHARS - legacyChars - pinnedChars));
+  const recallBudget = Math.max(0, Math.min(RECALL_CHARS, TOTAL_CHARS - legacyChars - pinnedChars - learnedChars));
   const usedRecall: string[] = [];
   const recallLines: string[] = [];
   let recallChars = 0;
   const candidates = entries
-    .filter((entry) => !entry.pinned && entry.keys.length > 0 && entry.keys.some((key) => hitsKey(searchText, key)))
+    .filter((entry) => !entry.pinned && !learnedIds.has(entry.id) && entry.keys.length > 0 && entry.keys.some((key) => hitsKey(searchText, key)))
     .sort((a, b) => b.importance - a.importance || b.createdTurn - a.createdTurn);
   for (const entry of candidates) {
     const line = `- ${entry.text}`;
@@ -88,11 +97,6 @@ export function buildMemoryBlock(entries: MemoryEntry[], legacy: string, searchT
   }
 
   const pinnedText = pinnedLines.length ? `Память (важно):\n${pinnedLines.join('\n')}` : '';
-  const learnedLines = entries
-    .filter((entry) => !entry.pinned && entry.importance === 3 && !usedRecall.includes(entry.id))
-    .slice(0, 2)
-    .map((entry) => `- ${entry.text.slice(0, 300)}`);
-  const learnedText = learnedLines.length ? `Усвоено:\n${learnedLines.join('\n')}` : '';
   const recallText = recallLines.length ? `Память по сцене:\n${recallLines.join('\n')}` : '';
   return {
     pinned: pinnedText,

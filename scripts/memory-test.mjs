@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 import { buildMemoryBlock, normalizeMemories } from '../src/core/memory.ts';
 
 const entries = [
@@ -10,6 +10,14 @@ const block = buildMemoryBlock(entries, '', 'беру кольца у колод
 if (!block.pinned.includes('Долг гильдии')) throw new Error('pinned не попал в контекст');
 if (!block.learned.includes('Усвоенный факт')) throw new Error('learned не собрался из важной journal-записи');
 if (block.learned.includes('Долг гильдии')) throw new Error('learned дублирует pinned');
+const keyed = [
+  ...entries,
+  { id: 'd', kind: 'journal', text: 'Слух о гильдии', keys: ['гильдия'], importance: 3, pinned: false, createdTurn: 4, source: 'player' },
+];
+const calm = buildMemoryBlock(keyed, '', 'иду домой');
+const guild = buildMemoryBlock(keyed, '', 'говорю о гильдии');
+if (calm.learned !== guild.learned) throw new Error('learned зависит от recall — сожжёт кэш истории');
+if (guild.recall.includes('Слух о гильдии')) throw new Error('learned-запись продублирована в recall');
 if (!block.recall.includes('Кольцо')) throw new Error('recall по стеммингу не сработал');
 if (block.usedPinned[0] !== 'a' || block.usedRecall[0] !== 'b') throw new Error('неверный отчёт памяти');
 const noMatch = buildMemoryBlock(entries, '', 'иду спать');
