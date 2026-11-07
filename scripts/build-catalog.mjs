@@ -210,7 +210,7 @@ function mergeToneGroups(groups, additions) {
   return groups;
 }
 
-function buildPresets(text) {
+function _buildPresets(text) {
   const lines = text.split(/\r?\n/);
   const presets = [];
 

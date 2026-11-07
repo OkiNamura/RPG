@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Проверка: бэкап → повреждение → восстановление snapshots.db. */
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { backupDatabase, checkIntegrity, ensureDatabase } from '../src/core/db-maintenance.ts';

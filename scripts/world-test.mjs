@@ -17,7 +17,7 @@ if (state.clocks.length !== 2) throw new Error('часы мира не созд�
 
 const before = state.fronts[0].progress;
 state.turn = 9;
-const changes = advanceWorld(state);
+const _changes = advanceWorld(state);
 if (state.fronts[0].progress <= before) throw new Error('фронт не двинулся');
 for (let i = 0; i < 20; i += 1) { state.turn += 1; advanceWorld(state); }
 if (!state.fronts[0].quest) throw new Error('квест фронта не создан');

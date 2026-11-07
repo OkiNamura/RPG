@@ -129,7 +129,7 @@ async function main() {
   });
   events.push('арт-настройки и память записаны');
 
-  const started = Date.now();
+  const _started = Date.now();
   let turnErrors = 0;
 
   for (let i = 0; i < TOTAL; i += 1) {

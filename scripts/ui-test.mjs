@@ -87,7 +87,7 @@ async function main() {
   const code = await (await fetch(BASE + '/app.js')).text();
   window.eval(code);
 
-  const $ = (id) => window.document.getElementById(id);
+  const _$ = (id) => window.document.getElementById(id);
   const $$ = (sel) => [...window.document.querySelectorAll(sel)];
   const click = (node) => node.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 

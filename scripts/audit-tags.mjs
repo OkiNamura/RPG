@@ -107,7 +107,7 @@ function parseSource(text) {
     }
   }
 
-  const start = headerIdx === -1 ? 0 : headerIdx;
+  const _start = headerIdx === -1 ? 0 : headerIdx;
   let end = headerIdx === -1 ? 0 : headerIdx + 1;
   if (headerIdx !== -1) {
     while (end < lines.length && /^\d+\s*,/u.test(lines[end])) end += 1;

@@ -211,7 +211,7 @@ try {
 
   const turns = rows.filter((r) => !r.error);
   const avg = (fn) => (turns.length ? turns.reduce((a, r) => a + fn(r), 0) / turns.length : 0);
-  const sum = (fn) => turns.reduce((a, r) => a + fn(r), 0);
+  const _sum = (fn) => turns.reduce((a, r) => a + fn(r), 0);
 
   const avgMs = Math.round(avg((r) => r.ms));
   const avgIn = Math.round(avg((r) => r.tokensIn ?? 0));

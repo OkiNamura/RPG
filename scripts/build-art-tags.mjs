@@ -1073,7 +1073,7 @@ async function main() {
   const { groups, removed, droppedSubgroups } = buildCatalog(SOURCE);
 
   // Чистка не-рисовальных подгрупп и дублей, плюс новая точка зрения.
-  const { pruned, dropped } = pruneCatalog(groups);
+  const { pruned: _pruned, dropped: _dropped } = pruneCatalog(groups);
 
   // Формат и визуал переехали из конструктора игры к иллюстратору.
   try {
@@ -1100,7 +1100,7 @@ async function main() {
   }
 
   // Каталог уже прошёл валидацию; счётчик — справочный.
-  const expectedTotal = initial.total;
+  const _expectedTotal = initial.total;
   const payload = { groups };
   await writeFile(OUT_FILE, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 
