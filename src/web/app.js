@@ -19,7 +19,10 @@ async function api(path, options) {
   } catch {
     data = null;
   }
-  if (!res.ok) throw new Error((data && data.error) || text.slice(0, 200) || `ошибка ${res.status}`);
+  if (!res.ok) {
+    const message = String(data?.error ?? '').trim() || text.trim().slice(0, 200) || `ошибка ${res.status}`;
+    throw new Error(message);
+  }
   return data;
 }
 
@@ -74,7 +77,9 @@ let toastTimer = null;
 function toast(message) {
   const box = $('toast');
   if (!box) return;
-  box.textContent = message;
+  const text = String(message ?? '').trim();
+  if (!text) return;
+  box.textContent = text;
   box.classList.remove('hidden');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => box.classList.add('hidden'), 4000);
@@ -1882,7 +1887,7 @@ async function saveToLibrary(campaignId, type, name) {
     method: 'POST',
     body: JSON.stringify({ type, name }),
   });
-  toast(`карточка сохранена: ${res.card?.name ?? name}`);
+  toast(`карточка сохранена: ${res.card?.name || name || 'без имени'}`);
   return res.card;
 }
 
@@ -2230,7 +2235,7 @@ async function viewNew(view) {
     };
     wizard.skills = tpl.skills;
     app.pendingHero = null;
-    toast(`карточка героя: ${tpl.name}`);
+    toast(`карточка героя: ${tpl.name || 'без имени'}`);
   }
 
   const page = el('div', 'page wizard');
@@ -4031,7 +4036,7 @@ async function forgetNpc(campaignId, name, action) {  const labels = { archive: 
       method: 'POST',
       body: JSON.stringify({ name, ...(action === 'archive' ? {} : { [action]: true }) }),
     });
-    toast(`${name}: ${labels[action] ?? 'готово'}`);
+    toast(`${name || 'персонаж'}: ${labels[action] ?? 'готово'}`);
     router();
   } catch (err) {
     toast(err.message);
@@ -6663,7 +6668,7 @@ async function streamTurn(id, input, onText, dice, clientTurnId, focus = [], tim
       }
       if (payload.t === 'delta' || payload.type === 'delta') onText(payload.text ?? '');
       else if (payload.t === 'done' || payload.type === 'done') done = payload.payload ?? payload.data ?? payload;
-      else if (payload.t === 'error' || payload.type === 'error') throw new Error(payload.error ?? 'ошибка потока');
+      else if (payload.t === 'error' || payload.type === 'error') throw new Error(payload.error || 'ошибка потока');
     }
   }
 
