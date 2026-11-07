@@ -1788,7 +1788,7 @@ function gameRulesFor(meta: CampaignMeta): string[] {
     }`,
     '- Ранги: FFF→FF→F→EEE→EE→E→DDD→DD→D→CCC→CC→C→BBB→BB→B→AAA→AA→A→S→SS→SSR. Обычный NPC — F, герой стартует FFF–F. Ранг босса/глобального злодея закреплён карточкой и не меняется от ходов.',
     `- Опыт пати: ${xpModeLabel[meta.xpMode ?? 'dynamic'] ?? 'по динамике'}.`,
-    `- Летоисчисление: ${meta.altTime ? (meta.eraLabel || 'своё, вне обычного года') : `${meta.epochYear ?? 2000} год`}.`,
+    `- Летоисчисление: ${meta.altTime ? `${meta.eraLabel || 'своё летоисчисление'} (опорный год: ${meta.epochYear ?? 2000})` : `${meta.epochYear ?? 2000} год`}.`,
   ];
 }
 

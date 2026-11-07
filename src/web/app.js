@@ -2468,7 +2468,6 @@ async function viewNew(view) {
     eraInput.value = wizard.eraLabel ?? '';
     eraInput.addEventListener('input', () => {
       wizard.eraLabel = eraInput.value;
-      if (wizard.altTime) epochLabel.textContent = eraInput.value.trim() || 'своё летоисчисление';
     });
     const eraRow = el('div', 'era-row');
     const eraDice = el('button', 'btn small level-dice', '🎲');
@@ -2491,7 +2490,6 @@ async function viewNew(view) {
         if (res.era) {
           wizard.eraLabel = res.era;
           eraInput.value = res.era;
-          epochLabel.textContent = res.era;
           toast(`эпоха: ${res.era}${res.cost ? ` · $${res.cost.toFixed(4)}` : ''}`);
         }
       } catch (err) {
@@ -2504,15 +2502,9 @@ async function viewNew(view) {
     const syncTimeMode = () => {
       timeAlt.classList.toggle('alt-time-on', wizard.altTime);
       eraRow.classList.toggle('hidden', !wizard.altTime);
-      epochRange.classList.toggle('hidden', wizard.altTime);
-      manualYear.classList.toggle('hidden', wizard.altTime);
-      epochHint.classList.toggle('hidden', wizard.altTime);
-      if (wizard.altTime) {
-        epochLabel.textContent = wizard.eraLabel.trim() || 'своё летоисчисление';
-        epochValue.textContent = 'альтернативное';
-      } else {
-        applyEpoch(wizard.epochYear);
-      }
+      // Шкала года остаётся видимой всегда: эпоха и альтернативное
+      // летоисчисление — дополняющие параметры, а не взаимоисключающие.
+      applyEpoch(wizard.epochYear ?? 2000);
     };
     altToggle.addEventListener('change', () => {
       wizard.altTime = altToggle.checked;
