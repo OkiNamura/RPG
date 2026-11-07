@@ -6143,7 +6143,7 @@ async function viewPlay(view, id, useCache = true) {
   const focusBtn = menuItem('👁', 'Фокус сцены');
   focusBtn.title = 'кто сейчас в центре внимания';
   focusBtn.addEventListener('click', () => {
-    openSceneFocusDialog(state, sceneFocus, (next) => {
+    openSceneFocusDialog(data.state, sceneFocus, (next) => {
       sceneFocus = next;
       toast(next.length ? `фокус: ${next.join(', ')}` : 'фокус снят');
     });
