@@ -5,14 +5,20 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 
 const root = process.cwd();
 const git = process.env.GIT_BIN || 'git';
-const approvalsPath = join(root, 'docs', 'reviews', 'approvals.json');
+const approvalsPath = join(homedir(), '.dsh-plugins', 'claude-pair', 'approvals.json');
 
 if (process.env.OMIKA_SKIP_REVIEW === '1') {
+  const reason = String(process.env.OMIKA_SKIP_REASON ?? '').trim();
+  if (!reason) {
+    console.error('commit gate: OMIKA_SKIP_REVIEW=1 требует OMIKA_SKIP_REASON');
+    process.exit(1);
+  }
   try {
-    appendFileSync(join(root, 'docs', 'reviews', 'skips.log'), `${new Date().toISOString()} ${process.env.OMIKA_SKIP_REASON ?? 'no reason'}\n`);
+    appendFileSync(join(root, 'docs', 'reviews', 'skips.log'), `${new Date().toISOString()} ${reason}\n`);
   } catch {
     /* best effort */
   }
@@ -40,6 +46,6 @@ if (approval && approval.verdict === 'ОК') process.exit(0);
 
 console.error('commit gate: нет OK-ревью для этого диффа.');
 console.error(`hash: ${hash}`);
-console.error('Сначала: node scripts/claude-review.mjs diff "<задача>" --staged');
-console.error('Или осознанно: OMIKA_SKIP_REVIEW=1 git commit ...');
+console.error('Сначала: node scripts/claude-review.mjs diff "<задача>" HEAD');
+console.error('Или осознанно: OMIKA_SKIP_REVIEW=1 OMIKA_SKIP_REASON="причина" git commit ...');
 process.exit(1);

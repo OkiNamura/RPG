@@ -14,9 +14,22 @@ import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 
 const [, , stage = 'diff', task = '', extra = ''] = process.argv;
 const root = process.cwd();
+const approvalsDir = join(homedir(), '.dsh-plugins', 'claude-pair');
+const approvalsPath = join(approvalsDir, 'approvals.json');
+
+function readWorkingDiff() {
+  try {
+    const git = process.env.GIT_BIN || 'git';
+    const text = execFileSync(git, ['diff', 'HEAD', '--binary'], { cwd: root, encoding: 'utf8' });
+    return { text, hash: createHash('sha256').update(text).digest('hex') };
+  } catch (error) {
+    return { text: '', hash: '', error: error.message };
+  }
+}
 
 function envValue(key) {
   if (process.env[key]) return process.env[key];
@@ -85,6 +98,7 @@ const RULES = `
 «НЕ ОК» ставь только при наличии хотя бы одного блокера. Без общих слов.`.trim();
 
 let prompt;
+let reviewedHash = '';
 if (stage === 'ping') {
   prompt = 'Ответь одним словом: ok';
 } else if (stage === 'plan') {
@@ -92,7 +106,9 @@ if (stage === 'ping') {
   prompt = `${RULES}\n\nЭТАП: ревью ПЛАНА до написания кода.\nЗадача: ${task}\n\nПлан DeepSeek:\n${plan || '(не передан — тогда вердикт НЕ ОК)'}\n\nПроверь: решает ли план задачу, не противоречит ли CONTEXT.md/TZ.md, не трогает ли лишнее, какие тесты нужны.`;
 } else if (stage === 'diff') {
   const base = extra || 'HEAD~1';
-  prompt = `${RULES}\n\nЭТАП: ревью ДИФФА после реализации и дебага.\nЗадача: ${task}\nСмотри: git diff ${base} (и git status для незакоммиченного). Открывай затронутые файлы целиком, где нужен контекст.\nИщи регрессии, edge cases, нарушения «что нельзя ломать», лишние изменения вне задачи.`;
+  const reviewed = readWorkingDiff();
+  reviewedHash = reviewed.hash;
+  prompt = `${RULES}\n\nЭТАП: ревью ДИФФА после реализации и дебага.\nЗадача: ${task}\nБаза для сравнения: ${base}\n\nДИФФ (git diff HEAD --binary, хэш ${reviewed.hash || 'недоступен'}):\n${reviewed.text || '(пусто)'}\n\nПроверь этот дифф. Открывай затронутые файлы целиком, где нужен контекст. Ищи регрессии, edge cases, нарушения «что нельзя ломать», лишние изменения вне задачи.`;
 } else {
   console.error('Этапы: plan | diff | ping');
   process.exit(1);
@@ -101,6 +117,7 @@ if (stage === 'ping') {
 const args = [
   '-p',
   '--output-format', 'text',
+  '--model', 'sonnet',
   '--allowedTools', 'Read', 'Grep', 'Glob',
   'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)', 'Bash(git status:*)',
   '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch',
@@ -128,20 +145,28 @@ child.on('close', (code) => {
   mkdirSync(dir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   writeFileSync(join(dir, `${stamp}-${stage}.md`), `# ${stage}: ${task}\n\n${out}\n`);
-  if (stage === 'diff' && !/ВЕРДИКТ:\s*НЕ\s*ОК/i.test(out)) {
+  const explicitOk = /ВЕРДИКТ:\s*ОК(?:\s|$)/i.test(out) && !/ВЕРДИКТ:\s*НЕ\s*ОК/i.test(out);
+  if (stage === 'diff' && explicitOk) {
     try {
-      const git = process.env.GIT_BIN || 'git';
-      const diff = execFileSync(git, ['diff', 'HEAD', '--binary'], { cwd: root, encoding: 'utf8' });
-      const hash = createHash('sha256').update(diff).digest('hex');
-      const file = join(dir, 'approvals.json');
+      const current = readWorkingDiff();
+      if (!reviewedHash || current.hash !== reviewedHash) {
+        console.error(`approval не записан: дифф изменился во время ревью (${reviewedHash} → ${current.hash || 'ошибка'})`);
+        process.exit(2);
+      }
+      mkdirSync(approvalsDir, { recursive: true });
       let approvals = {};
-      try { approvals = JSON.parse(readFileSync(file, 'utf8')); } catch { /* new */ }
-      approvals[hash] = { verdict: 'ОК', task, base: extra || 'HEAD', at: new Date().toISOString() };
-      writeFileSync(file, `${JSON.stringify(approvals, null, 2)}\n`, 'utf8');
-      console.log(`approval: ${hash}`);
+      try { approvals = JSON.parse(readFileSync(approvalsPath, 'utf8')); } catch { /* new */ }
+      approvals[reviewedHash] = { verdict: 'ОК', task, base: extra || 'HEAD', at: new Date().toISOString() };
+      writeFileSync(approvalsPath, `${JSON.stringify(approvals, null, 2)}\n`, 'utf8');
+      console.log(`approval: ${reviewedHash}`);
     } catch (e) {
       console.error(`approval не записан: ${e.message}`);
+      process.exit(2);
     }
+  }
+  if (stage === 'diff' && !explicitOk) {
+    console.error('approval не записан: нет явного ВЕРДИКТ: ОК');
+    process.exit(2);
   }
   process.exit(/ВЕРДИКТ:\s*НЕ\s*ОК/i.test(out) ? 2 : 0);
 });
