@@ -1,0 +1,8 @@
+#!/bin/sh
+# Git for Windows не всегда кладёт node в PATH. Сначала ищем node, затем
+# локальный рантайм DSH; NODE_BIN можно задать явно.
+NODE="${NODE_BIN:-$(command -v node 2>/dev/null)}"
+if [ -z "$NODE" ]; then
+  NODE="/c/Users/User/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/node/bin/node.exe"
+fi
+exec "$NODE" scripts/pre-commit-review.mjs

@@ -10,7 +10,8 @@
 // Ответ — в stdout и в docs/reviews/<время>-<этап>.md.
 // Код выхода: 0 = ОК, 2 = НЕ ОК, 1 = ошибка вызова.
 
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -127,5 +128,20 @@ child.on('close', (code) => {
   mkdirSync(dir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   writeFileSync(join(dir, `${stamp}-${stage}.md`), `# ${stage}: ${task}\n\n${out}\n`);
+  if (stage === 'diff' && !/ВЕРДИКТ:\s*НЕ\s*ОК/i.test(out)) {
+    try {
+      const git = process.env.GIT_BIN || 'git';
+      const diff = execFileSync(git, ['diff', 'HEAD', '--binary'], { cwd: root, encoding: 'utf8' });
+      const hash = createHash('sha256').update(diff).digest('hex');
+      const file = join(dir, 'approvals.json');
+      let approvals = {};
+      try { approvals = JSON.parse(readFileSync(file, 'utf8')); } catch { /* new */ }
+      approvals[hash] = { verdict: 'ОК', task, base: extra || 'HEAD', at: new Date().toISOString() };
+      writeFileSync(file, `${JSON.stringify(approvals, null, 2)}\n`, 'utf8');
+      console.log(`approval: ${hash}`);
+    } catch (e) {
+      console.error(`approval не записан: ${e.message}`);
+    }
+  }
   process.exit(/ВЕРДИКТ:\s*НЕ\s*ОК/i.test(out) ? 2 : 0);
 });
