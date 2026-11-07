@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 // Проверка pre-commit: коммит разрешён только с OK-ревью того же диффа.
 // Хэш считается по git diff HEAD (все изменения, которые войдут в коммит).
-import { execFileSync } from 'node:child_process';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { pathToFileURL } from 'node:url';
 
 const root = process.cwd();
-const git = process.env.GIT_BIN || 'git';
 const approvalsPath = join(homedir(), '.dsh-plugins', 'claude-pair', 'approvals.json');
+const libPath = process.env.CLAUDE_PAIR_LIB || join(homedir(), '.dsh-plugins', 'claude-pair', 'lib', 'claude.mjs');
 
 if (process.env.OMIKA_SKIP_REVIEW === '1') {
   const reason = String(process.env.OMIKA_SKIP_REASON ?? '').trim();
@@ -25,9 +25,17 @@ if (process.env.OMIKA_SKIP_REVIEW === '1') {
   process.exit(0);
 }
 
+let buildDiff;
+try {
+  ({ buildDiff } = await import(pathToFileURL(libPath).href));
+} catch (error) {
+  console.error(`commit gate: нет общего bridge (${libPath}): ${error.message}`);
+  process.exit(1);
+}
+
 let diff = '';
 try {
-  diff = execFileSync(git, ['diff', 'HEAD', '--binary', '--', '.', ':!docs/reviews', ':!docs/room.log'], { cwd: root, encoding: 'utf8' });
+  diff = buildDiff(root);
 } catch {
   console.error('commit gate: не удалось получить git diff HEAD');
   process.exit(1);
