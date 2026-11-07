@@ -84,3 +84,6 @@ data/traces.db-shm
 
 # временный Cloudflare-токен с расширенными правами
 .cloudflare.full.env
+
+docs/room.log
+docs/reviews/skips.log

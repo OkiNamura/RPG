@@ -24,7 +24,7 @@ const approvalsPath = join(approvalsDir, 'approvals.json');
 function readWorkingDiff() {
   try {
     const git = process.env.GIT_BIN || 'git';
-    const text = execFileSync(git, ['diff', 'HEAD', '--binary'], { cwd: root, encoding: 'utf8' });
+    const text = execFileSync(git, ['diff', 'HEAD', '--binary', '--', '.', ':!docs/reviews', ':!docs/room.log'], { cwd: root, encoding: 'utf8' });
     return { text, hash: createHash('sha256').update(text).digest('hex') };
   } catch (error) {
     return { text: '', hash: '', error: error.message };
@@ -168,5 +168,10 @@ child.on('close', (code) => {
     console.error('approval не записан: нет явного ВЕРДИКТ: ОК');
     process.exit(2);
   }
-  process.exit(/ВЕРДИКТ:\s*НЕ\s*ОК/i.test(out) ? 2 : 0);
+  const explicitNo = /ВЕРДИКТ:\s*НЕ\s*ОК/i.test(out);
+  if (!explicitOk && !explicitNo) {
+    console.error('нет явного ВЕРДИКТ: ОК или НЕ ОК');
+    process.exit(2);
+  }
+  process.exit(explicitNo ? 2 : 0);
 });

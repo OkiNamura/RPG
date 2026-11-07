@@ -27,7 +27,7 @@ if (process.env.OMIKA_SKIP_REVIEW === '1') {
 
 let diff = '';
 try {
-  diff = execFileSync(git, ['diff', 'HEAD', '--binary'], { cwd: root, encoding: 'utf8' });
+  diff = execFileSync(git, ['diff', 'HEAD', '--binary', '--', '.', ':!docs/reviews', ':!docs/room.log'], { cwd: root, encoding: 'utf8' });
 } catch {
   console.error('commit gate: не удалось получить git diff HEAD');
   process.exit(1);
