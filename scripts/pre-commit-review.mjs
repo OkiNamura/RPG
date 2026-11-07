@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url';
 
 const root = process.cwd();
 const approvalsPath = join(homedir(), '.dsh-plugins', 'claude-pair', 'approvals.json');
-const libPath = process.env.CLAUDE_PAIR_LIB || join(homedir(), '.dsh-plugins', 'claude-pair', 'lib', 'claude.mjs');
+const libPath = join(homedir(), 'dsh-plugins', 'claude-pair', 'lib', 'claude.mjs');
 
 if (process.env.OMIKA_SKIP_REVIEW === '1') {
   const reason = String(process.env.OMIKA_SKIP_REASON ?? '').trim();
@@ -54,6 +54,6 @@ if (approval && approval.verdict === 'ОК') process.exit(0);
 
 console.error('commit gate: нет OK-ревью для этого диффа.');
 console.error(`hash: ${hash}`);
-console.error('Сначала: node scripts/claude-review.mjs diff "<задача>" HEAD');
+console.error('Сначала: node scripts/claude-review.mjs diff "<задача>"');
 console.error('Или осознанно: OMIKA_SKIP_REVIEW=1 OMIKA_SKIP_REASON="причина" git commit ...');
 process.exit(1);
